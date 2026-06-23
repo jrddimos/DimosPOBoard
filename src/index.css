@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body {
+    @apply font-sans antialiased;
+    background: #ECEEF4;
+    color: #1E3A5F;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-border rounded-full; }
+}
+
+@layer components {
+  .page-topbar {
+    @apply flex items-center gap-2 md:gap-3 px-3 md:px-5 py-3 bg-white border-b border-border flex-wrap;
+    min-height: 52px;
+  }
+  .page-content { @apply p-3 md:p-5 flex-1 overflow-y-auto; }
+
+  /* Cards */
+  .ds-card { @apply bg-white border border-border rounded-xl p-4 shadow-sm; }
+  .ds-card-title { @apply text-xs font-semibold text-subtle uppercase tracking-wide mb-3; }
+
+  /* Pills */
+  .ds-pill { @apply inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border border-border bg-white text-subtle cursor-pointer transition-all; }
+  .ds-pill:hover { @apply border-navy/30 text-navy; }
+  .ds-pill.active { @apply bg-navy text-white border-navy; }
+  .ds-pill-stat { @apply inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full; }
+  .pill-todo  { background:#F1F5F9; color:#475569; }
+  .pill-wip   { background:#FEF3C7; color:#92600A; }
+  .pill-done  { background:#D1FAE5; color:#065F46; }
+  .pill-block { background:#FEE2E2; color:#991B1B; }
+  .pill-blue  { background:#DBEAFE; color:#1E40AF; }
+
+  /* Table */
+  .ds-table { @apply w-full text-xs; border-collapse: collapse; }
+  .ds-table thead tr { @apply bg-navy; }
+  .ds-table th { @apply text-left py-2.5 px-3 text-white font-semibold text-xs whitespace-nowrap; }
+  .ds-table td { @apply py-2 px-3 border-b border-border/50 text-xs; }
+  .ds-table tbody tr:hover td { background: rgba(74,76,200,0.03); }
+  .ds-table .group-row td { @apply bg-bg py-1.5 font-semibold text-navy border-b border-border text-xs; }
+
+  /* Form */
+  .ds-input {
+    @apply w-full px-3 py-2 text-sm border border-border rounded-lg bg-white text-navy placeholder:text-subtle/50;
+    @apply focus:outline-none focus:ring-1 focus:ring-purple/40 focus:border-purple transition-colors;
+  }
+  .ds-select {
+    @apply w-full px-3 py-2 text-sm border border-border rounded-lg bg-white text-navy;
+    @apply focus:outline-none focus:ring-1 focus:ring-purple/40 focus:border-purple transition-colors;
+  }
+  .ds-textarea {
+    @apply w-full px-3 py-2 text-sm border border-border rounded-lg bg-white text-navy placeholder:text-subtle/50;
+    @apply focus:outline-none focus:ring-1 focus:ring-purple/40 focus:border-purple transition-colors;
+    resize: vertical;
+  }
+  .ds-label { @apply text-xs font-semibold text-subtle uppercase tracking-wide; }
+
+  /* Buttons */
+  .ds-btn { @apply inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-border bg-white text-subtle transition-all hover:border-navy/30 hover:text-navy active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed; }
+  .ds-btn-primary { @apply inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-navy text-white transition-all hover:bg-navy/90 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed; }
+  .ds-btn-danger  { @apply inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-red text-white transition-all hover:opacity-90 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed; }
+  .ds-btn-sm { @apply px-2.5 py-1 text-xs; }
+
+  /* Kanban */
+  .kanban-col { @apply flex flex-col gap-2 p-3; background: #F0F1F7; min-height: 400px; }
+  .kanban-card { @apply bg-white border border-border rounded-xl p-3 cursor-pointer transition-all; box-shadow: 0 1px 3px rgba(30,58,95,0.06); }
+  .kanban-card:hover { box-shadow: 0 3px 10px rgba(30,58,95,0.1); border-color: #C8C8DC; }
+  .kanban-card.selected { border-color: #4A4CC8; border-left-width: 3px; }
+  .kanban-select { @apply w-full text-xs px-2 py-1.5 rounded-lg border border-border bg-bg text-navy; @apply focus:outline-none focus:ring-1 focus:ring-purple/30 focus:border-purple; }
+
+  /* Search */
+  .ds-searchbar { @apply flex items-center gap-2 bg-white border border-border rounded-lg px-3; height: 34px; }
+  .ds-searchbar input { @apply flex-1 text-sm outline-none bg-transparent text-navy placeholder:text-subtle/50; }
+
+  /* Inline edit */
+  .inline-edit-row { @apply flex items-center gap-2 p-2.5 rounded-lg border border-border bg-white; }
+  .inline-edit-row:hover { @apply border-purple/30 bg-purple/5; }
+
+  /* Misc */
+  .ds-sep { @apply w-px h-4 bg-border shrink-0; }
+  .ds-badge { @apply inline-flex text-xs font-medium px-2 py-0.5 rounded-full; }
+  .ds-btn-primary { @apply inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-navy text-white transition-all hover:bg-navy/90 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed; }
+  .ds-btn-danger  { @apply inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-red text-white transition-all hover:opacity-90 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed; }
+  .ds-btn-sm      { @apply px-2.5 py-1 text-xs; }
+  .ds-card-title  { @apply text-xs font-semibold text-subtle uppercase tracking-wide mb-3; }
+  .ds-pill-stat   { @apply inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full; }
+
+  .ds-section-divider { @apply flex items-center gap-3 my-4; }
+  .ds-section-divider span { @apply text-xs font-semibold text-subtle uppercase tracking-wide whitespace-nowrap; }
+  .ds-section-divider::before, .ds-section-divider::after { content:''; @apply flex-1 h-px bg-border; }
+}
+
+@layer utilities {
+  .animate-in { animation: fadeSlide 0.15s ease-out; }
+}
+@keyframes fadeSlide {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
