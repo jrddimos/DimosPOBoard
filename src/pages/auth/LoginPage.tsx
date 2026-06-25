@@ -40,8 +40,8 @@ export default function LoginPage() {
           <div className="inline-flex items-center justify-center w-14 h-14 bg-navy rounded-2xl mb-4">
             <Zap size={28} className="text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-navy">Dimos D3X+</h1>
-          <p className="text-subtle text-sm mt-1">PO Board — By Roofers For Roofers</p>
+          <h1 className="text-2xl font-bold text-navy">PO Board</h1>
+          <p className="text-subtle text-sm mt-1">By Roofers For Roofers</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-card border border-border p-8">

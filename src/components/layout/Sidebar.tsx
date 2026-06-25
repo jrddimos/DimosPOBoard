@@ -4,10 +4,12 @@ import { useSprintActif } from '@/hooks/useSprints'
 import { useAuth } from '@/contexts/AuthContext'
 import { useProduit } from '@/contexts/ProduitContext'
 import { useProduits } from '@/hooks/useProduits'
+import { useUploadAvatar, useUpdateProfile } from '@/hooks/useUserManagement'
+import { BRAND_COLORS } from '@/constants'
 import {
   LayoutDashboard, List, Kanban, FilePlus, Settings,
   ChevronDown, LogOut, Zap, ClipboardCheck, User, Clock, X,
-  Users, Package, Briefcase,
+  Users, Package, Briefcase, CalendarClock, BarChart3, Euro, Camera,
 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 
@@ -18,14 +20,16 @@ interface NavItem  { id: string; label: string; href: string; icon: React.ReactN
 // ── Navigation globale (toujours visible) ─────────────────────
 const GLOBAL_NAV: NavItem[] = [
   { id:'dashboard', label:'Dashboard',    href:'/',                  icon:<LayoutDashboard size={17}/> },
+  { id:'reunion',   label:'Réunion PO',   href:'/reunion',           icon:<CalendarClock size={17}/> },
   { id:'produits',  label:'Produits',     href:'/produits',          icon:<Package size={17}/> },
-  { id:'equipes',   label:'Équipes',      href:'/setup?tab=equipes', icon:<Users size={17}/> },
   { id:'metiers',   label:'Thèmes',       href:'/setup?tab=metiers', icon:<Briefcase size={17}/> },
-  { id:'users',     label:'Utilisateurs', href:'/admin/users',       icon:<User size={17}/>, adminOnly: true },
+  { id:'equipes-utilisateurs', label:'Équipes & Utilisateurs', href:'/admin/equipes', icon:<Users size={17}/>, adminOnly: true },
+  { id:'finance',   label:'Finance',      href:'/admin/finance',     icon:<Euro size={17}/>, adminOnly: true },
 ]
 
 // ── Navigation produit (visible seulement si produit actif) ───
 const PRODUCT_NAV: NavItem[] = [
+  { id:'produit-dashboard', label:'Dashboard', href:'/produit-dashboard', icon:<BarChart3 size={17}/> },
   { id:'sprint',     label:'Sprint Board', href:'/sprint',     icon:<Kanban size={17}/>,
     children:[
       { label:'Sprint en cours',  href:'/sprint'         },
@@ -225,12 +229,141 @@ function NavItems({ items, expanded, onToggle }: {
   )
 }
 
+// ── Footer profil avec mini éditeur ──────────────────────────
+function ProfileFooter() {
+  const { user, profile, isAdmin, refreshProfile } = useAuth()
+  const uploadAvatar  = useUploadAvatar()
+  const updateProfile = useUpdateProfile()
+  const fileRef       = useRef<HTMLInputElement>(null)
+  const panelRef      = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    function onClickOutside(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [open])
+
+  const displayName = profile?.display_name ?? user?.email ?? '—'
+  const initiale    = (profile?.trigramme ?? displayName[0] ?? '?').toUpperCase()
+
+  async function pickColor(c: string) {
+    if (!user) return
+    await updateProfile.mutateAsync({ user_id: user.id, updates: { couleur: c } })
+    await refreshProfile()
+  }
+
+  return (
+    <div ref={panelRef} className="px-3 py-4 border-t border-white/10 shrink-0 relative">
+      {/* Panneau éditeur */}
+      {open && (
+        <div className="absolute bottom-full left-0 right-0 mx-0 mb-0 bg-[#111c35] border border-white/10 rounded-t-2xl shadow-2xl p-4">
+          {/* En-tête */}
+          <div className="flex items-center gap-3 mb-4">
+            <div className="relative w-11 h-11 rounded-full overflow-hidden shrink-0 cursor-pointer group"
+              onClick={() => fileRef.current?.click()}>
+              {profile?.avatar_url ? (
+                <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-white text-sm font-bold"
+                  style={{ background: profile?.couleur ?? '#4A4CC8' }}>
+                  {initiale}
+                </div>
+              )}
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                <Camera size={14} className="text-white" />
+              </div>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-white/90 text-xs font-semibold truncate">{displayName}</div>
+              {isAdmin && <div className="text-purple/60 text-[10px]">Admin</div>}
+            </div>
+            <button onClick={() => setOpen(false)} className="p-1 rounded hover:bg-white/10 text-white/40 hover:text-white/80">
+              <X size={13} />
+            </button>
+          </div>
+
+          {/* Bouton photo */}
+          <button onClick={() => fileRef.current?.click()} disabled={uploadAvatar.isPending}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white/80 text-xs font-medium transition-colors mb-3">
+            <Camera size={12} />
+            {uploadAvatar.isPending ? 'Upload en cours…' : 'Changer la photo'}
+          </button>
+
+          {/* Supprimer photo */}
+          {profile?.avatar_url && (
+            <button onClick={async () => {
+              if (!user) return
+              await uploadAvatar.mutateAsync({ user_id: user.id, file: null })
+              await refreshProfile()
+            }} className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-xl text-white/40 hover:text-red/70 hover:bg-red/10 text-xs transition-colors mb-3">
+              <X size={11} /> Supprimer la photo
+            </button>
+          )}
+
+          {/* Palette couleurs */}
+          <div className="text-white/40 text-[10px] uppercase tracking-widest mb-1.5">Couleur avatar</div>
+          <div className="flex flex-wrap gap-1.5">
+            {BRAND_COLORS.map(c => (
+              <button key={c} type="button" onClick={() => pickColor(c)}
+                className={cn('w-5 h-5 rounded-full transition-transform hover:scale-110',
+                  profile?.couleur === c && 'ring-2 ring-white ring-offset-1 ring-offset-[#111c35]')}
+                style={{ background: c }} />
+            ))}
+          </div>
+
+          <input ref={fileRef} type="file" accept="image/*" className="hidden"
+            onChange={async e => {
+              const file = e.target.files?.[0]
+              if (!file || !user) return
+              await uploadAvatar.mutateAsync({ user_id: user.id, file })
+              await refreshProfile()
+              e.target.value = ''
+            }} />
+        </div>
+      )}
+
+      {/* Bouton nom (toggle) */}
+      <button onClick={() => setOpen(v => !v)}
+        className={cn('w-full flex items-center gap-2.5 px-3 py-2 rounded-xl mb-1 transition-colors text-left',
+          open ? 'bg-white/15' : 'hover:bg-white/10')}>
+        <div className="w-7 h-7 rounded-full overflow-hidden shrink-0">
+          {profile?.avatar_url ? (
+            <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-white text-[10px] font-bold"
+              style={{ background: profile?.couleur ?? '#4A4CC8' }}>
+              {initiale}
+            </div>
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-white/80 text-xs font-semibold truncate">{displayName}</div>
+          {isAdmin && <div className="text-purple/70 text-[10px]">Admin</div>}
+        </div>
+        <Camera size={11} className="text-white/30 shrink-0" />
+      </button>
+
+      {/* Déconnexion */}
+      <button onClick={async () => {
+        const { supabase } = await import('@/lib/supabase')
+        await supabase.auth.signOut()
+      }} className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 text-xs transition-colors">
+        <LogOut size={13} /> Se déconnecter
+      </button>
+    </div>
+  )
+}
+
 // ── Sidebar principal ─────────────────────────────────────────
 interface SidebarProps { open: boolean; onClose: () => void }
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const { data: sprintActif }      = useSprintActif()
-  const { user, profile, isAdmin } = useAuth()
+  const { isAdmin } = useAuth()
   const { produitActif }           = useProduit()
   const location                   = useLocation()
   const navigate                   = useNavigate()
@@ -273,8 +406,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               <Zap size={16} className="text-white" />
             </div>
             <div>
-              <div className="text-white font-bold text-sm leading-tight">Dimos D3X+</div>
-              <div className="text-white/40 text-xs">PO Board</div>
+              <div className="text-white font-bold text-sm leading-tight">PO Board</div>
             </div>
           </div>
           <button onClick={onClose} className="md:hidden p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors">
@@ -337,20 +469,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         </nav>
 
         {/* Footer */}
-        <div className="px-3 py-4 border-t border-white/10 shrink-0">
-          <div className="px-3 py-1.5 mb-1 flex items-center gap-2">
-            <div className="flex-1 min-w-0">
-              <div className="text-white/80 text-xs font-semibold truncate">{profile?.display_name ?? user?.email}</div>
-              {isAdmin && <div className="text-purple/70 text-xs">Admin</div>}
-            </div>
-          </div>
-          <button onClick={async () => {
-            const { supabase } = await import('@/lib/supabase')
-            await supabase.auth.signOut()
-          }} className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 text-xs transition-colors">
-            <LogOut size={13} /> Se déconnecter
-          </button>
-        </div>
+        <ProfileFooter />
       </aside>
     </>
   )

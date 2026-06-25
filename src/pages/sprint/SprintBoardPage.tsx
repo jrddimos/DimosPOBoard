@@ -5,17 +5,18 @@ import { Spinner } from '@/components/ui/Spinner'
 import { StatutBadge, EpicBadge, JalonBadge, MoscowBadge } from '@/components/ui/Badge'
 import { useTaches, useUpdateTache } from '@/hooks/useTaches'
 import { useSprints, useSprintActif, useClosedSprints } from '@/hooks/useSprints'
-import { useEquipe } from '@/hooks/useEquipes'
+import { useUtilisateurs } from '@/hooks/useEquipes'
 import { useToast } from '@/hooks/useToast'
 import { EPIC_LIST, JALON_LIST, SPRINTS_LIST } from '@/constants'
 import { sprintInRange } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { ChevronDown, X, Plus } from 'lucide-react'
-import type { Statut, Tache, MembreEquipe } from '@/types'
+import type { Statut, Tache } from '@/types'
+import type { UserProfile } from '@/contexts/AuthContext'
 
 function AssignPicker({ value, membres, onAssign, disabled }: {
   value: string | null
-  membres: MembreEquipe[]
+  membres: UserProfile[]
   onAssign: (tri: string) => void
   disabled?: boolean
 }) {
@@ -60,10 +61,10 @@ function AssignPicker({ value, membres, onAssign, disabled }: {
       )}
       {open && (
         <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-border rounded-xl shadow-lg py-1 min-w-[160px]">
-          {actifs.map(m => (
+          {actifs.filter(m=>m.trigramme).map(m => (
             <button
-              key={m.id}
-              onClick={() => { onAssign(m.trigramme); setOpen(false) }}
+              key={m.user_id}
+              onClick={() => { onAssign(m.trigramme!); setOpen(false) }}
               className={cn(
                 'w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-bg text-navy text-left transition-colors',
                 value === m.trigramme && 'font-semibold text-purple'
@@ -72,7 +73,7 @@ function AssignPicker({ value, membres, onAssign, disabled }: {
               <span className="w-5 h-5 rounded-full bg-purple/10 text-purple font-bold flex items-center justify-center text-[9px] shrink-0">
                 {m.trigramme}
               </span>
-              {m.prenom} {m.nom}
+              {m.prenom??''} {m.nom??''}
             </button>
           ))}
         </div>
@@ -96,12 +97,14 @@ export default function SprintBoardPage() {
   const [allSprint,   setAllSprint]    = useState('')
   const [panel,       setPanel]        = useState<Tache|null>(null)
   const [expandedSubs,setExpandedSubs] = useState<Set<string>>(new Set())
+  const [effortModal, setEffortModal]  = useState<{tache:Tache; pendingStatut:Statut} | null>(null)
+  const [effortInput, setEffortInput]  = useState('')
 
   const { data:taches=[], isLoading } = useTaches()
   const { data:sprintActif }          = useSprintActif()
   const { data:sprints=[] }           = useSprints()
   const { data:closedSprints=[] }     = useClosedSprints()
-  const { data:membres=[] }           = useEquipe()
+  const { data:membres=[] }           = useUtilisateurs()
   const updateTache = useUpdateTache()
   const toast = useToast()
 
@@ -139,13 +142,23 @@ export default function SprintBoardPage() {
 
   async function changeStatut(t:Tache, statut:Statut) {
     if(isReadOnly){toast('Sprint clôturé ou en lecture seule','error');return}
-    // Bloquer "Fait" si des sous-tâches du sprint ne sont pas terminées
     if(statut==='Fait'){
       const subs=getSubsForSprint(t.id_tache)
       const pending=subs.filter(s=>s.statut!=='Fait')
       if(pending.length>0){
         toast(`${pending.length} sous-tâche(s) non terminée(s) dans ce sprint`,'error'); return
       }
+      if(subs.length>0){
+        // Effort parent = somme des sous-tâches, on met à jour directement
+        const totalReal=subs.reduce((acc,s)=>acc+(s.effort_realise_j??0),0)
+        await updateTache.mutateAsync({id_tache:t.id_tache,updates:{statut,effort_realise_j:totalReal}})
+        toast(`${t.id_tache} → Fait · ${totalReal}j réalisés (depuis sous-tâches)`)
+        return
+      }
+      // Pas de sous-tâches : forcer la saisie
+      setEffortInput(String(t.effort_j??''))
+      setEffortModal({tache:t,pendingStatut:statut})
+      return
     }
     await updateTache.mutateAsync({id_tache:t.id_tache,updates:{statut}})
     toast(`${t.id_tache} → ${statut}`)
@@ -153,8 +166,31 @@ export default function SprintBoardPage() {
 
   async function toggleSub(sub:Tache) {
     if(isReadOnly) return
-    const s:Statut = sub.statut==='Fait'?'À faire':'Fait'
-    await updateTache.mutateAsync({id_tache:sub.id_tache,updates:{statut:s}})
+    if(sub.statut==='Fait'){
+      await updateTache.mutateAsync({id_tache:sub.id_tache,updates:{statut:'À faire'}})
+    } else {
+      // Forcer la saisie de l'effort réalisé
+      setEffortInput(String(sub.effort_j??''))
+      setEffortModal({tache:sub,pendingStatut:'Fait'})
+    }
+  }
+
+  async function confirmEffort() {
+    if(!effortModal) return
+    const val=parseFloat(effortInput)
+    await updateTache.mutateAsync({
+      id_tache: effortModal.tache.id_tache,
+      updates: { statut: effortModal.pendingStatut, effort_realise_j: isNaN(val)?null:val },
+    })
+    toast(`${effortModal.tache.id_tache} → Fait · ${isNaN(val)?'—':val+'j'} réalisés`)
+    setEffortModal(null)
+  }
+
+  async function skipEffort() {
+    if(!effortModal) return
+    await updateTache.mutateAsync({id_tache:effortModal.tache.id_tache,updates:{statut:effortModal.pendingStatut}})
+    toast(`${effortModal.tache.id_tache} → Fait`)
+    setEffortModal(null)
   }
 
   async function assignTo(id_tache:string, assigne:string) {
@@ -236,6 +272,8 @@ export default function SprintBoardPage() {
 
                 {colTaches.map(t=>{
                   const subs=getSubsForSprint(t.id_tache)
+                  const effortJ=subs.length>0?subs.reduce((a,s)=>a+(s.effort_j??0),0):(t.effort_j??0)
+                  const effortRealJ=subs.length>0?subs.reduce((a,s)=>a+(s.effort_realise_j??0),0):(t.effort_realise_j??null)
                   const done=subs.filter(s=>s.statut==='Fait').length
                   const pct=subs.length?Math.round(done/subs.length*100):0
                   const isExpanded=expandedSubs.has(t.id_tache)
@@ -253,8 +291,21 @@ export default function SprintBoardPage() {
                       <p className="text-xs font-medium text-navy leading-snug mb-2">{t.titre}</p>
                       <div className="flex items-center gap-1.5 mb-2 flex-wrap">
                         {t.jalon&&<span className="text-xs px-1.5 py-0.5 rounded-md bg-bg border border-border text-subtle">{t.jalon}</span>}
-                        {t.effort_j!=null&&<span className="text-xs font-semibold text-blue">{t.effort_j}j</span>}
-                        {t.assigne_a&&<span className="text-xs px-1.5 py-0.5 rounded-full bg-purple/10 text-purple font-medium">{t.assigne_a}</span>}
+                        {effortJ>0&&(
+                          <span className="flex items-center gap-1 text-xs font-semibold">
+                            <span className="text-blue" title={subs.length>0?'Somme des sous-tâches':undefined}>
+                              {subs.length>0&&'∑ '}{effortJ}j
+                            </span>
+                            {effortRealJ!=null&&effortRealJ>0&&(
+                              <>
+                                <span className="text-subtle/40">·</span>
+                                <span className={cn(effortRealJ<=effortJ?'text-green':'text-red')}>
+                                  {effortRealJ}j ✓
+                                </span>
+                              </>
+                            )}
+                          </span>
+                        )}
                       </div>
 
                       {/* Assign */}
@@ -301,6 +352,16 @@ export default function SprintBoardPage() {
                                       <span className={cn('text-xs leading-snug',s.statut==='Fait'?'line-through text-subtle':'text-navy')}>{s.titre}</span>
                                       <span className="text-xs text-subtle/60 ml-1">{s.id_tache}</span>
                                       {s.assigne_a&&<span className="ml-1 text-xs bg-purple/10 text-purple px-1.5 rounded-full">{s.assigne_a}</span>}
+                                      {(s.effort_j>0||s.effort_realise_j!=null)&&(
+                                        <span className="ml-1 text-xs font-semibold text-blue">
+                                          {s.effort_j>0&&<>{s.effort_j}j</>}
+                                          {s.effort_realise_j!=null&&s.effort_realise_j>0&&(
+                                            <span className={cn('ml-1',s.effort_realise_j<=s.effort_j?'text-green':'text-red')}>
+                                              · {s.effort_realise_j}j ✓
+                                            </span>
+                                          )}
+                                        </span>
+                                      )}
                                     </div>
                                   </label>
                                   <div className="ml-5">
@@ -388,6 +449,56 @@ export default function SprintBoardPage() {
           </div>
         )}
       </div>
+
+      {/* ── Modal Effort réalisé ─────────────────────────── */}
+      {effortModal&&(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/40 backdrop-blur-sm"
+          onClick={()=>setEffortModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-80 p-5 space-y-4"
+            onClick={e=>e.stopPropagation()}>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-subtle mb-0.5">Effort réalisé</p>
+              <p className="text-sm font-bold text-navy">{effortModal.tache.id_tache}</p>
+              <p className="text-xs text-subtle leading-snug line-clamp-2">{effortModal.tache.titre}</p>
+            </div>
+
+            {effortModal.tache.effort_j>0&&(
+              <p className="text-xs text-subtle">
+                Estimé : <span className="font-semibold text-navy">{effortModal.tache.effort_j}j</span>
+              </p>
+            )}
+
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-navy">Jours réalisés <span className="text-red">*</span></label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number" min="0" step="0.5"
+                  value={effortInput}
+                  onChange={e=>setEffortInput(e.target.value)}
+                  onKeyDown={e=>e.key==='Enter'&&confirmEffort()}
+                  autoFocus
+                  className="ds-input text-sm font-semibold text-center flex-1"
+                  placeholder="Ex : 2.5"
+                />
+                <span className="text-sm text-subtle font-medium">jours</span>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button onClick={confirmEffort}
+                disabled={effortInput===''}
+                className="ds-btn-primary flex-1 disabled:opacity-40">
+                Confirmer
+              </button>
+              <button onClick={()=>setEffortModal(null)} className="ds-btn">Annuler</button>
+            </div>
+            <button onClick={skipEffort}
+              className="w-full text-center text-[10px] text-subtle hover:text-navy underline underline-offset-2 transition-colors">
+              Passer sans renseigner l'effort
+            </button>
+          </div>
+        </div>
+      )}
     </Layout>
   )
 }

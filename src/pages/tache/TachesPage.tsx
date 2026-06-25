@@ -5,12 +5,12 @@ import { Spinner } from '@/components/ui/Spinner'
 import { StatutBadge, EpicBadge, MoscowBadge, JalonBadge, PrioBadge } from '@/components/ui/Badge'
 import { useTaches, useCreateTache, useUpdateTache, useDeleteTache, useCreateSousTache } from '@/hooks/useTaches'
 import { useSprintActif, useClosedSprints } from '@/hooks/useSprints'
-import { useEquipes, useEquipe } from '@/hooks/useEquipes'
+import { useEquipes, useUtilisateurs } from '@/hooks/useEquipes'
 import { useAutoMetiers } from '@/hooks/useAutoMetiers'
 import { useToast } from '@/hooks/useToast'
 import { confirm } from '@/components/ui/ConfirmModal'
 import { EPIC_LIST, JALON_LIST, MOSCOW_LIST, SPRINTS_LIST, METIERS_DEFAULT } from '@/constants'
-import { Search, Lock, Plus, Copy, Trash2, Edit2, ChevronRight, ChevronDown, X } from 'lucide-react'
+import { Search, Lock, Plus, Copy, Trash2, Edit2, ChevronRight, ChevronDown, X, CornerDownRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Tache, Statut } from '@/types'
 
@@ -25,7 +25,7 @@ const TABS:{key:TabKey;label:string;icon:React.ReactNode}[] = [
 function Label({children}:{children:React.ReactNode}) {
   return <label className="ds-label mb-1 block">{children}</label>
 }
-function Grp({label,children,col2}:{label:string;children:React.ReactNode;col2?:boolean}) {
+function Grp({label,children,col2}:{label:React.ReactNode;children:React.ReactNode;col2?:boolean}) {
   return <div className={col2?'col-span-2':''}>
     <Label>{label}</Label>{children}
   </div>
@@ -43,7 +43,7 @@ export default function TachesPage() {
   const {data:sprintActif}          = useSprintActif()
   const {data:closedSprints=[]}     = useClosedSprints()
   const {data:equipes=[]}           = useEquipes()
-  const {data:membres=[]}           = useEquipe()
+  const {data:membres=[]}           = useUtilisateurs()
   const createTache  = useCreateTache()
   const updateTache  = useUpdateTache()
   const deleteTache  = useDeleteTache()
@@ -68,7 +68,7 @@ export default function TachesPage() {
           ))}
         </div>
       </div>
-      {tab==='add' &&<AddTab  sprintActif={sprintActif?.numero} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} createTache={createTache} toast={toast}/>}
+      {tab==='add' &&<AddTab  sprintActif={sprintActif?.numero} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} createTache={createTache} createSub={createSub} updateTache={updateTache} parents={parents} allTaches={taches} toast={toast} initTitre={params.get('titre')??''} initParentId={params.get('parent_id')??''}/>}
       {tab==='edit'&&<EditTab taches={taches} parents={parents} allTaches={taches} closedSprints={closedSprints} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} updateTache={updateTache} createSub={createSub} toast={toast}/>}
       {tab==='dup' &&<DupTab  parents={parents} closedSprints={closedSprints} createTache={createTache} taches={taches} toast={toast}/>}
       {tab==='del' &&<DelTab  parents={parents} deleteTache={deleteTache} toast={toast}/>}
@@ -76,17 +76,44 @@ export default function TachesPage() {
   )
 }
 
-import type { Equipe, MembreEquipe } from '@/types'
+import type { Equipe } from '@/types'
+import type { UserProfile } from '@/contexts/AuthContext'
 
-function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,toast}:{
-  sprintActif?:string;equipeNoms:string[];membresActifs:MembreEquipe[];equipes:Equipe[]
-  createTache:ReturnType<typeof useCreateTache>;toast:ReturnType<typeof useToast>
+function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,createSub,updateTache,parents,allTaches,toast,initTitre='',initParentId=''}:{
+  sprintActif?:string;equipeNoms:string[];membresActifs:UserProfile[];equipes:Equipe[];parents:Tache[];allTaches:Tache[]
+  createTache:ReturnType<typeof useCreateTache>;createSub:ReturnType<typeof useCreateSousTache>;updateTache:ReturnType<typeof useUpdateTache>
+  toast:ReturnType<typeof useToast>;initTitre?:string;initParentId?:string
 }) {
-  const blank={epic:'',jalon:'',titre:'',description:'',criteres:'',lien_dod:'',commentaire:'',
+  const mkBlank=()=>({epic:'',jalon:'',titre:initTitre,description:'',criteres:'',lien_dod:'',commentaire:'',
     sprint_debut:sprintActif??'',sprint_fin:'',moscow:'Must Have',priorite:'P2',effort_j:0,
-    equipe:'',metier:'',type_fonction:'Fonction principale',type_tache:'Tâche',assigne_a:''}
-  const [form,setForm]=useState(blank)
+    equipe:'',metier:'',type_fonction:'Fonction principale',type_tache:'Tâche',assigne_a:''})
+
+  // champs "contextuels" à conserver d'une tâche vers une autre
+  function commonFields(t:Tache){return{
+    epic:t.epic??'',jalon:t.jalon??'',equipe:t.equipe??'',moscow:t.moscow??'Must Have',
+    priorite:t.priorite??'P2',sprint_debut:t.sprint_debut||t.sprint||'',sprint_fin:t.sprint_fin??'',
+    type_fonction:t.type_fonction??'Fonction principale',metier:t.metier??'',assigne_a:t.assigne_a??'',
+  }}
+
+  const [form,setForm]=useState(mkBlank)
+  const [parentId,setParentId]=useState(initParentId)
+  const [editTask,setEditTask]=useState<Tache|null>(null)
+  const [confirmNew,setConfirmNew]=useState(false)  // question "repartir de cette tâche ?"
+  const [search,setSearch]=useState('')
+  const [expanded,setExpanded]=useState<string[]>([])
   const set=(k:string)=>(e:React.ChangeEvent<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>)=>setForm(f=>({...f,[k]:e.target.value}))
+
+  const childMap=useMemo(()=>{
+    const m:Record<string,Tache[]>={}
+    allTaches.filter(t=>t.parent_id).forEach(c=>{if(!m[c.parent_id!])m[c.parent_id!]=[]; m[c.parent_id!].push(c)})
+    return m
+  },[allTaches])
+
+  const filteredParents=useMemo(()=>parents.filter(t=>{
+    if(!search) return true
+    const q=search.toLowerCase()
+    return t.titre.toLowerCase().includes(q)||t.id_tache.toLowerCase().includes(q)||(t.epic??'').toLowerCase().includes(q)
+  }),[parents,search])
 
   function setMembre(tri:string){
     const m=membresActifs.find(x=>x.trigramme===tri)
@@ -94,45 +121,215 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,toast}
     setForm(f=>({...f,assigne_a:tri,equipe:eq?.nom??f.equipe}))
   }
 
+  function selectTask(t:Tache){
+    setEditTask(t);setConfirmNew(false)
+    setParentId(t.parent_id??'')
+    setForm({
+      epic:t.epic??'',jalon:t.jalon??'',titre:t.titre,description:t.description??'',
+      criteres:t.criteres??'',lien_dod:t.lien_dod??'',commentaire:t.commentaire??'',
+      sprint_debut:t.sprint_debut||t.sprint||'',sprint_fin:t.sprint_fin??'',
+      moscow:t.moscow??'Must Have',priorite:t.priorite??'P2',effort_j:t.effort_j??0,
+      equipe:t.equipe??'',metier:t.metier??'',type_fonction:t.type_fonction??'Fonction principale',
+      type_tache:t.type_tache??'Tâche',assigne_a:t.assigne_a??'',
+    })
+    window.scrollTo({top:0,behavior:'smooth'})
+  }
+
+  function reset(){setForm(mkBlank());setParentId('');setEditTask(null);setConfirmNew(false)}
+
+  // Sous-tâche depuis tâche en cours : pré-remplit les champs communs de la parente
+  function startSubtask(parent:Tache){
+    setEditTask(null);setConfirmNew(false)
+    setParentId(parent.id_tache)
+    setForm({...mkBlank(),...commonFields(parent),titre:''})
+    window.scrollTo({top:0,behavior:'smooth'})
+  }
+
   async function submit(e:React.FormEvent){
     e.preventDefault()
     if(!form.titre){toast('Le titre est obligatoire','error');return}
-    const res=await createTache.mutateAsync({...form,effort_j:+form.effort_j,sprint:form.sprint_debut} as Partial<Tache>)
-    toast(`✅ ${res.id_tache} créée`)
-    setForm({...blank,sprint_debut:sprintActif??''})
+    const payload={...form,effort_j:+form.effort_j,sprint:form.sprint_debut} as Partial<Tache>
+    if(editTask){
+      await updateTache.mutateAsync({id_tache:editTask.id_tache,updates:payload})
+      toast(`✅ ${editTask.id_tache} modifiée`)
+      setEditTask(null)
+    } else if(parentId){
+      const res=await createSub.mutateAsync({parentId,payload})
+      toast(`✅ ${res.id_tache} créée`)
+      reset()
+    } else {
+      const res=await createTache.mutateAsync(payload)
+      toast(`✅ ${res.id_tache} créée`)
+      reset()
+    }
   }
 
+  const isEditing=!!editTask
+  const isPending=createTache.isPending||createSub.isPending||updateTache.isPending
+
   return (
-    <div className="max-w-3xl">
-      <div className="ds-card">
-        <div className="ds-card-title">Nouvelle US / Tâche</div>
-        <form onSubmit={submit} className="grid grid-cols-2 gap-4">
-          <Grp label="Epic"><select value={form.epic} onChange={set('epic')} className="ds-select"><option value="">-- Choisir --</option>{EPIC_LIST.map(e=><option key={e} value={e}>{e}</option>)}</select></Grp>
-          <Grp label="Jalon"><select value={form.jalon} onChange={set('jalon')} className="ds-select"><option value="">--</option>{JALON_LIST.map(j=><option key={j}>{j}</option>)}</select></Grp>
-          <Grp label="Titre *" col2><input value={form.titre} onChange={set('titre')} className="ds-input" placeholder="Ex: Conception mécanique avaloir"/></Grp>
-          <Grp label="User Story" col2><textarea value={form.description} onChange={set('description')} className="ds-textarea" rows={3} placeholder="En tant que… je veux… afin de…"/></Grp>
-          <Grp label="Critères d'acceptation" col2><textarea value={form.criteres} onChange={set('criteres')} className="ds-textarea" rows={3} placeholder="• Critère 1"/></Grp>
-          <Grp label="Lien DoD"><input value={form.lien_dod} onChange={set('lien_dod')} className="ds-input" placeholder="F1.1…"/></Grp>
-          <Grp label="Type de fonction"><select value={form.type_fonction} onChange={set('type_fonction')} className="ds-select">{['Fonction principale','Fonction secondaire','Fonction support','Fonction exclue'].map(f=><option key={f}>{f}</option>)}</select></Grp>
-          <Grp label="Sprint début"><select value={form.sprint_debut} onChange={set('sprint_debut')} className="ds-select"><option value="">--</option>{SPRINTS_LIST.map(s=><option key={s}>{s}</option>)}</select></Grp>
-          <Grp label="Sprint fin"><select value={form.sprint_fin} onChange={set('sprint_fin')} className="ds-select"><option value="">Même sprint</option>{SPRINTS_LIST.map(s=><option key={s}>{s}</option>)}</select></Grp>
-          <Grp label="MoSCoW"><select value={form.moscow} onChange={set('moscow')} className="ds-select">{MOSCOW_LIST.map(m=><option key={m}>{m}</option>)}</select></Grp>
-          <Grp label="Priorité"><select value={form.priorite} onChange={set('priorite')} className="ds-select"><option value="">--</option>{['P1','P2','P3','P4'].map(p=><option key={p}>{p}</option>)}</select></Grp>
-          <Grp label="Effort (j)"><input type="number" value={form.effort_j} onChange={set('effort_j')} className="ds-input" min={0} step={0.5}/></Grp>
-          <Grp label="Assigné à">
-            <select value={form.assigne_a} onChange={e=>setMembre(e.target.value)} className="ds-select">
-              <option value="">-- Membre --</option>
-              {membresActifs.map(m=><option key={m.id} value={m.trigramme}>{m.trigramme} — {m.prenom} {m.nom}</option>)}
-            </select>
-          </Grp>
-          <Grp label="Équipe"><select value={form.equipe} onChange={set('equipe')} className="ds-select"><option value="">-- Équipe --</option>{equipeNoms.map(e=><option key={e} value={e}>{e}</option>)}</select></Grp>
-          <Grp label="Thème"><select value={form.metier} onChange={set('metier')} className="ds-select"><option value="">--</option>{METIERS_DEFAULT.map(m=><option key={m}>{m}</option>)}</select></Grp>
-          <Grp label="Commentaire PO" col2><textarea value={form.commentaire} onChange={set('commentaire')} className="ds-textarea" rows={2}/></Grp>
-          <div className="col-span-2 flex gap-2 pt-2 border-t border-border">
-            <button type="submit" className="ds-btn-primary" disabled={createTache.isPending}>✅ Créer l'US</button>
-            <button type="button" className="ds-btn" onClick={()=>setForm({...blank,sprint_debut:sprintActif??''})}>↺ Réinitialiser</button>
+    <div className="flex flex-col gap-4">
+      {/* ── Modal "Nouvelle tâche" ── */}
+      {confirmNew&&editTask&&(
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={()=>setConfirmNew(false)}>
+          <div className="bg-white rounded-2xl shadow-modal w-full max-w-sm p-6 animate-in"
+            onClick={e=>e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-3">
+              <h3 className="text-sm font-bold text-navy">Nouvelle tâche</h3>
+              <button onClick={()=>setConfirmNew(false)} className="text-subtle hover:text-navy p-1"><X size={14}/></button>
+            </div>
+            <p className="text-xs text-subtle leading-relaxed mb-5">
+              Repartir des paramètres de <span className="font-semibold text-purple">{editTask.id_tache}</span> (Epic, Sprint, Équipe…) ou démarrer avec une tâche entièrement vierge ?
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={reset} className="ds-btn ds-btn-sm">Tâche vierge</button>
+              <button
+                onClick={()=>{setForm(f=>({...f,...commonFields(editTask),titre:''}));setParentId('');setEditTask(null);setConfirmNew(false)}}
+                className="ds-btn-primary ds-btn-sm">
+                Repartir de cette tâche
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Formulaire ── */}
+      <div className={cn('ds-card',isEditing&&'ring-2 ring-purple/30')}>
+        <div className="ds-card-title mb-4">
+          {isEditing ? <><span className="text-purple">{editTask.id_tache}</span> — Modifier la tâche</>
+            : parentId ? <>Nouvelle sous-tâche <span className="text-subtle font-normal">de {parentId}</span></>
+            : 'Nouvelle US / Tâche'}
+        </div>
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          {/* Ligne 1 : tâche parente + epic + jalon + MoSCoW + priorité */}
+          <div className="grid grid-cols-5 gap-4">
+            <Grp label={<>Tâche parente <span className="font-normal text-subtle/60">(vide = principale)</span></>}>
+              <select value={parentId} onChange={e=>setParentId(e.target.value)} className="ds-select" disabled={isEditing}>
+                <option value="">— Principale —</option>
+                {parents.map(p=><option key={p.id_tache} value={p.id_tache}>{p.id_tache} — {p.titre}</option>)}
+              </select>
+            </Grp>
+            <Grp label="Epic"><select value={form.epic} onChange={set('epic')} className="ds-select"><option value="">--</option>{EPIC_LIST.map(e=><option key={e} value={e}>{e}</option>)}</select></Grp>
+            <Grp label="Jalon"><select value={form.jalon} onChange={set('jalon')} className="ds-select"><option value="">--</option>{JALON_LIST.map(j=><option key={j}>{j}</option>)}</select></Grp>
+            <Grp label="MoSCoW"><select value={form.moscow} onChange={set('moscow')} className="ds-select">{MOSCOW_LIST.map(m=><option key={m}>{m}</option>)}</select></Grp>
+            <Grp label="Priorité"><select value={form.priorite} onChange={set('priorite')} className="ds-select"><option value="">--</option>{['P1','P2','P3','P4'].map(p=><option key={p}>{p}</option>)}</select></Grp>
+          </div>
+          {/* Ligne 2 : titre */}
+          <Grp label="Titre *"><input value={form.titre} onChange={set('titre')} className="ds-input" placeholder="Ex: Conception mécanique avaloir"/></Grp>
+          {/* Ligne 3 : User Story + Critères */}
+          <div className="grid grid-cols-2 gap-4">
+            <Grp label="User Story"><textarea value={form.description} onChange={set('description')} className="ds-textarea" rows={3} placeholder="En tant que… je veux… afin de…"/></Grp>
+            <Grp label="Critères d'acceptation"><textarea value={form.criteres} onChange={set('criteres')} className="ds-textarea" rows={3} placeholder="• Critère 1"/></Grp>
+          </div>
+          {/* Ligne 4 : champs secondaires */}
+          <div className="grid grid-cols-8 gap-4">
+            <Grp label="Sprint début"><select value={form.sprint_debut} onChange={set('sprint_debut')} className="ds-select"><option value="">--</option>{SPRINTS_LIST.map(s=><option key={s}>{s}</option>)}</select></Grp>
+            <Grp label="Sprint fin"><select value={form.sprint_fin} onChange={set('sprint_fin')} className="ds-select"><option value="">Même</option>{SPRINTS_LIST.map(s=><option key={s}>{s}</option>)}</select></Grp>
+            <Grp label="Effort (j)"><input type="number" value={form.effort_j} onChange={set('effort_j')} className="ds-input" min={0} step={0.5}/></Grp>
+            <Grp label="Assigné à">
+              <select value={form.assigne_a} onChange={e=>setMembre(e.target.value)} className="ds-select">
+                <option value="">-- Membre --</option>
+                {membresActifs.filter(m=>m.trigramme).map(m=><option key={m.user_id} value={m.trigramme!}>{m.trigramme} — {m.prenom??''} {m.nom??''}</option>)}
+              </select>
+            </Grp>
+            <Grp label="Équipe"><select value={form.equipe} onChange={set('equipe')} className="ds-select"><option value="">--</option>{equipeNoms.map(e=><option key={e} value={e}>{e}</option>)}</select></Grp>
+            <Grp label="Thème"><select value={form.metier} onChange={set('metier')} className="ds-select"><option value="">--</option>{METIERS_DEFAULT.map(m=><option key={m}>{m}</option>)}</select></Grp>
+            <Grp label="Type de fonction"><select value={form.type_fonction} onChange={set('type_fonction')} className="ds-select">{['Fonction principale','Fonction secondaire','Fonction support','Fonction exclue'].map(f=><option key={f}>{f}</option>)}</select></Grp>
+            <Grp label="Lien DoD"><input value={form.lien_dod} onChange={set('lien_dod')} className="ds-input" placeholder="F1.1…"/></Grp>
+          </div>
+          {/* Ligne 5 : commentaire + boutons */}
+          <div className="grid grid-cols-2 gap-4 items-end">
+            <Grp label="Commentaire PO"><textarea value={form.commentaire} onChange={set('commentaire')} className="ds-textarea" rows={2}/></Grp>
+            <div className="flex gap-2 pb-0.5 flex-wrap">
+              <button type="submit" className={cn('ds-btn-primary',isEditing&&'bg-purple border-purple')} disabled={isPending}>
+                {isEditing ? '💾 Modifier' : '✅ Créer'}
+              </button>
+              {isEditing&&(
+                <button type="button" onClick={()=>startSubtask(editTask)}
+                  className="ds-btn flex items-center gap-1 text-purple border-purple/40 hover:bg-purple/5">
+                  <CornerDownRight size={12}/> Sous-tâche
+                </button>
+              )}
+              {isEditing&&(
+                <button type="button" onClick={()=>setConfirmNew(true)} className="ds-btn flex items-center gap-1">
+                  <Plus size={12}/> Nouvelle tâche
+                </button>
+              )}
+              <button type="button" className="ds-btn" onClick={reset}>
+                {isEditing ? '✕ Annuler' : '↺ Réinitialiser'}
+              </button>
+            </div>
           </div>
         </form>
+      </div>
+
+      {/* ── Vue backlog ── */}
+      <div className="ds-card p-0 overflow-hidden">
+        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border bg-bg/60">
+          <span className="text-xs font-bold text-navy uppercase tracking-wider">Backlog existant</span>
+          <div className="ds-searchbar flex-1 max-w-xs">
+            <Search size={12} className="text-subtle shrink-0"/>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher ID, titre, epic…"/>
+            {search&&<button onClick={()=>setSearch('')}><X size={11} className="text-subtle"/></button>}
+          </div>
+          <span className="text-xs text-subtle">{filteredParents.length} US</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="ds-table" style={{minWidth:'860px'}}>
+            <thead>
+              <tr>{['ID','Titre','Epic','Sprint','MoSCoW','Statut','Effort'].map(h=><th key={h}>{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {filteredParents.map(t=>{
+                const subs=childMap[t.id_tache]??[]
+                const isExp=expanded.includes(t.id_tache)
+                const isSelected=editTask?.id_tache===t.id_tache
+                const spDisplay=(t.sprint_debut&&t.sprint_fin&&t.sprint_debut!==t.sprint_fin)
+                  ?`${t.sprint_debut}→${t.sprint_fin}`:(t.sprint_debut||t.sprint||'—')
+                const effJ=subs.length>0?subs.reduce((s,c)=>s+(c.effort_j??0),0):t.effort_j??0
+                return (
+                  <React.Fragment key={t.id_tache}>
+                    <tr onClick={()=>selectTask(t)} className={cn('cursor-pointer',isSelected&&'!bg-purple/10 ring-1 ring-inset ring-purple/30')}>
+                      <td className="font-semibold text-purple whitespace-nowrap">
+                        <div className="flex items-center gap-1">
+                          {t.id_tache}
+                          {subs.length>0&&(
+                            <button onClick={e=>{e.stopPropagation();setExpanded(prev=>prev.includes(t.id_tache)?prev.filter(x=>x!==t.id_tache):[...prev,t.id_tache])}}
+                              className="text-subtle hover:text-purple">
+                              {isExp?<ChevronDown size={11}/>:<ChevronRight size={11}/>}
+                            </button>
+                          )}
+                          {subs.length>0&&<span className="bg-purple/10 text-purple px-1 rounded text-[10px] font-semibold">{subs.filter(s=>s.statut==='Fait').length}/{subs.length}</span>}
+                        </div>
+                      </td>
+                      <td className="max-w-[280px]"><div className="truncate font-medium">{t.titre}</div></td>
+                      <td className="text-subtle text-xs">{t.epic||'—'}</td>
+                      <td className="text-subtle whitespace-nowrap">{spDisplay}</td>
+                      <td>{t.moscow?<MoscowBadge value={t.moscow}/>:'—'}</td>
+                      <td><StatutBadge value={t.statut}/></td>
+                      <td className="text-center text-blue font-semibold whitespace-nowrap">
+                        {subs.length>0?<span title="Somme sous-tâches">∑ {effJ}j</span>:<>{effJ}j</>}
+                      </td>
+                    </tr>
+                    {isExp&&subs.map(s=>(
+                      <tr key={s.id_tache} className={cn('!bg-bg/50 cursor-pointer',isSelected&&'!bg-purple/5')} onClick={()=>selectTask(s)}>
+                        <td className="pl-8 text-subtle">↳ {s.id_tache}</td>
+                        <td className="italic text-subtle">{s.titre}</td>
+                        <td colSpan={3}/>
+                        <td><StatutBadge value={s.statut}/></td>
+                        <td className="text-center text-subtle">{s.effort_j??0}j</td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                )
+              })}
+              {!filteredParents.length&&(
+                <tr><td colSpan={7} className="text-center text-subtle py-8 text-sm">Aucune US trouvée</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   )
@@ -140,7 +337,7 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,toast}
 
 function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,updateTache,createSub,toast,allTaches}:{
   taches:Tache[];parents:Tache[];allTaches:Tache[];closedSprints:string[];equipeNoms:string[]
-  membresActifs:MembreEquipe[];equipes:Equipe[]
+  membresActifs:UserProfile[];equipes:Equipe[]
   updateTache:ReturnType<typeof useUpdateTache>;createSub:ReturnType<typeof useCreateSousTache>;toast:ReturnType<typeof useToast>
 }) {
   const autoMetiers = useAutoMetiers()
@@ -168,8 +365,13 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
   const panelTask=panelId?taches.find(t=>t.id_tache===panelId):null
 
   function openPanel(t:Tache){
+    const subs = childMap[t.id_tache] ?? []
+    // Effort effectif : somme des sous-tâches si elles existent
+    const effectiveEffort = subs.length > 0
+      ? subs.reduce((s, c) => s + (c.effort_j ?? 0), 0)
+      : (t.effort_j ?? 0)
     setPanelId(t.id_tache)
-    setEditForm({titre:t.titre,statut:t.statut,sprint:t.sprint??'',sprint_debut:t.sprint_debut??'',sprint_fin:t.sprint_fin??'',effort_j:t.effort_j??0,priorite:t.priorite??'',moscow:t.moscow??'Must Have',assigne_a:t.assigne_a??'',equipe:t.equipe??'',metier:t.metier??'',jalon:t.jalon??'',epic:t.epic??'',type_fonction:t.type_fonction??'Fonction principale',description:t.description??'',criteres:t.criteres??'',lien_dod:t.lien_dod??'',commentaire:t.commentaire??''})
+    setEditForm({titre:t.titre,statut:t.statut,sprint:t.sprint??'',sprint_debut:t.sprint_debut??'',sprint_fin:t.sprint_fin??'',effort_j:effectiveEffort,priorite:t.priorite??'',moscow:t.moscow??'Must Have',assigne_a:t.assigne_a??'',equipe:t.equipe??'',metier:t.metier??'',jalon:t.jalon??'',epic:t.epic??'',type_fonction:t.type_fonction??'Fonction principale',description:t.description??'',criteres:t.criteres??'',lien_dod:t.lien_dod??'',commentaire:t.commentaire??''})
   }
   function setF(k:string){return(e:React.ChangeEvent<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>)=>setEditForm(f=>({...f,[k]:e.target.value}))}
 
@@ -263,7 +465,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                 <option value="">Sprint…</option>{SPRINTS_LIST.map(s=><option key={s}>{s}</option>)}
               </select>
               <select value={bulk.assigne_a} onChange={setB('assigne_a')} className="ds-select text-xs py-1 w-44">
-                <option value="">Assigné…</option>{membresActifs.map(m=><option key={m.id} value={m.trigramme}>{m.trigramme} — {m.prenom} {m.nom}</option>)}
+                <option value="">Assigné…</option>{membresActifs.filter(m=>m.trigramme).map(m=><option key={m.user_id} value={m.trigramme!}>{m.trigramme} — {m.prenom??''} {m.nom??''}</option>)}
               </select>
               <select value={bulk.equipe} onChange={setB('equipe')} className="ds-select text-xs py-1 w-36">
                 <option value="">Équipe…</option>{equipeNoms.map(e=><option key={e} value={e}>{e}</option>)}
@@ -376,7 +578,16 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
               {/* MoSCoW + Effort */}
               <div className="grid grid-cols-2 gap-2">
                 <Grp label="MoSCoW"><select value={String(editForm.moscow??'')} onChange={setF('moscow')} className="ds-select text-xs">{MOSCOW_LIST.map(m=><option key={m}>{m}</option>)}</select></Grp>
-                <Grp label="Effort (j)"><input type="number" value={Number(editForm.effort_j??0)} onChange={setF('effort_j')} className="ds-input text-xs" min={0} step={0.5}/></Grp>
+                <Grp label="Effort (j)">
+                  {panelTask && (childMap[panelTask.id_tache]??[]).length > 0 ? (
+                    <div className="ds-input text-xs bg-bg text-navy font-semibold flex items-center gap-1.5 cursor-not-allowed">
+                      <span>∑ {(childMap[panelTask.id_tache]??[]).reduce((s,c)=>s+(c.effort_j??0),0)}j</span>
+                      <span className="text-[10px] text-subtle font-normal">{(childMap[panelTask.id_tache]??[]).length} ss</span>
+                    </div>
+                  ) : (
+                    <input type="number" value={Number(editForm.effort_j??0)} onChange={setF('effort_j')} className="ds-input text-xs" min={0} step={0.5}/>
+                  )}
+                </Grp>
               </div>
 
               {/* Epic */}
@@ -401,7 +612,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
               <Grp label="Assigné à">
                 <select value={String(editForm.assigne_a??'')} onChange={e=>setMembre(e.target.value)} className="ds-select text-xs">
                   <option value="">-- Membre --</option>
-                  {membresActifs.map(m=><option key={m.id} value={m.trigramme}>{m.trigramme} — {m.prenom} {m.nom}</option>)}
+                  {membresActifs.filter(m=>m.trigramme).map(m=><option key={m.user_id} value={m.trigramme!}>{m.trigramme} — {m.prenom??''} {m.nom??''}</option>)}
                 </select>
               </Grp>
 

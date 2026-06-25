@@ -31,7 +31,7 @@ export function Layout({ children, title, actions }: LayoutProps) {
             <div className="w-6 h-6 bg-purple rounded-md flex items-center justify-center">
               <Zap size={12} className="text-white" />
             </div>
-            <span className="text-white font-bold text-sm">Dimos D3X+</span>
+            <span className="text-white font-bold text-sm">PO Board</span>
           </div>
         </div>
 

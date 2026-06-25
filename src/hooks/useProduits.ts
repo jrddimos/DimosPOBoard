@@ -25,18 +25,78 @@ export interface Produit {
   outcome_estime:       string | null
   theme:                string | null
   objectifs_trimestriels: TrimObjectif[] | null
+  risques:                RisqueItem[]   | null
+  actions_lop:            ActionLop[]    | null
+  rag_config:             import('@/types').RagConfig | null
+}
+
+export interface ActionLop {
+  id:                   string
+  titre:                string
+  created_at:           string
+  date_cloture_estimee: string | null
+  report_1:             string | null
+  report_2:             string | null
+  assigne_id:           string | null
+  assigne_nom:          string | null
+  cloture:              boolean
+  cloture_at:           string | null
+}
+
+export interface RisqueItem {
+  id:         string
+  titre:      string
+  created_at: string
+  cloture:    boolean
+}
+
+export type TrimStatut = 'On track' | 'At risk' | 'Off track' | 'En pause'
+
+export interface ExpenseDetail {
+  id: string
+  label: string
+  montant: number
+}
+
+export interface TrimCheckItem {
+  id:      string
+  texte:   string
+  checked: boolean
 }
 
 export interface TrimObjectif {
   id:            string
   trimestre:     string
-  objectif:      string
+  objectifs:     TrimCheckItem[]
+  // Prévisionnel
   budget_etp:    number | null
   budget_invest: number | null
   budget_achats: number | null
+  previsionnel_verrouille: boolean | undefined
+  // Sprints rattachés à ce trimestre (numeros)
+  sprints_ids: string[] | undefined
+  // Consommé (réalisé)
+  realise_etp:    number | null
+  realise_invest: number | null
+  realise_achats: number | null
+  // KPIs / Outcome
   kpis:          string
   outcome_desc:  string
   outcome_euros: number | null
+  statut:        TrimStatut | null
+  lance:         boolean | undefined
+  pause:         boolean | undefined
+  cloture:       boolean | undefined
+  jours_ouvres:  number | undefined   // jours ouvrés spécifiques à ce trimestre
+  budget_invest_details:  ExpenseDetail[] | undefined
+  realise_invest_details: ExpenseDetail[] | undefined
+  budget_achats_details:  ExpenseDetail[] | undefined
+  realise_achats_details: ExpenseDetail[] | undefined
+}
+
+export function trimAvancement(t: TrimObjectif): number | null {
+  if (!t.objectifs?.length) return null
+  return Math.round(t.objectifs.filter(o => o.checked).length / t.objectifs.length * 100)
 }
 
 async function fetchProduits(): Promise<Produit[]> {

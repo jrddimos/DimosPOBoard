@@ -89,7 +89,10 @@ export function useSetRoleGlobal() {
         .eq('user_id', user_id)
       if (error) throw error
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['user_profiles'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['user_profiles'] })
+      qc.invalidateQueries({ queryKey: ['utilisateurs'] })
+    },
   })
 }
 
@@ -123,6 +126,67 @@ export function useDeleteRoleProduit() {
   })
 }
 
+// ── Mettre à jour le profil (trigramme, prenom, equipe_id…) ──
+export function useUpdateProfile() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ user_id, updates }: { user_id: string; updates: Partial<UserProfile> }) => {
+      const { error } = await supabase.from('user_profiles').update(updates).eq('user_id', user_id)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['user_profiles'] })
+      qc.invalidateQueries({ queryKey: ['utilisateurs'] })
+    },
+  })
+}
+
+// ── Upload avatar ─────────────────────────────────────────────
+export function useUploadAvatar() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ user_id, file }: { user_id: string; file: File | null }) => {
+      if (file === null) {
+        const { error } = await supabase.from('user_profiles').update({ avatar_url: null }).eq('user_id', user_id)
+        if (error) throw error
+        return null
+      }
+      const ext  = file.name.split('.').pop() ?? 'jpg'
+      const path = `${user_id}.${ext}`
+      const { error: upErr } = await supabase.storage.from('avatars').upload(path, file, { upsert: true, contentType: file.type })
+      if (upErr) throw upErr
+      const { data } = supabase.storage.from('avatars').getPublicUrl(path)
+      const avatar_url = `${data.publicUrl}?t=${Date.now()}`
+      const { error } = await supabase.from('user_profiles').update({ avatar_url }).eq('user_id', user_id)
+      if (error) throw error
+      return avatar_url
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['user_profiles'] })
+      qc.invalidateQueries({ queryKey: ['utilisateurs'] })
+    },
+  })
+}
+
+// ── Modifier les équipes d'un utilisateur (multi-équipes) ─────
+export function useSetUserEquipes() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ user_id, equipe_ids }: { user_id: string; equipe_ids: number[] }) => {
+      const equipe_id = equipe_ids[0] ?? null
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({ equipe_ids, equipe_id })
+        .eq('user_id', user_id)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['user_profiles'] })
+      qc.invalidateQueries({ queryKey: ['utilisateurs'] })
+    },
+  })
+}
+
 // ── Supprimer un utilisateur ──────────────────────────────────
 export function useDeleteUser() {
   const qc = useQueryClient()
@@ -133,6 +197,7 @@ export function useDeleteUser() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user_profiles'] })
+      qc.invalidateQueries({ queryKey: ['utilisateurs'] })
       qc.invalidateQueries({ queryKey: ['user_produit_roles'] })
     },
   })

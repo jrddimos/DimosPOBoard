@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
-import type { Equipe, MembreEquipe } from '@/types'
+import type { UserProfile } from '@/contexts/AuthContext'
+import type { Equipe } from '@/types'
 
 // ── Équipes (groupes) ─────────────────────────────────────────
 async function fetchEquipes(): Promise<Equipe[]> {
@@ -39,80 +40,47 @@ export function useDeleteEquipe() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (id: number) => {
-      // Désaffecter les membres d'abord
-      await supabase.from('membres').update({ equipe_id: null }).eq('equipe_id', id)
+      // Désaffecter les utilisateurs d'abord
+      await supabase.from('user_profiles').update({ equipe_id: null }).eq('equipe_id', id)
       const { error } = await supabase.from('equipes').delete().eq('id', id)
       if (error) throw error
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['equipes'] })
-      qc.invalidateQueries({ queryKey: ['equipe'] })
+      qc.invalidateQueries({ queryKey: ['utilisateurs'] })
     },
   })
 }
 
-// ── Membres ───────────────────────────────────────────────────
-async function fetchEquipe(): Promise<MembreEquipe[]> {
-  const { data, error } = await supabase.from('membres').select('*').order('trigramme')
+// ── Utilisateurs (remplace l'ancienne table membres) ──────────
+async function fetchUtilisateurs(): Promise<UserProfile[]> {
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .order('trigramme', { nullsFirst: false })
   if (error) throw error
-  return data ?? []
+  return (data ?? []) as UserProfile[]
 }
 
-export function useEquipe() {
-  return useQuery({ queryKey: ['equipe'], queryFn: fetchEquipe, staleTime: 60_000 })
-}
-
-export function useAddMembre() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async (membre: Omit<MembreEquipe,'id'>) => {
-      const { error } = await supabase.from('membres').insert(membre)
-      if (error) throw error
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['equipe'] }),
-  })
-}
-
-export function useUpdateMembre() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async ({ id, updates }: { id: number; updates: Partial<MembreEquipe> }) => {
-      const { error } = await supabase.from('membres').update(updates).eq('id', id)
-      if (error) throw error
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['equipe'] }),
-  })
-}
-
-export function useDeleteMembre() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async (id: number) => {
-      const { error } = await supabase.from('membres').delete().eq('id', id)
-      if (error) throw error
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['equipe'] }),
-  })
+export function useUtilisateurs() {
+  return useQuery({ queryKey: ['utilisateurs'], queryFn: fetchUtilisateurs, staleTime: 60_000 })
 }
 
 // ── Sync equipe sur les tâches ────────────────────────────────
-// Pour chaque équipe, met à jour tache.equipe = equipe.nom
-// pour toutes les tâches dont assigne_a correspond à un membre de cette équipe.
 export function useSyncEquipesTaches() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async () => {
-      const [{ data: equipes }, { data: membres }] = await Promise.all([
+      const [{ data: equipes }, { data: utilisateurs }] = await Promise.all([
         supabase.from('equipes').select('id, nom').eq('actif', true),
-        supabase.from('membres').select('trigramme, equipe_id').eq('actif', true),
+        supabase.from('user_profiles').select('trigramme, equipe_id').not('trigramme', 'is', null),
       ])
-      if (!equipes || !membres) return { updated: 0 }
+      if (!equipes || !utilisateurs) return { updated: 0 }
 
-      // Une requête par équipe : update tache.equipe pour tous les membres de cette équipe
       for (const eq of equipes) {
-        const trigrammes = (membres as { trigramme: string; equipe_id: number | null }[])
-          .filter(m => m.equipe_id === eq.id)
-          .map(m => m.trigramme)
+        const trigrammes = (utilisateurs as { trigramme: string | null; equipe_id: number | null }[])
+          .filter(u => u.equipe_id === eq.id && u.trigramme)
+          .map(u => u.trigramme as string)
         if (!trigrammes.length) continue
         await supabase.from('taches').update({ equipe: eq.nom }).in('assigne_a', trigrammes)
       }

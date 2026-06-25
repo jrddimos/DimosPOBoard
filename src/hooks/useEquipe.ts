@@ -1,2 +1,2 @@
-// Rétrocompatibilité — tout est dans useEquipes.ts
-export { useEquipe, useAddMembre, useUpdateMembre, useDeleteMembre } from './useEquipes'
+// Rétrocompatibilité — useEquipe → useUtilisateurs
+export { useUtilisateurs as useEquipe } from './useEquipes'

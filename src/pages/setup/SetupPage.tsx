@@ -1,11 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Layout } from '@/components/layout/Layout'
 import { useProduit } from '@/contexts/ProduitContext'
 import { Spinner } from '@/components/ui/Spinner'
 import { SprintStatutBadge, StatutBadge } from '@/components/ui/Badge'
-import { useEquipes, useEquipe, useCreateEquipe, useUpdateEquipe, useDeleteEquipe, useAddMembre, useUpdateMembre, useDeleteMembre } from '@/hooks/useEquipes'
-import { useAllProfiles } from '@/hooks/useUserManagement'
 import { useSprints, useSprintActif, useUpsertSprint, useDeleteSprint } from '@/hooks/useSprints'
 import { useTaches, useUpdateTache } from '@/hooks/useTaches'
 import { useToast } from '@/hooks/useToast'
@@ -13,15 +11,14 @@ import { confirm } from '@/components/ui/ConfirmModal'
 import { supabase } from '@/lib/supabase'
 import { exportSprintReviewHTML } from '@/lib/exportPdf'
 import { downloadCSV } from '@/lib/utils'
-import { EPIC_COLORS, JALON_LIST, JALON_COLORS, METIERS_DEFAULT, SPRINTS_LIST, BRAND_COLORS } from '@/constants'
-import { Pencil, Trash2, Plus, ChevronDown, ChevronRight, Check, X, Users } from 'lucide-react'
+import { EPIC_COLORS, JALON_LIST, JALON_COLORS, METIERS_DEFAULT, SPRINTS_LIST } from '@/constants'
+import { Pencil, Trash2, Plus, ChevronDown, ChevronRight, Check, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { Equipe, SprintStats } from '@/types'
+import type { SprintStats } from '@/types'
 
-type SetupTab = 'equipes'|'sprints'|'epics'|'jalons'|'metiers'|'export'
+type SetupTab = 'sprints'|'epics'|'jalons'|'metiers'|'export'
 
 const GLOBAL_TABS:{key:SetupTab;label:string}[] = [
-  {key:'equipes', label:'👥 Équipes'},
   {key:'metiers', label:'🏷️ Thèmes'},
 ]
 const PRODUCT_TABS:{key:SetupTab;label:string}[] = [
@@ -35,12 +32,12 @@ export default function SetupPage() {
   const [params]         = useSearchParams()
   const { produitActif } = useProduit()
   const tabs             = produitActif ? [...GLOBAL_TABS, ...PRODUCT_TABS] : GLOBAL_TABS
-  const [tab,setTab]     = useState<SetupTab>('equipes')
+  const [tab,setTab]     = useState<SetupTab>('metiers')
 
   useEffect(()=>{
     const t = params.get('tab') as SetupTab
     const valid = tabs.map(x=>x.key)
-    setTab(t && valid.includes(t) ? t : 'equipes')
+    setTab(t && valid.includes(t) ? t : 'metiers')
   },[params, produitActif])
 
   return (
@@ -56,7 +53,6 @@ export default function SetupPage() {
           ))}
         </div>
       </div>
-      {tab==='equipes'&&<EquipesTab/>}
       {tab==='sprints'&&<SprintsTab/>}
       {tab==='epics'  &&<EpicsTab/>}
       {tab==='jalons' &&<JalonsTab/>}
@@ -85,282 +81,6 @@ function InlineEdit({value, onSave, placeholder=''}:{value:string;onSave:(v:stri
         onKeyDown={e=>{if(e.key==='Enter'){onSave(val);setEditing(false)}if(e.key==='Escape')setEditing(false)}}/>
       <button onClick={()=>{onSave(val);setEditing(false)}} className="p-1 rounded-lg bg-green/10 text-green hover:bg-green/20"><Check size={12}/></button>
       <button onClick={()=>setEditing(false)} className="p-1 rounded-lg bg-red/10 text-red hover:bg-red/20"><X size={12}/></button>
-    </div>
-  )
-}
-
-// ─── ÉQUIPES TAB ──────────────────────────────────────────────
-function EquipesTab() {
-  const {data:equipes=[],isLoading:loadEq}=useEquipes()
-  const {data:membres=[],isLoading:loadMbr}=useEquipe()
-  const {data:profiles=[]}=useAllProfiles()
-  const {data:taches=[]}=useTaches()
-  const createEquipe=useCreateEquipe(), updateEquipe=useUpdateEquipe(), deleteEquipe=useDeleteEquipe()
-  const addMembre=useAddMembre(), updateMembre=useUpdateMembre(), deleteMembre=useDeleteMembre()
-  const toast=useToast()
-  const [selEquipe,setSelEquipe]=useState<number|null>(null)
-  const [newEquipeNom,setNewEquipeNom]=useState('')
-  const [newEquipeCouleur,setNewEquipeCouleur]=useState('#4A4CC8')
-  const [showAddMembre,setShowAddMembre]=useState(false)
-  const [mbrForm,setMbrForm]=useState({trigramme:'',prenom:'',nom:'',role:'',couleur:BRAND_COLORS[0]})
-  const setMf=(k:string)=>(e:React.ChangeEvent<HTMLInputElement|HTMLSelectElement>)=>setMbrForm(f=>({...f,[k]:e.target.value}))
-
-  // Valeurs orphelines : présentes dans taches.equipe mais absentes de la table equipes
-  const equipeNoms = new Set(equipes.map(e=>e.nom))
-  const orphans = Array.from(new Set(
-    taches.map(t=>t.equipe).filter((v): v is string => !!v && !equipeNoms.has(v))
-  )).sort()
-
-  if(loadEq||loadMbr) return <Spinner/>
-
-  const selectedEquipe=equipes.find(e=>e.id===selEquipe)
-  const membresOfEquipe=membres.filter(m=>m.equipe_id===selEquipe&&m.actif)
-  const membresWithoutEquipe=membres.filter(m=>!m.equipe_id&&m.actif)
-
-  async function createEq(){
-    if(!newEquipeNom.trim()){toast('Nom obligatoire','error');return}
-    await createEquipe.mutateAsync({nom:newEquipeNom.trim(),description:null,couleur:newEquipeCouleur,actif:true})
-    toast(`Équipe "${newEquipeNom}" créée`); setNewEquipeNom('')
-  }
-
-  async function deleteEq(eq:Equipe){
-    const hasMembres=membres.some(m=>m.equipe_id===eq.id)
-    if(hasMembres&&!await confirm({title:"Supprimer l'équipe ?",message:`${eq.nom} a des membres qui seront désaffectés.`,confirmLabel:'Continuer',variant:'danger'})) return
-    if(!hasMembres&&!await confirm({title:"Supprimer l'équipe ?",message:`${eq.nom} sera définitivement supprimée.`,confirmLabel:'Supprimer',variant:'danger'})) return
-    await deleteEquipe.mutateAsync(eq.id); toast(`"${eq.nom}" supprimée`)
-    if(selEquipe===eq.id) setSelEquipe(null)
-  }
-
-  async function addMbrToEquipe(){
-    if(!mbrForm.trigramme||!mbrForm.prenom||!mbrForm.nom){toast('Champs obligatoires','error');return}
-    await addMembre.mutateAsync({trigramme:mbrForm.trigramme.toUpperCase(),prenom:mbrForm.prenom,nom:mbrForm.nom,role:mbrForm.role,couleur:mbrForm.couleur,actif:true,equipe_id:selEquipe,user_id:null})
-    toast(`${mbrForm.prenom} ${mbrForm.nom} ajouté`); setMbrForm({trigramme:'',prenom:'',nom:'',role:'',couleur:BRAND_COLORS[0]}); setShowAddMembre(false)
-  }
-
-  async function assignMembre(membreId:number, equipeId:number|null){
-    await updateMembre.mutateAsync({id:membreId,updates:{equipe_id:equipeId}})
-    toast(equipeId?'Membre affecté':'Membre retiré de l\'équipe')
-  }
-
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-      {/* Liste équipes */}
-      <div className="flex flex-col gap-3">
-        <div className="ds-card">
-          <div className="ds-card-title">Créer une équipe</div>
-          <div className="flex flex-col gap-2">
-            <input value={newEquipeNom} onChange={e=>setNewEquipeNom(e.target.value)} className="ds-input" placeholder="Nom de l'équipe…"
-              onKeyDown={e=>{if(e.key==='Enter') createEq()}}/>
-            <div className="flex gap-1.5 flex-wrap">
-              {BRAND_COLORS.map(c=>(
-                <button key={c} type="button" onClick={()=>setNewEquipeCouleur(c)}
-                  className={cn('w-5 h-5 rounded-full transition-transform hover:scale-110',newEquipeCouleur===c&&'ring-2 ring-navy ring-offset-1')}
-                  style={{background:c}}/>
-              ))}
-            </div>
-            <button onClick={createEq} className="ds-btn-primary" disabled={createEquipe.isPending}><Plus size={13}/>Créer</button>
-          </div>
-        </div>
-
-        <div className="ds-card">
-          <div className="ds-card-title">Équipes ({equipes.length})</div>
-          <div className="flex flex-col gap-1.5">
-            {equipes.filter(e=>e.actif).map(eq=>{
-              const nb=membres.filter(m=>m.equipe_id===eq.id&&m.actif).length
-              const isSelected=selEquipe===eq.id
-              return (
-                <div key={eq.id}
-                  className={cn('flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-all',
-                    isSelected?'border-purple bg-purple/5':'border-border bg-white hover:border-purple/30')}>
-                  <div className="w-3 h-3 rounded-full shrink-0" style={{background:eq.couleur??'#4A4CC8'}}/>
-                  <div className="flex-1 min-w-0 cursor-pointer" onClick={()=>setSelEquipe(isSelected?null:eq.id)}>
-                    <InlineEdit value={eq.nom} onSave={v=>updateEquipe.mutateAsync({id:eq.id,updates:{nom:v}})}/>
-                    <div className="text-xs text-subtle">{nb} membre{nb>1?'s':''}</div>
-                  </div>
-                  <button onClick={()=>deleteEq(eq)} className="p-1 rounded hover:bg-red/10 text-subtle hover:text-red shrink-0"><Trash2 size={12}/></button>
-                </div>
-              )
-            })}
-            {!equipes.length&&<p className="text-subtle text-xs">Aucune équipe créée.</p>}
-          </div>
-        </div>
-      </div>
-
-      {/* Détail équipe sélectionnée */}
-      <div className="lg:col-span-2 flex flex-col gap-4">
-        {selectedEquipe ? (
-          <>
-            <div className="ds-card">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-8 h-8 rounded-full" style={{background:selectedEquipe.couleur??'#4A4CC8'}}/>
-                <div>
-                  <InlineEdit value={selectedEquipe.nom} onSave={v=>updateEquipe.mutateAsync({id:selectedEquipe.id,updates:{nom:v}})}/>
-                  <div className="text-xs text-subtle">{membresOfEquipe.length} membre{membresOfEquipe.length>1?'s':''}</div>
-                </div>
-                <button onClick={()=>setShowAddMembre(s=>!s)} className="ds-btn-primary ml-auto ds-btn-sm"><Plus size={12}/>Ajouter membre</button>
-              </div>
-
-              {showAddMembre&&(
-                <div className="bg-bg border border-border rounded-xl p-3 mb-3 flex flex-col gap-2 animate-in">
-                  <div className="grid grid-cols-3 gap-2">
-                    <div><div className="ds-label mb-1">Trigramme *</div><input value={mbrForm.trigramme} onChange={e=>setMbrForm(f=>({...f,trigramme:e.target.value.toUpperCase()}))} className="ds-input" maxLength={4} placeholder="JDU"/></div>
-                    <div><div className="ds-label mb-1">Prénom *</div><input value={mbrForm.prenom} onChange={setMf('prenom')} className="ds-input" placeholder="Jean"/></div>
-                    <div><div className="ds-label mb-1">Nom *</div><input value={mbrForm.nom} onChange={setMf('nom')} className="ds-input" placeholder="Dupont"/></div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div><div className="ds-label mb-1">Rôle</div><input value={mbrForm.role} onChange={setMf('role')} className="ds-input" placeholder="PO, BE Mécanique…"/></div>
-                    <div><div className="ds-label mb-1">Couleur</div>
-                      <div className="flex gap-1.5 flex-wrap mt-1">
-                        {BRAND_COLORS.map(c=>(
-                          <button key={c} type="button" onClick={()=>setMbrForm(f=>({...f,couleur:c}))}
-                            className={cn('w-5 h-5 rounded-full transition-transform hover:scale-110',mbrForm.couleur===c&&'ring-2 ring-navy ring-offset-1')}
-                            style={{background:c}}/>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 justify-end">
-                    <button onClick={()=>setShowAddMembre(false)} className="ds-btn ds-btn-sm">Annuler</button>
-                    <button onClick={addMbrToEquipe} className="ds-btn-primary ds-btn-sm" disabled={addMembre.isPending}>Ajouter</button>
-                  </div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {membresOfEquipe.map(m=>{
-                  const linkedProfile = profiles.find(p=>p.user_id===m.user_id)
-                  return (
-                  <div key={m.id} className="flex flex-col gap-1.5 p-2.5 bg-bg rounded-xl border border-border">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0" style={{background:m.couleur??'#4A4CC8'}}>{m.trigramme}</div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold text-navy">{m.prenom} {m.nom}</div>
-                        <div className="text-xs text-subtle">{m.role||'—'}</div>
-                      </div>
-                      <div className="flex gap-1 shrink-0">
-                        <button onClick={async()=>{
-                          const prenom=window.prompt('Prénom :',m.prenom)??m.prenom
-                          const nom=window.prompt('Nom :',m.nom)??m.nom
-                          const role=window.prompt('Rôle :',m.role??'')??m.role??''
-                          await updateMembre.mutateAsync({id:m.id,updates:{prenom,nom,role}});toast('Modifié')
-                        }} className="p-1.5 rounded hover:bg-white text-subtle hover:text-navy"><Pencil size={11}/></button>
-                        <button onClick={()=>assignMembre(m.id,null)} title="Retirer de l'équipe" className="p-1.5 rounded hover:bg-orange/10 text-subtle hover:text-orange"><Users size={11}/></button>
-                        <button onClick={async()=>{if(!await confirm({title:'Supprimer ce membre ?',message:`${m.prenom} ${m.nom} sera supprimé.`,confirmLabel:'Supprimer',variant:'danger'}))return;await deleteMembre.mutateAsync(m.id);toast('Supprimé')}} className="p-1.5 rounded hover:bg-red/10 text-subtle hover:text-red"><Trash2 size={11}/></button>
-                      </div>
-                    </div>
-                    {/* Lien compte utilisateur */}
-                    <div className="flex items-center gap-1.5 pl-10">
-                      <select
-                        value={m.user_id??''}
-                        onChange={async e=>{
-                          const val=e.target.value||null
-                          await updateMembre.mutateAsync({id:m.id,updates:{user_id:val}})
-                          toast(val?'Compte lié':'Compte dissocié')
-                        }}
-                        className="text-xs py-0.5 px-2 rounded-lg border border-border bg-white text-subtle w-full max-w-[180px] cursor-pointer focus:outline-none focus:border-purple/50"
-                      >
-                        <option value="">— Aucun compte lié —</option>
-                        {profiles.map(p=>(
-                          <option key={p.user_id} value={p.user_id}>{p.display_name}</option>
-                        ))}
-                      </select>
-                      {linkedProfile&&(
-                        <span className="text-[10px] text-purple font-semibold truncate">✓ {linkedProfile.display_name}</span>
-                      )}
-                    </div>
-                  </div>
-                )})}
-                {!membresOfEquipe.length&&<p className="text-subtle text-xs col-span-2">Aucun membre. Utilisez le bouton "Ajouter membre" ou affectez des membres sans équipe ci-dessous.</p>}
-              </div>
-            </div>
-
-            {membresWithoutEquipe.length>0&&(
-              <div className="ds-card">
-                <div className="ds-card-title">Membres sans équipe — cliquer pour affecter à {selectedEquipe.nom}</div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {membresWithoutEquipe.map(m=>(
-                    <button key={m.id} onClick={()=>assignMembre(m.id,selectedEquipe.id)}
-                      className="flex items-center gap-2 p-2.5 bg-bg rounded-xl border border-dashed border-border hover:border-purple hover:bg-purple/5 transition-all text-left">
-                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0" style={{background:m.couleur??'#4A4CC8'}}>{m.trigramme}</div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-semibold text-navy">{m.prenom} {m.nom}</div>
-                        <div className="text-xs text-subtle">{m.role||'—'}</div>
-                      </div>
-                      <Plus size={12} className="text-subtle"/>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="ds-card flex flex-col items-center justify-center py-16 text-subtle gap-3">
-            <Users size={40} className="opacity-20"/>
-            <p className="text-sm font-medium">Sélectionnez une équipe</p>
-            <p className="text-xs">Cliquez sur une équipe dans la liste pour gérer ses membres</p>
-          </div>
-        )}
-      </div>
-
-      {/* ── Nettoyage : valeurs orphelines dans taches.equipe ── */}
-      {orphans.length>0&&(
-        <div className="lg:col-span-3 ds-card border-orange/30 bg-orange/5 mt-2">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-2 h-2 rounded-full bg-orange"/>
-            <div className="ds-card-title mb-0">Valeurs non référencées dans les tâches ({orphans.length})</div>
-          </div>
-          <p className="text-xs text-subtle mb-3">
-            Ces noms d'équipe existent dans des tâches mais n'ont pas d'entrée dans la table Équipes.
-            Créez-les comme équipe ou remap-lez vers une équipe existante pour aligner les données.
-          </p>
-          <div className="flex flex-col gap-2">
-            {orphans.map(orphan=>(
-              <OrphanEquipeRow key={orphan} orphan={orphan} equipes={equipes}
-                onCreateEquipe={async()=>{
-                  await createEquipe.mutateAsync({nom:orphan,description:null,couleur:BRAND_COLORS[0],actif:true})
-                  toast(`Équipe "${orphan}" créée`)
-                }}
-                onRemap={async(targetNom)=>{
-                  if(!await confirm({title:'Remapper les tâches ?',message:`Toutes les tâches avec équipe "${orphan}" seront mises à jour vers "${targetNom}".`,confirmLabel:'Remapper'})) return
-                  await supabase.from('taches').update({equipe:targetNom}).eq('equipe',orphan)
-                  toast(`${orphan} → ${targetNom}`)
-                }}
-                onClear={async()=>{
-                  if(!await confirm({title:'Vider le champ équipe ?',message:`Les tâches avec "${orphan}" n'auront plus d'équipe.`,confirmLabel:'Vider',variant:'danger'})) return
-                  await supabase.from('taches').update({equipe:null}).eq('equipe',orphan)
-                  toast(`Champ équipe vidé pour "${orphan}"`)
-                }}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function OrphanEquipeRow({orphan,equipes,onCreateEquipe,onRemap,onClear}:{
-  orphan:string; equipes:Equipe[]
-  onCreateEquipe:()=>void; onRemap:(nom:string)=>void; onClear:()=>void
-}) {
-  const [remapTarget,setRemapTarget]=useState('')
-  return (
-    <div className="flex flex-wrap items-center gap-2 p-2.5 bg-white rounded-xl border border-orange/20">
-      <span className="text-sm font-semibold text-navy flex-1 min-w-0 truncate">"{orphan}"</span>
-      <button onClick={onCreateEquipe} className="ds-btn ds-btn-sm text-green hover:bg-green/10">
-        <Plus size={11}/>Créer comme équipe
-      </button>
-      <div className="flex items-center gap-1">
-        <select value={remapTarget} onChange={e=>setRemapTarget(e.target.value)} className="ds-select text-xs py-1 w-36">
-          <option value="">Remapper vers…</option>
-          {equipes.filter(e=>e.actif).map(e=><option key={e.id} value={e.nom}>{e.nom}</option>)}
-        </select>
-        <button onClick={()=>{if(remapTarget) onRemap(remapTarget)}} disabled={!remapTarget}
-          className="ds-btn ds-btn-sm disabled:opacity-40">✓</button>
-      </div>
-      <button onClick={onClear} className="ds-btn ds-btn-sm text-subtle hover:text-red hover:bg-red/10">
-        <Trash2 size={11}/>Vider
-      </button>
     </div>
   )
 }
@@ -983,8 +703,8 @@ function ExportTab() {
      headers:['ID','Epic','Titre','Type','Jalon','Sprint début','Sprint fin','Statut','Effort','MoSCoW','Priorité','Équipe','Métier','Assigné','Lien DoD','Itér.']},
     {label:'Sprints',desc:'Numéro, Statut, Objectifs, Review, Dates',table:'sprints',
      cols:['numero','statut','objectifs','review','started_at','closed_at'],headers:['Sprint','Statut','Objectifs','Review','Démarré','Clôturé']},
-    {label:'Membres',desc:'Trigramme, Prénom, Nom, Rôle, Équipe',table:'membres',
-     cols:['trigramme','prenom','nom','role','actif','equipe_id'],headers:['Tri','Prénom','Nom','Rôle','Actif','Équipe ID']},
+    {label:'Utilisateurs',desc:'Trigramme, Prénom, Nom, Rôle, Équipe',table:'user_profiles',
+     cols:['trigramme','prenom','nom','role_metier','actif','equipe_id'],headers:['Tri','Prénom','Nom','Rôle','Actif','Équipe ID']},
     {label:'Équipes',desc:'Nom, Description, Couleur',table:'equipes',
      cols:['nom','description','couleur','actif'],headers:['Nom','Description','Couleur','Actif']},
   ]

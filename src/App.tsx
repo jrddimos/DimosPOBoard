@@ -7,7 +7,8 @@ import { Spinner }     from '@/components/ui/Spinner'
 import LoginPage       from '@/pages/auth/LoginPage'
 import SetPasswordPage from '@/pages/auth/SetPasswordPage'
 import ProduitsPage    from '@/pages/produits/ProduitsPage'
-import UsersPage       from '@/pages/admin/UsersPage'
+import EquipesUtilisateursPage from '@/pages/admin/EquipesUtilisateursPage'
+import FinanceSetupPage        from '@/pages/admin/FinanceSetupPage'
 import DashboardPage   from '@/pages/dashboard/DashboardPage'
 import BacklogPage     from '@/pages/backlog/BacklogPage'
 import SprintBoardPage from '@/pages/sprint/SprintBoardPage'
@@ -16,6 +17,9 @@ import SetupPage       from '@/pages/setup/SetupPage'
 import DodPage         from '@/pages/dod/DodPage'
 import MonTravailPage  from '@/pages/montravail/MonTravailPage'
 import ActivitePage    from '@/pages/activite/ActivitePage'
+import ReunionPage            from '@/pages/reunion/ReunionPage'
+import ProduitDashboardPage  from '@/pages/produit-dashboard/ProduitDashboardPage'
+import ProduitConfigPage     from '@/pages/produit-config/ProduitConfigPage'
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({
@@ -75,7 +79,9 @@ function AppRoutes() {
     <Routes>
       <Route path="/login"       element={<Navigate to="/" replace />} />
       <Route path="/produits"    element={<ProduitsPage />} />
-      <Route path="/admin/users" element={isAdmin ? <UsersPage /> : <Navigate to="/" replace />} />
+      <Route path="/admin/equipes"   element={isAdmin ? <EquipesUtilisateursPage /> : <Navigate to="/" replace />} />
+      <Route path="/admin/users"    element={<Navigate to="/admin/equipes" replace />} />
+      <Route path="/admin/finance"  element={isAdmin ? <FinanceSetupPage /> : <Navigate to="/" replace />} />
       {/* Accessibles sans produit */}
       <Route path="/"            element={<DashboardPage />} />
       <Route path="/setup"       element={<SetupPage />} />
@@ -86,7 +92,10 @@ function AppRoutes() {
       <Route path="/dod"         element={requireProduit(<DodPage />)} />
       <Route path="/montravail"  element={<MonTravailPage />} />
       <Route path="/activite"    element={requireProduit(<ActivitePage />)} />
-      <Route path="*"            element={<Navigate to="/" replace />} />
+      <Route path="/reunion"             element={<ReunionPage />} />
+      <Route path="/produit-dashboard"  element={requireProduit(<ProduitDashboardPage />)} />
+      <Route path="/produit-config"     element={requireProduit(<ProduitConfigPage />)} />
+      <Route path="*"                   element={<Navigate to="/" replace />} />
     </Routes>
   )
 }

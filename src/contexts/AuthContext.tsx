@@ -6,9 +6,18 @@ export type RoleGlobal = 'admin' | null
 export type RoleProduit = 'po' | 'dev' | 'lecteur'
 
 export interface UserProfile {
-  user_id: string
+  user_id:     string
   display_name: string | null
   role_global: RoleGlobal
+  trigramme:   string | null
+  prenom:      string | null
+  nom:         string | null
+  role_metier: string | null
+  couleur:     string | null
+  actif:       boolean
+  equipe_id:   number | null
+  equipe_ids:  number[]
+  avatar_url:  string | null
 }
 
 export interface UserProduitRole {
@@ -23,13 +32,15 @@ interface AuthContextValue {
   isAdmin:     boolean
   isLoading:   boolean
   getRoleForProduit: (produitId: number) => RoleProduit | null
-  canEdit:     (produitId: number) => boolean   // admin ou po
-  canWrite:    (produitId: number) => boolean   // admin, po ou dev
+  canEdit:     (produitId: number) => boolean
+  canWrite:    (produitId: number) => boolean
+  refreshProfile: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue>({
   user: null, profile: null, roles: [], isAdmin: false, isLoading: true,
   getRoleForProduit: () => null, canEdit: () => false, canWrite: () => false,
+  refreshProfile: async () => {},
 })
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -49,7 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(prof)
     } else {
       // Créer le profil à la première connexion
-      const newProfile: UserProfile = { user_id: u.id, display_name: u.email ?? null, role_global: null }
+      const newProfile: UserProfile = { user_id: u.id, display_name: u.email ?? null, role_global: null, trigramme: null, prenom: null, nom: null, role_metier: null, couleur: null, actif: true, equipe_id: null, equipe_ids: [], avatar_url: null }
       await supabase.from('user_profiles').insert(newProfile)
       setProfile(newProfile)
     }
@@ -80,11 +91,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe()
   }, [])
 
+  async function refreshProfile() {
+    if (!user) return
+    const { data } = await supabase.from('user_profiles').select('*').eq('user_id', user.id).maybeSingle()
+    if (data) setProfile(data as UserProfile)
+  }
+
   const value = useMemo<AuthContextValue>(() => {
     const isAdmin = profile?.role_global === 'admin'
 
     function getRoleForProduit(produitId: number): RoleProduit | null {
-      if (isAdmin) return 'po' // admin a tous les droits
+      if (isAdmin) return 'po'
       return roles.find(r => r.produit_id === produitId)?.role ?? null
     }
 
@@ -93,6 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       getRoleForProduit,
       canEdit:  (pid) => isAdmin || getRoleForProduit(pid) === 'po',
       canWrite: (pid) => isAdmin || ['po', 'dev'].includes(getRoleForProduit(pid) ?? ''),
+      refreshProfile,
     }
   }, [user, profile, roles, loading])
 

@@ -1,5 +1,17 @@
 // ── Types Dimos D3X+ ──────────────────────────────────────────
 
+export interface RagThreshold { amber: number; red: number }
+export interface RagConfig {
+  avancement: RagThreshold
+  budget:     RagThreshold
+  blocages:   RagThreshold
+}
+export const RAG_CONFIG_DEFAULT: RagConfig = {
+  avancement: { amber: 10, red: 25 },
+  budget:     { amber: 10, red: 20 },
+  blocages:   { amber: 1,  red: 3  },
+}
+
 export type Statut = 'À faire' | 'En cours' | 'Fait' | 'Bloqué'
 export type Moscow = 'Must Have' | 'Should Have' | 'Could Have' | "Won't Have"
 export type TypeFonction = 'Fonction principale' | 'Fonction secondaire' | 'Fonction support' | 'Fonction exclue'
@@ -25,6 +37,7 @@ export interface Tache {
   priorite: string | null
   statut: Statut
   effort_j: number
+  effort_realise_j: number | null
   equipe: string | null
   metier: string | null
   assigne_a: string | null
@@ -54,18 +67,6 @@ export interface SprintStats {
   bloque: number
   effort: number
   pct: number
-}
-
-export interface MembreEquipe {
-  id: number
-  trigramme: string
-  prenom: string
-  nom: string
-  role: string | null
-  couleur: string | null
-  actif: boolean
-  equipe_id: number | null
-  user_id: string | null
 }
 
 export interface Equipe {

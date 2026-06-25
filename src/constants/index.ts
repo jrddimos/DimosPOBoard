@@ -99,7 +99,14 @@ export const SPRINTS_LIST: string[] = Array.from(
 )
 
 export const BRAND_COLORS = [
-  '#4A4CC8','#6B6BF0','#00C896','#F0A500','#EF4444',
-  '#0055CC','#8B5CF6','#EC4899','#14B8A6','#F97316',
-  '#6B7280','#1E3A5F',
+  // Bleus / violets
+  '#4A4CC8','#6B6BF0','#0055CC','#2563EB','#1E3A5F','#8B5CF6','#7C3AED','#A855F7',
+  // Verts / teals
+  '#00C896','#10B981','#14B8A6','#059669','#16A34A','#84CC16',
+  // Oranges / jaunes / rouges
+  '#F0A500','#F59E0B','#F97316','#EF4444','#DC2626','#E11D48',
+  // Roses / magentas
+  '#EC4899','#DB2777','#C026D3',
+  // Neutres
+  '#6B7280','#475569','#334155','#0F172A',
 ]

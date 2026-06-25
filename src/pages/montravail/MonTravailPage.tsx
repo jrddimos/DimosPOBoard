@@ -4,7 +4,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { StatutBadge, EpicBadge, JalonBadge } from '@/components/ui/Badge'
 import { useTaches, useUpdateTache } from '@/hooks/useTaches'
 import { useSprintActif } from '@/hooks/useSprints'
-import { useEquipe } from '@/hooks/useEquipes'
+import { useUtilisateurs } from '@/hooks/useEquipes'
 import { useProduits } from '@/hooks/useProduits'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/hooks/useToast'
@@ -16,18 +16,18 @@ import type { Tache, Statut } from '@/types'
 export default function MonTravailPage() {
   const { data: taches  = [], isLoading: loadTach } = useTaches()
   const { data: sprintActif }                       = useSprintActif()
-  const { data: membres = [] }                      = useEquipe()
+  const { data: membres = [] }                      = useUtilisateurs()
   const { data: produits = [] }                     = useProduits()
   const { user, isAdmin, getRoleForProduit }         = useAuth()
   const updateTache = useUpdateTache()
   const toast       = useToast()
 
   // Trigramme du membre lié au compte connecté (auto-détection après chargement)
-  const monMembre = membres.find(m => m.user_id === user?.id)
+  const monMembre = membres.find(m => m.user_id === user?.id && m.trigramme)
 
   const [selMembre, setSelMembre] = useState('')
   useEffect(() => {
-    if (monMembre && !selMembre) setSelMembre(monMembre.trigramme)
+    if (monMembre?.trigramme && !selMembre) setSelMembre(monMembre.trigramme)
   }, [monMembre?.trigramme])
   const [expanded,      setExpanded]      = useState<Set<string>>(new Set())
   const [filterProduit,  setFilterProduit]  = useState<number | null>(null)
@@ -148,8 +148,8 @@ export default function MonTravailPage() {
           <span className="ds-label hidden sm:inline">Membre</span>
           <select value={selMembre} onChange={e => setSelMembre(e.target.value)} className="ds-select w-40 sm:w-48 text-xs py-1">
             <option value="">-- Sélectionner --</option>
-            {membres_actifs.map(m => (
-              <option key={m.id} value={m.trigramme}>{m.trigramme} — {m.prenom} {m.nom}</option>
+            {membres_actifs.filter(m=>m.trigramme).map(m => (
+              <option key={m.user_id} value={m.trigramme!}>{m.trigramme} — {m.prenom??''} {m.nom??''}</option>
             ))}
           </select>
         </div>

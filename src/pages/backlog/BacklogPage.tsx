@@ -73,7 +73,13 @@ export default function BacklogPage() {
     return true
   }),[parents,search,selEpics,selJalons,selStatuts,selMoscows,selTypes])
 
-  const totalEffort = filtered.reduce((s,t)=>s+(t.effort_j??0),0)
+  // Effort effectif d'une tâche : somme des sous-tâches si elles existent
+  function effJ(t: Tache): number {
+    const subs = childMap[t.id_tache] ?? []
+    if (subs.length === 0) return t.effort_j ?? 0
+    return subs.reduce((s, c) => s + (c.effort_j ?? 0), 0)
+  }
+  const totalEffort = filtered.reduce((s,t)=>s+effJ(t),0)
   const PAGE_SIZE = 50
   const filteredPaged = useMemo(()=>{
     const start=(page-1)*PAGE_SIZE
@@ -206,7 +212,7 @@ export default function BacklogPage() {
                             {groupBy==='epic'&&<div className="w-2 h-2 rounded-sm" style={{background:EPIC_COLORS[group.key]??'#4A4CC8'}}/>}
                             {groupBy==='epic'?epicShortName(group.key):`Jalon ${group.key}`}
                             <span className="text-subtle font-normal text-xs ml-1">
-                              {group.tasks.length} US · {group.tasks.reduce((s,t)=>s+(t.effort_j??0),0)}j
+                              {group.tasks.length} US · {group.tasks.reduce((s,t)=>s+effJ(t),0)}j
                             </span>
                           </div>
                         </td>
@@ -240,7 +246,11 @@ export default function BacklogPage() {
                             <td className="text-subtle whitespace-nowrap">{spDisplay}</td>
                             <td>{t.moscow?<MoscowBadge value={t.moscow}/>:'—'}</td>
                             <td><StatutBadge value={t.statut}/></td>
-                            <td className="text-center text-blue font-semibold">{t.effort_j??0}j</td>
+                            <td className="text-center text-blue font-semibold whitespace-nowrap">
+                              {subs.length > 0
+                                ? <span title="Somme des sous-tâches">∑ {effJ(t)}j</span>
+                                : <>{t.effort_j??0}j</>}
+                            </td>
                             <td className="text-center">{t.jalon?<JalonBadge value={t.jalon}/>:'—'}</td>
                             <td className="text-subtle truncate max-w-[100px]">{t.equipe||'—'}</td>
                           </tr>
