@@ -3,14 +3,15 @@ import { Layout } from '@/components/layout/Layout'
 import { useToast } from '@/hooks/useToast'
 import { ToastContainer } from '@/components/ui/Toast'
 import { useEquipes, useUtilisateurs, useCreateEquipe, useUpdateEquipe, useDeleteEquipe } from '@/hooks/useEquipes'
-import { useAllRoles, useInviteUser, useSetRoleGlobal, useUpdateProfile, useSetUserEquipes, useUploadAvatar, useUpsertRoleProduit, useDeleteRoleProduit, useDeleteUser } from '@/hooks/useUserManagement'
+import { useAllRoles, useInviteUser, useSetRoleGlobal, useUpdateProfile, useSetUserEquipes, useUploadAvatar, useUpsertRoleProduit, useDeleteRoleProduit, useDeleteUser, usePendingProfiles, useCreatePendingProfile, useDeletePendingProfile, useSendInvitationToPending, useUpdatePendingProfile } from '@/hooks/useUserManagement'
+import type { PendingProfile } from '@/hooks/useUserManagement'
 import { useProduits } from '@/hooks/useProduits'
 import { useAuth } from '@/contexts/AuthContext'
 import { confirm } from '@/components/ui/ConfirmModal'
 import { BRAND_COLORS } from '@/constants'
 import type { RoleProduit, UserProfile } from '@/contexts/AuthContext'
 import type { Equipe } from '@/types'
-import { Plus, X, Pencil, Trash2, Users, UserPlus, Shield, ChevronDown, ChevronRight, Camera } from 'lucide-react'
+import { Plus, X, Pencil, Trash2, Users, UserPlus, Shield, ChevronDown, ChevronRight, Camera, Mail, Clock, Send } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Spinner } from '@/components/ui/Spinner'
 
@@ -42,6 +43,318 @@ function InlineEdit({ value, onSave, placeholder = '' }: { value: string; onSave
   )
 }
 
+// ── PendingSection ────────────────────────────────────────────
+function PendingSection({
+  pendingProfiles, produitsActifs, equipesActives,
+  inviteTarget, inviteEmail, setInviteTarget, setInviteEmail,
+  onInvite, onDelete, onUpdate, sendingPending, BRAND_COLORS,
+}: {
+  pendingProfiles: PendingProfile[]
+  produitsActifs: { id: number; nom: string; couleur: string | null }[]
+  equipesActives: { id: number; nom: string; couleur: string | null }[]
+  inviteTarget: PendingProfile | null
+  inviteEmail: string
+  setInviteTarget: (p: PendingProfile | null) => void
+  setInviteEmail: (v: string) => void
+  onInvite: () => void
+  onDelete: (p: PendingProfile) => void
+  onUpdate: (id: number, updates: Partial<Omit<PendingProfile, 'id' | 'created_at'>>) => void
+  sendingPending: boolean
+  BRAND_COLORS: string[]
+}) {
+  const [open, setOpen] = useState(true)
+  const [editingId, setEditingId] = useState<number | null>(null)
+
+  return (
+    <div className="border border-orange/25 rounded-xl overflow-hidden">
+      {/* En-tête compact cliquable */}
+      <button onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center gap-2 px-3 py-2 bg-orange/5 hover:bg-orange/10 transition-colors text-left">
+        <Clock size={11} className="text-orange shrink-0" />
+        <span className="text-xs font-semibold text-orange">En attente d'invitation ({pendingProfiles.length})</span>
+        <ChevronDown size={11} className={cn('ml-auto text-orange/60 transition-transform', !open && '-rotate-90')} />
+      </button>
+
+      {open && (
+        <div className="divide-y divide-orange/10">
+          {pendingProfiles.map(pp => (
+            <PendingRow key={pp.id} pp={pp}
+              editing={editingId === pp.id}
+              inviting={inviteTarget?.id === pp.id}
+              inviteEmail={inviteEmail}
+              setInviteEmail={setInviteEmail}
+              produitsActifs={produitsActifs}
+              equipesActives={equipesActives}
+              onEdit={() => setEditingId(editingId === pp.id ? null : pp.id)}
+              onInviteOpen={() => { setInviteTarget(pp); setInviteEmail('') }}
+              onInviteCancel={() => { setInviteTarget(null); setInviteEmail('') }}
+              onInviteSend={onInvite}
+              onDelete={() => onDelete(pp)}
+              onUpdate={(updates) => onUpdate(pp.id, updates)}
+              sendingPending={sendingPending}
+              BRAND_COLORS={BRAND_COLORS}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PendingRow({
+  pp, editing, inviting, inviteEmail, setInviteEmail,
+  produitsActifs, equipesActives,
+  onEdit, onInviteOpen, onInviteCancel, onInviteSend, onDelete, onUpdate, sendingPending, BRAND_COLORS,
+}: {
+  pp: PendingProfile
+  editing: boolean
+  inviting: boolean
+  inviteEmail: string
+  setInviteEmail: (v: string) => void
+  produitsActifs: { id: number; nom: string; couleur: string | null }[]
+  equipesActives: { id: number; nom: string; couleur: string | null }[]
+  onEdit: () => void
+  onInviteOpen: () => void
+  onInviteCancel: () => void
+  onInviteSend: () => void
+  onDelete: () => void
+  onUpdate: (updates: Partial<Omit<PendingProfile, 'id' | 'created_at'>>) => void
+  sendingPending: boolean
+  BRAND_COLORS: string[]
+}) {
+  const [form, setForm] = useState({
+    display_name: pp.display_name,
+    trigramme:    pp.trigramme ?? '',
+    prenom:       pp.prenom ?? '',
+    nom:          pp.nom ?? '',
+    couleur:      pp.couleur ?? BRAND_COLORS[0],
+    role_global:  pp.role_global,
+    equipe_ids:   pp.equipe_ids ?? [],
+    pending_produit_roles: pp.pending_produit_roles ?? {} as Record<string, string>,
+  })
+
+  // Sync form when pp changes (after save)
+  useState(() => {
+    setForm({
+      display_name: pp.display_name,
+      trigramme:    pp.trigramme ?? '',
+      prenom:       pp.prenom ?? '',
+      nom:          pp.nom ?? '',
+      couleur:      pp.couleur ?? BRAND_COLORS[0],
+      role_global:  pp.role_global,
+      equipe_ids:   pp.equipe_ids ?? [],
+      pending_produit_roles: pp.pending_produit_roles ?? {},
+    })
+  })
+
+  function save() {
+    const roles = form.pending_produit_roles
+    const ids   = Object.entries(roles).filter(([,r]) => r !== 'none').map(([id]) => Number(id))
+    onUpdate({
+      display_name:         form.display_name.trim() || pp.display_name,
+      trigramme:            form.trigramme.toUpperCase() || null,
+      prenom:               form.prenom || null,
+      nom:                  form.nom || null,
+      couleur:              form.couleur,
+      role_global:          form.role_global,
+      equipe_ids:           form.equipe_ids,
+      pending_produit_ids:  ids,
+      pending_produit_roles: Object.fromEntries(Object.entries(roles).filter(([,r]) => r !== 'none')),
+    })
+    onEdit()
+  }
+
+  const displayName = [pp.prenom, pp.nom].filter(Boolean).join(' ') || pp.display_name
+
+  return (
+    <div className="bg-white">
+      {/* Ligne compacte */}
+      <div className="flex items-center gap-2 px-3 py-2">
+        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-[9px] font-bold shrink-0"
+          style={{ background: pp.couleur ?? '#4A4CC8' }}>
+          {pp.trigramme ?? displayName.slice(0,2).toUpperCase()}
+        </span>
+        <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-semibold text-navy truncate">{displayName}</span>
+          {pp.trigramme && <span className="text-[10px] text-subtle font-mono bg-bg px-1 rounded">{pp.trigramme}</span>}
+          {pp.role_global === 'admin' && <span className="text-[10px] bg-purple/10 text-purple font-semibold px-1.5 rounded">Admin</span>}
+          {/* Chips produits */}
+          {(pp.pending_produit_ids ?? []).map(pid => {
+            const p = produitsActifs.find(x => x.id === pid)
+            return p ? (
+              <span key={pid} className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white"
+                style={{ background: p.couleur ?? '#4A4CC8' }}>
+                {p.nom}
+              </span>
+            ) : null
+          })}
+        </div>
+        {/* Actions */}
+        <div className="flex items-center gap-0.5 shrink-0">
+          <button onClick={onEdit}
+            className={cn('p-1.5 rounded hover:bg-bg text-subtle hover:text-navy transition-colors text-[11px]', editing && 'bg-bg text-navy')}>
+            <Pencil size={11} />
+          </button>
+          {!inviting && (
+            <button onClick={onInviteOpen}
+              className="p-1.5 rounded hover:bg-orange/10 text-subtle hover:text-orange transition-colors">
+              <Mail size={11} />
+            </button>
+          )}
+          <button onClick={onDelete}
+            className="p-1.5 rounded hover:bg-red/10 text-subtle hover:text-red transition-colors">
+            <Trash2 size={11} />
+          </button>
+        </div>
+      </div>
+
+      {/* Form invitation */}
+      {inviting && (
+        <div className="flex items-center gap-2 px-3 pb-2">
+          <input value={inviteEmail} onChange={e => setInviteEmail(e.target.value)}
+            placeholder="adresse@email.fr" type="email" autoFocus
+            onKeyDown={e => { if (e.key === 'Enter') onInviteSend() }}
+            className="ds-input text-xs py-1 flex-1" />
+          <button onClick={onInviteSend} disabled={sendingPending || !inviteEmail.trim()}
+            className="ds-btn-primary ds-btn-sm flex items-center gap-1 text-xs">
+            <Send size={11} /> {sendingPending ? 'Envoi…' : 'Envoyer'}
+          </button>
+          <button onClick={onInviteCancel} className="ds-btn ds-btn-sm text-xs">✕</button>
+        </div>
+      )}
+
+      {/* Form édition complète */}
+      {editing && (
+        <div className="px-3 pb-3 pt-2 bg-bg/40 border-t border-orange/10 space-y-3">
+          {/* Identité */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="col-span-2">
+              <div className="ds-label mb-1">Nom affiché</div>
+              <input value={form.display_name} onChange={e => setForm(f => ({ ...f, display_name: e.target.value }))}
+                className="ds-input text-xs" />
+            </div>
+            <div>
+              <div className="ds-label mb-1">Trigramme</div>
+              <input value={form.trigramme} onChange={e => setForm(f => ({ ...f, trigramme: e.target.value.toUpperCase().slice(0,3) }))}
+                className="ds-input text-xs uppercase tracking-widest" maxLength={3} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <div className="ds-label mb-1">Prénom</div>
+              <input value={form.prenom} onChange={e => setForm(f => ({ ...f, prenom: e.target.value }))} className="ds-input text-xs" />
+            </div>
+            <div>
+              <div className="ds-label mb-1">Nom</div>
+              <input value={form.nom} onChange={e => setForm(f => ({ ...f, nom: e.target.value }))} className="ds-input text-xs" />
+            </div>
+          </div>
+
+          {/* Couleur */}
+          <div>
+            <div className="ds-label mb-1.5">Couleur</div>
+            <div className="flex gap-1.5 flex-wrap">
+              {BRAND_COLORS.map(c => (
+                <button key={c} type="button" onClick={() => setForm(f => ({ ...f, couleur: c }))}
+                  className={cn('w-5 h-5 rounded-full transition-transform hover:scale-110', form.couleur === c && 'ring-2 ring-navy ring-offset-1')}
+                  style={{ background: c }} />
+              ))}
+            </div>
+          </div>
+
+          {/* Rôle global */}
+          <div>
+            <div className="ds-label mb-1">Rôle global</div>
+            <div className="flex gap-2">
+              {[{ val: null, label: 'Utilisateur' }, { val: 'admin' as const, label: 'Admin' }].map(opt => (
+                <button key={String(opt.val)} type="button" onClick={() => setForm(f => ({ ...f, role_global: opt.val }))}
+                  className={cn('flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all',
+                    form.role_global === opt.val ? 'border-purple bg-purple/5 text-purple' : 'border-border text-subtle hover:border-navy/30')}>
+                  {opt.val && <Shield size={10} />} {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Équipes */}
+          {equipesActives.length > 0 && (
+            <div>
+              <div className="ds-label mb-1">Équipes</div>
+              <div className="flex flex-wrap gap-1.5">
+                {equipesActives.map(eq => {
+                  const sel = form.equipe_ids.includes(eq.id)
+                  return (
+                    <button key={eq.id} type="button"
+                      onClick={() => setForm(f => ({ ...f, equipe_ids: sel ? f.equipe_ids.filter(x => x !== eq.id) : [...f.equipe_ids, eq.id] }))}
+                      className={cn('flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border transition-all',
+                        sel ? 'text-white border-transparent' : 'border-border text-subtle hover:border-purple/40')}
+                      style={sel ? { background: eq.couleur ?? '#4A4CC8' } : undefined}>
+                      {eq.nom}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Accès produits */}
+          {produitsActifs.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <div className="ds-label mb-0">Accès produits</div>
+                <div className="flex gap-1.5 ml-auto">
+                  {(['po','dev','lecteur'] as const).map(r => (
+                    <button key={r} type="button"
+                      onClick={() => setForm(f => ({
+                        ...f,
+                        pending_produit_roles: Object.fromEntries(produitsActifs.map(p => [String(p.id), r])),
+                      }))}
+                      className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-border hover:border-purple/50 hover:text-purple text-subtle transition-colors capitalize">
+                      Tout {r}
+                    </button>
+                  ))}
+                  <button type="button"
+                    onClick={() => setForm(f => ({ ...f, pending_produit_roles: {} }))}
+                    className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-border hover:border-red/40 hover:text-red text-subtle transition-colors">
+                    Aucun
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {produitsActifs.map(p => {
+                  const role = form.pending_produit_roles[String(p.id)] ?? 'none'
+                  return (
+                    <div key={p.id} className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.couleur ?? '#4A4CC8' }} />
+                      <span className="text-xs text-navy flex-1 truncate">{p.nom}</span>
+                      <select value={role}
+                        onChange={e => setForm(f => ({
+                          ...f,
+                          pending_produit_roles: { ...f.pending_produit_roles, [String(p.id)]: e.target.value },
+                        }))}
+                        className="ds-select text-xs py-0.5 w-28">
+                        <option value="none">— Aucun —</option>
+                        <option value="po">PO</option>
+                        <option value="dev">Dev</option>
+                        <option value="lecteur">Lecteur</option>
+                      </select>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-1 border-t border-border">
+            <button onClick={save} className="ds-btn-primary ds-btn-sm text-xs">Enregistrer</button>
+            <button onClick={onEdit} className="ds-btn ds-btn-sm text-xs">Annuler</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function EquipesUtilisateursPage() {
   const { user: me } = useAuth()
   const toast = useToast()
@@ -51,17 +364,23 @@ export default function EquipesUtilisateursPage() {
   const { data: allRoles     = [] }                    = useAllRoles()
   const { data: produits     = [] }                    = useProduits()
 
-  const createEquipe  = useCreateEquipe()
-  const updateEquipe  = useUpdateEquipe()
-  const deleteEquipe  = useDeleteEquipe()
-  const updateProfile = useUpdateProfile()
-  const setEquipes    = useSetUserEquipes()
-  const inviteUser    = useInviteUser()
-  const setRoleGlobal = useSetRoleGlobal()
-  const upsertRole    = useUpsertRoleProduit()
-  const deleteRole    = useDeleteRoleProduit()
-  const deleteUser    = useDeleteUser()
-  const uploadAvatar  = useUploadAvatar()
+  const createEquipe   = useCreateEquipe()
+  const updateEquipe   = useUpdateEquipe()
+  const deleteEquipe   = useDeleteEquipe()
+  const updateProfile  = useUpdateProfile()
+  const setEquipes     = useSetUserEquipes()
+  const inviteUser     = useInviteUser()
+  const setRoleGlobal  = useSetRoleGlobal()
+  const upsertRole     = useUpsertRoleProduit()
+  const deleteRole     = useDeleteRoleProduit()
+  const deleteUser     = useDeleteUser()
+  const uploadAvatar   = useUploadAvatar()
+  const createPending       = useCreatePendingProfile()
+  const deletePending       = useDeletePendingProfile()
+  const sendInvitation      = useSendInvitationToPending()
+  const updatePending       = useUpdatePendingProfile()
+
+  const { data: pendingProfiles = [] } = usePendingProfiles()
 
   // ── État UI ─────────────────────────────────────────────────
   const [newEquipeNom,    setNewEquipeNom]    = useState('')
@@ -69,8 +388,11 @@ export default function EquipesUtilisateursPage() {
   const [filterEquipe,   setFilterEquipe]    = useState<number | null>(null)
   const [search,         setSearch]          = useState('')
   const [showInvite,     setShowInvite]      = useState(false)
+  const [formMode,       setFormMode]        = useState<'email' | 'pending'>('email')
   const [editingUser,    setEditingUser]      = useState<string | null>(null)
   const [expandRoles,    setExpandRoles]      = useState<string | null>(null)
+  const [inviteTarget,   setInviteTarget]     = useState<PendingProfile | null>(null)
+  const [inviteEmail,    setInviteEmail]      = useState('')
 
   const [inv, setInv] = useState({
     email: '', display_name: '', trigramme: '', prenom: '', nom: '',
@@ -176,6 +498,7 @@ export default function EquipesUtilisateursPage() {
     setInv({ email: '', display_name: '', trigramme: '', prenom: '', nom: '', role_metier: '', couleur: BRAND_COLORS[0], isAdmin: false })
     setInvEquipes(filterEquipe !== null ? [filterEquipe] : [])
     setInvRoles({})
+    setFormMode('email')
     setShowInvite(true)
   }
 
@@ -208,6 +531,43 @@ export default function EquipesUtilisateursPage() {
       setShowInvite(false)
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Erreur invitation', 'error')
+    }
+  }
+
+  async function handleCreatePending() {
+    if (!inv.display_name.trim() && !inv.prenom.trim()) { toast('Nom obligatoire', 'error'); return }
+    const name = inv.display_name.trim() || `${inv.prenom} ${inv.nom}`.trim()
+    try {
+      await createPending.mutateAsync({
+        display_name:        name,
+        trigramme:           inv.trigramme.trim().toUpperCase() || null,
+        prenom:              inv.prenom.trim() || null,
+        nom:                 inv.nom.trim() || null,
+        couleur:             inv.couleur,
+        role_global:         inv.isAdmin ? 'admin' : null,
+        equipe_ids:          invEquipes,
+        pending_produit_ids: Object.entries(invRoles)
+          .filter(([, r]) => r !== 'none')
+          .map(([id]) => Number(id)),
+        pending_produit_roles: Object.fromEntries(
+          Object.entries(invRoles).filter(([, r]) => r !== 'none')
+        ),
+      })
+      toast(`Profil "${name}" créé — invitation à envoyer plus tard`)
+      setShowInvite(false)
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Erreur', 'error')
+    }
+  }
+
+  async function handleSendInvitation() {
+    if (!inviteTarget || !inviteEmail.trim()) { toast('Email obligatoire', 'error'); return }
+    try {
+      await sendInvitation.mutateAsync({ pending: inviteTarget, email: inviteEmail.trim() })
+      toast(`Invitation envoyée à ${inviteEmail}`)
+      setInviteTarget(null); setInviteEmail('')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erreur lors de l'invitation", 'error')
     }
   }
 
@@ -393,7 +753,7 @@ export default function EquipesUtilisateursPage() {
         )}
 
         {/* Accès produits */}
-        {u.role_global !== 'admin' && produitsActifs.length > 0 && (
+        {produitsActifs.length > 0 && (
           <div className="border-t border-border/40">
             <button onClick={() => setExpandRoles(isExpanded ? null : u.user_id)}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-subtle hover:text-navy transition-colors">
@@ -515,18 +875,43 @@ export default function EquipesUtilisateursPage() {
             <div className="bg-white rounded-2xl border border-purple/30 p-5 shadow-sm">
               <div className="flex items-center gap-2 mb-4">
                 <UserPlus size={15} className="text-purple" />
-                <span className="text-sm font-semibold text-navy">Inviter un utilisateur</span>
+                <span className="text-sm font-semibold text-navy">Ajouter un utilisateur</span>
                 <button onClick={() => setShowInvite(false)} className="ml-auto p-1 rounded-lg hover:bg-bg text-subtle hover:text-navy"><X size={14} /></button>
               </div>
 
+              {/* Toggle mode */}
+              <div className="flex gap-1 p-1 bg-bg rounded-xl mb-4 w-fit">
+                {([
+                  { mode: 'email'   as const, label: 'Inviter par email', icon: <Mail size={11} /> },
+                  { mode: 'pending' as const, label: 'Créer sans email',  icon: <Clock size={11} /> },
+                ] as const).map(opt => (
+                  <button key={opt.mode} type="button" onClick={() => setFormMode(opt.mode)}
+                    className={cn(
+                      'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all',
+                      formMode === opt.mode ? 'bg-white shadow text-navy' : 'text-subtle hover:text-navy'
+                    )}>
+                    {opt.icon} {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {formMode === 'pending' && (
+                <p className="text-xs text-subtle bg-orange/5 border border-orange/20 rounded-lg px-3 py-2 mb-3">
+                  Le profil est créé immédiatement et peut être assigné aux produits / plan de charges.
+                  L'invitation par email sera envoyée quand vous serez prêt.
+                </p>
+              )}
+
               <div className="grid grid-cols-2 gap-3 mb-3">
-                <div><div className="ds-label mb-1">Email *</div>
-                  <input value={inv.email} onChange={e => setInv(f => ({ ...f, email: e.target.value }))}
-                    className="ds-input" placeholder="prenom.nom@exemple.fr" type="email" autoFocus />
-                </div>
-                <div><div className="ds-label mb-1">Nom affiché</div>
+                {formMode === 'email' && (
+                  <div><div className="ds-label mb-1">Email *</div>
+                    <input value={inv.email} onChange={e => setInv(f => ({ ...f, email: e.target.value }))}
+                      className="ds-input" placeholder="prenom.nom@exemple.fr" type="email" autoFocus />
+                  </div>
+                )}
+                <div><div className="ds-label mb-1">Nom affiché {formMode === 'pending' && '*'}</div>
                   <input value={inv.display_name} onChange={e => setInv(f => ({ ...f, display_name: e.target.value }))}
-                    className="ds-input" placeholder="Prénom Nom" />
+                    className="ds-input" placeholder="Prénom Nom" autoFocus={formMode === 'pending'} />
                 </div>
               </div>
 
@@ -644,14 +1029,44 @@ export default function EquipesUtilisateursPage() {
               )}
 
               <div className="flex gap-2 pt-3 border-t border-border">
-                <button onClick={handleInvite} disabled={inviteUser.isPending || !inv.email.trim()}
-                  className="ds-btn-primary ds-btn-sm flex items-center gap-1.5 disabled:opacity-40">
-                  <UserPlus size={13} />
-                  {inviteUser.isPending ? 'Envoi…' : 'Envoyer l\'invitation'}
-                </button>
+                {formMode === 'email' ? (
+                  <button onClick={handleInvite}
+                    disabled={inviteUser.isPending || !inv.email.trim()}
+                    className="ds-btn-primary ds-btn-sm flex items-center gap-1.5 disabled:opacity-40">
+                    <Send size={13} />
+                    {inviteUser.isPending ? 'Envoi…' : "Envoyer l'invitation"}
+                  </button>
+                ) : (
+                  <button onClick={handleCreatePending}
+                    disabled={createPending.isPending || (!inv.display_name.trim() && !inv.prenom.trim())}
+                    className="ds-btn-primary ds-btn-sm flex items-center gap-1.5 disabled:opacity-40">
+                    <UserPlus size={13} />
+                    {createPending.isPending ? 'Création…' : 'Créer le profil'}
+                  </button>
+                )}
                 <button onClick={() => setShowInvite(false)} className="ds-btn ds-btn-sm">Annuler</button>
               </div>
             </div>
+          )}
+
+          {/* ── Profils en attente ───────────────────────── */}
+          {pendingProfiles.length > 0 && (
+            <PendingSection
+              pendingProfiles={pendingProfiles}
+              produitsActifs={produitsActifs}
+              equipesActives={equipesActives}
+              inviteTarget={inviteTarget} inviteEmail={inviteEmail}
+              setInviteTarget={setInviteTarget} setInviteEmail={setInviteEmail}
+              onInvite={handleSendInvitation}
+              onDelete={async pp => {
+                if (!window.confirm(`Supprimer "${pp.display_name}" ?`)) return
+                await deletePending.mutateAsync(pp.id)
+                toast(`"${pp.display_name}" supprimé`)
+              }}
+              onUpdate={(id, updates) => updatePending.mutate({ id, updates })}
+              sendingPending={sendInvitation.isPending}
+              BRAND_COLORS={BRAND_COLORS}
+            />
           )}
 
           {/* Barre de recherche + filtre actif */}
