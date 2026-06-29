@@ -2,10 +2,12 @@ import React, { useState, useMemo } from 'react'
 import { Layout } from '@/components/layout/Layout'
 import { Spinner, EmptyState } from '@/components/ui/Spinner'
 import { StatutBadge, MoscowBadge, TypeFonctionBadge, JalonBadge, PrioBadge } from '@/components/ui/Badge'
-import { useTaches } from '@/hooks/useTaches'
+import { useTaches, useUpdateTache } from '@/hooks/useTaches'
 import { useClosedSprints } from '@/hooks/useSprints'
-import { EPIC_LIST, EPIC_COLORS, JALON_LIST } from '@/constants'
-import { epicShortName, epicCode } from '@/lib/utils'
+import { EPIC_COLORS, JALON_LIST } from '@/constants'
+import { epicShortName, epicCode, parseCriteres, serializeCriteres } from '@/lib/utils'
+import { CriteresEditor } from '@/components/ui/CriteresEditor'
+import type { CritereItem } from '@/lib/utils'
 import { ChevronRight, ChevronDown, Lock, Search, X, SlidersHorizontal } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Tache } from '@/types'
@@ -39,6 +41,7 @@ function Chip({label,active,onClick,activeBg,activeText,bg,text}:{
 export default function BacklogPage() {
   const { data:taches=[], isLoading } = useTaches()
   const { data:closedSprints=[] }     = useClosedSprints()
+  const updateTache                   = useUpdateTache()
   const [search,setSearch]       = useState('')
   const [groupBy,setGroupBy]     = useState<GroupBy>('epic')
   const [selEpics,setSelEpics]   = useState<string[]>([])
@@ -51,7 +54,8 @@ export default function BacklogPage() {
   const [page,setPage]           = useState(1)
   const [showFilters,setShowFilters] = useState(false)
 
-  const parents = useMemo(()=>taches.filter(t=>!t.parent_id),[taches])
+  const parents  = useMemo(()=>taches.filter(t=>!t.parent_id),[taches])
+  const epicList = useMemo(()=>[...new Set(parents.map(t=>t.epic).filter(Boolean))].sort(),[parents])
   const childMap = useMemo(()=>{
     const map:Record<string,Tache[]>={}
     taches.filter(t=>t.parent_id).forEach(c=>{if(!map[c.parent_id!]) map[c.parent_id!]=[]; map[c.parent_id!].push(c)})
@@ -88,7 +92,7 @@ export default function BacklogPage() {
   const totalPages = Math.ceil(filtered.length/PAGE_SIZE)
 
   const groups:{key:string;tasks:Tache[]}[] =
-    groupBy==='epic'  ? EPIC_LIST.map(e=>({key:e,tasks:filteredPaged.filter(t=>t.epic===e)})).filter(g=>g.tasks.length) :
+    groupBy==='epic'  ? epicList.map(e=>({key:e,tasks:filteredPaged.filter(t=>t.epic===e)})).filter(g=>g.tasks.length) :
     groupBy==='jalon' ? JALON_LIST.map(j=>({key:j,tasks:filteredPaged.filter(t=>t.jalon===j)})).filter(g=>g.tasks.length) :
     [{key:'all',tasks:filteredPaged}]
 
@@ -135,10 +139,10 @@ export default function BacklogPage() {
             <div className="flex items-center gap-2 flex-wrap">
               <span className="ds-label w-12 shrink-0">Epic</span>
               <div className="flex gap-1.5 flex-wrap">
-                {EPIC_LIST.map(epic=>(
+                {epicList.map(epic=>(
                   <Chip key={epic} label={epicCode(epic)} active={selEpics.includes(epic)}
                     onClick={()=>setSelEpics(prev=>toggle(prev,epic))}
-                    activeBg={EPIC_COLORS[epic]} activeText="#fff"/>
+                    activeBg={EPIC_COLORS[epic] ?? '#4A4CC8'} activeText="#fff"/>
                 ))}
               </div>
             </div>
@@ -305,7 +309,19 @@ export default function BacklogPage() {
                 {panelTask.type_fonction&&<TypeFonctionBadge value={panelTask.type_fonction}/>}
               </div>
               {panelTask.description&&<div><div className="ds-label mb-1">User Story</div><p className="text-xs text-navy leading-relaxed whitespace-pre-line">{panelTask.description}</p></div>}
-              {panelTask.criteres&&<div><div className="ds-label mb-1">Critères</div><p className="text-xs text-navy leading-relaxed whitespace-pre-line">{panelTask.criteres}</p></div>}
+              {/* Critères d'acceptation — éditables avec checkboxes */}
+              <div>
+                <div className="ds-label mb-2">Critères d'acceptation</div>
+                <CriteresEditor
+                  items={parseCriteres(panelTask.criteres)}
+                  onChange={(items: CritereItem[]) =>
+                    updateTache.mutate({
+                      id_tache: panelTask.id_tache,
+                      updates: { criteres: serializeCriteres(items) },
+                    })
+                  }
+                />
+              </div>
               {panelTask.lien_dod&&<div><div className="ds-label mb-1">Lien DoD</div><span className="text-xs text-blue font-medium">{panelTask.lien_dod}</span></div>}
               {panelTask.commentaire&&<div><div className="ds-label mb-1">Commentaire</div><p className="text-xs text-subtle italic">{panelTask.commentaire}</p></div>}
               <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-border">

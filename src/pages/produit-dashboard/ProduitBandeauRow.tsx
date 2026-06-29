@@ -191,14 +191,15 @@ export function ProduitBandeauRow({
         ? (sprintIsCloture ? `Clôturé · ${backlogPctSprint}%` : `${backlogPctSprint}% terminées`)
         : undefined)
     : (() => {
-        if (sm.projectedPct !== null) {
-          if (isGlobal && produit.date_lancement_cible)
+        if (isGlobal) {
+          if (sm.projectedPct !== null && produit.date_lancement_cible)
             return `proj. ${sm.projectedPct}% · cible ${fmtDate(produit.date_lancement_cible)}`
-          if (!isGlobal && trimEnd)
-            return `proj. ${sm.projectedPct}% · fin ${fmtDate(trimEnd.toISOString())}`
+          if (produit.date_lancement_cible) return fmtDate(produit.date_lancement_cible)
+        } else {
+          if (sm.projectedPctTrim !== null && trimEnd)
+            return `proj. ${sm.projectedPctTrim}% · fin ${fmtDate(trimEnd.toISOString())}`
+          if (trimEnd) return `Fin trim : ${fmtDate(trimEnd.toISOString())}`
         }
-        if (isGlobal && produit.date_lancement_cible) return fmtDate(produit.date_lancement_cible)
-        if (!isGlobal && trimEnd) return `Fin trim : ${fmtDate(trimEnd.toISOString())}`
         return undefined
       })()
 

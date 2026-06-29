@@ -8,8 +8,9 @@ import { useSprints, useSprintActif, useClosedSprints } from '@/hooks/useSprints
 import { useUtilisateurs } from '@/hooks/useEquipes'
 import { useToast } from '@/hooks/useToast'
 import { EPIC_LIST, JALON_LIST, SPRINTS_LIST } from '@/constants'
-import { sprintInRange } from '@/lib/utils'
+import { sprintInRange, hasPendingCriteres } from '@/lib/utils'
 import { cn } from '@/lib/utils'
+import { confirm } from '@/components/ui/ConfirmModal'
 import { ChevronDown, X, Plus } from 'lucide-react'
 import type { Statut, Tache } from '@/types'
 import type { UserProfile } from '@/contexts/AuthContext'
@@ -143,6 +144,10 @@ export default function SprintBoardPage() {
   async function changeStatut(t:Tache, statut:Statut) {
     if(isReadOnly){toast('Sprint clôturé ou en lecture seule','error');return}
     if(statut==='Fait'){
+      if(hasPendingCriteres(t.criteres)){
+        const ok=await confirm({title:'Critères non validés',message:`"${t.titre}"\n\nCertains critères d'acceptation ne sont pas cochés. Clôturer quand même ?`,confirmLabel:'Clôturer',variant:'danger'})
+        if(!ok)return
+      }
       const subs=getSubsForSprint(t.id_tache)
       const pending=subs.filter(s=>s.statut!=='Fait')
       if(pending.length>0){

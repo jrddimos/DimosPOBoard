@@ -11,9 +11,12 @@ export interface ProduitMetrics {
   totalUSTrim: number; faitUSTrim: number; backlogPctTrim: number; bloqueTrim: number
   cursorPct: number | null; joursEcoules: number | null; joursTotaux: number
   ragATrim: Rag; ragBTrim: Rag
-  ragD: Rag; ragBlGlobal: Rag; ragBlTrim: Rag
+  // ragD = scope global (date_lancement_cible) ; ragDTrim = scope trim (fin trimestre)
+  ragD: Rag; ragDTrim: Rag
+  ragBlGlobal: Rag; ragBlTrim: Rag
   openRisques: number; openActions: number
-  projectedPct: number | null
+  projectedPct: number | null        // projection globale
+  projectedPctTrim: number | null    // projection trim
   estimatedDeliveryDate: Date | null; trimLabel: string | null
   dateLancementCible: string | null
 }
@@ -88,10 +91,10 @@ export function computeProduitMetrics(
     .sort((a, b) => a.getTime() - b.getTime())[0] ?? null
   const globalTargetDate = produit.date_lancement_cible ? new Date(produit.date_lancement_cible) : null
   const globalCursorPct = firstTrimStart && globalTargetDate && globalTargetDate > firstTrimStart
-    ? Math.min(100, Math.round(
+    ? Math.min(100, Math.max(0, Math.round(
         (today.getTime() - firstTrimStart.getTime()) /
         (globalTargetDate.getTime() - firstTrimStart.getTime()) * 100
-      ))
+      )))
     : null
 
   const ragAGlobal = totalUS > 0         ? ragAvancement(backlogPct, globalCursorPct) : null
@@ -108,6 +111,8 @@ export function computeProduitMetrics(
   const joursEcoules = quarterStart ? Math.min(countWorkingDays(quarterStart, today), joursTotaux) : null
   const cursorPct    = joursEcoules !== null ? Math.round(joursEcoules / joursTotaux * 100) : null
 
+  const trimEnd = currentTrim ? getQuarterEnd(currentTrim.trimestre) : null
+
   const trimBudgetEtp     = (currentTrim?.budget_etp ?? 0) * tjmMoyen * joursTotaux
   const trimRealiseEtpEur = effortFaitTrim * tjmMoyen
 
@@ -120,14 +125,16 @@ export function computeProduitMetrics(
   const ragBlGlobal = ragBlocages(bloqueUS,   openRisques)
   const ragBlTrim   = ragBlocages(bloqueTrim, openRisques)
 
-  let ragD: Rag = null
-  let projectedPct: number | null = null
+  // ── Livraison estimée (trim cursor) ─────────────────────────
   let estimatedDeliveryDate: Date | null = null
-
   if (cursorPct !== null && cursorPct > 0 && totalUSTrim > 0 && backlogPctTrim > 0) {
     const pace = backlogPctTrim / cursorPct
     estimatedDeliveryDate = addWorkingDays(today, Math.round(((100 - backlogPctTrim) / pace) * joursTotaux / 100))
   }
+
+  // ── ragD global (date_lancement_cible) ──────────────────────
+  let ragD: Rag = null
+  let projectedPct: number | null = null
 
   if (produit.date_lancement_cible) {
     const targetDate = new Date(produit.date_lancement_cible)
@@ -148,27 +155,43 @@ export function computeProduitMetrics(
     }
   }
 
+  // ── ragDTrim (fin trimestre courant) ─────────────────────────
+  let ragDTrim: Rag = null
+  let projectedPctTrim: number | null = null
+
+  if (trimEnd && cursorPct !== null && cursorPct > 0 && totalUSTrim > 0) {
+    const joursRestantsTrim = Math.max(0, joursTotaux - (joursEcoules ?? 0))
+    const pace = backlogPctTrim / cursorPct
+    projectedPctTrim = Math.min(100, Math.round(backlogPctTrim + pace * (joursRestantsTrim / joursTotaux * 100)))
+    ragDTrim = projectedPctTrim >= 90 ? 'green' : projectedPctTrim >= 70 ? 'amber' : 'red'
+  } else if (trimEnd && trimEnd < today) {
+    ragDTrim = 'red'
+  }
+
   return {
     totalUS, faitUS, enCoursUS, bloqueUS, backlogPct, ragAGlobal, ragBGlobal, globalCursorPct,
     totalUSTrim, faitUSTrim, backlogPctTrim, bloqueTrim, cursorPct, joursEcoules, joursTotaux,
     ragATrim, ragBTrim,
-    ragD, ragBlGlobal, ragBlTrim, openRisques, openActions,
-    projectedPct, estimatedDeliveryDate, trimLabel: currentTrim?.trimestre ?? null,
+    ragD, ragDTrim, ragBlGlobal, ragBlTrim, openRisques, openActions,
+    projectedPct, projectedPctTrim, estimatedDeliveryDate,
+    trimLabel: currentTrim?.trimestre ?? null,
     dateLancementCible: produit.date_lancement_cible,
   }
 }
 
 export function scopedMetrics(m: ProduitMetrics, scope: MultiScope) {
-  const isGlobal   = scope === 'global'
-  const ragA       = isGlobal ? m.ragAGlobal : m.ragATrim
-  const ragB       = isGlobal ? m.ragBGlobal : m.ragBTrim
-  const ragBl      = isGlobal ? m.ragBlGlobal : m.ragBlTrim
-  const trajectoire: Rag = m.ragD ?? ragA
-  const total      = isGlobal ? m.totalUS    : m.totalUSTrim
-  const fait       = isGlobal ? m.faitUS     : m.faitUSTrim
-  const backlogPct = isGlobal ? m.backlogPct : m.backlogPctTrim
-  const cursor     = isGlobal ? m.globalCursorPct : m.cursorPct
-  const ecart      = cursor !== null ? backlogPct - cursor : backlogPct - 50
+  const isGlobal    = scope === 'global'
+  const ragA        = isGlobal ? m.ragAGlobal : m.ragATrim
+  const ragB        = isGlobal ? m.ragBGlobal : m.ragBTrim
+  const ragBl       = isGlobal ? m.ragBlGlobal : m.ragBlTrim
+  const ragD        = isGlobal ? m.ragD : m.ragDTrim
+  const projPct     = isGlobal ? m.projectedPct : m.projectedPctTrim
+  const trajectoire: Rag = ragD ?? ragA
+  const total       = isGlobal ? m.totalUS    : m.totalUSTrim
+  const fait        = isGlobal ? m.faitUS     : m.faitUSTrim
+  const backlogPct  = isGlobal ? m.backlogPct : m.backlogPctTrim
+  const cursor      = isGlobal ? m.globalCursorPct : m.cursorPct
+  const ecart       = cursor !== null ? backlogPct - cursor : backlogPct - 50
 
   const fmtD = (d: Date) => d.toLocaleDateString('fr-FR')
 
@@ -177,9 +200,9 @@ export function scopedMetrics(m: ProduitMetrics, scope: MultiScope) {
     : undefined
 
   const tipD = (() => {
-    if (m.projectedPct !== null && m.dateLancementCible) {
-      const lines = [`Projection : ${m.projectedPct}% à date cible`]
-      lines.push(`Date cible : ${fmtD(new Date(m.dateLancementCible))}`)
+    if (projPct !== null) {
+      const lines = [`Projection : ${projPct}%`]
+      if (isGlobal && m.dateLancementCible) lines.push(`Date cible : ${fmtD(new Date(m.dateLancementCible))}`)
       if (m.estimatedDeliveryDate) lines.push(`Livraison est. : ${fmtD(m.estimatedDeliveryDate)}`)
       return lines.join('\n')
     }
@@ -188,8 +211,8 @@ export function scopedMetrics(m: ProduitMetrics, scope: MultiScope) {
     return undefined
   })()
 
-  const tipTraj = m.projectedPct !== null
-    ? `Vélocité : ${backlogPct}% · curseur ${cursor ?? '?'}%\nProjection : ${m.projectedPct}%`
+  const tipTraj = projPct !== null
+    ? `Vélocité : ${backlogPct}% · curseur ${cursor ?? '?'}%\nProjection : ${projPct}%`
     : tipA
 
   const tipBl = m.openRisques > 0 || m.openActions > 0
@@ -202,5 +225,5 @@ export function scopedMetrics(m: ProduitMetrics, scope: MultiScope) {
       ? `Curseur global : ${m.globalCursorPct}%`
       : undefined
 
-  return { ragA, ragB, ragD: m.ragD, ragBl, trajectoire, total, fait, backlogPct, tipA, tipB, tipD, tipTraj, tipBl }
+  return { ragA, ragB, ragD, ragBl, trajectoire, total, fait, backlogPct, projPct, tipA, tipB, tipD, tipTraj, tipBl }
 }

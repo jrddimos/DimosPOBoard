@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Layout } from '@/components/layout/Layout'
 import { Spinner } from '@/components/ui/Spinner'
-import { useTaches } from '@/hooks/useTaches'
+import { useAllTaches } from '@/hooks/useTaches'
 import { useSprintActif } from '@/hooks/useSprints'
 import { useProduits } from '@/hooks/useProduits'
 import { useFinanceConfig } from '@/hooks/useFinanceConfig'
@@ -15,6 +15,7 @@ import { Tooltip } from '@/components/ui/Tooltip'
 import { computeProduitMetrics, scopedMetrics } from '@/utils/produitMetrics'
 import type { Rag, MultiScope, ProduitMetrics } from '@/utils/produitMetrics'
 import type { Produit } from '@/hooks/useProduits'
+import type { Tache } from '@/types'
 
 // ── UI helpers RAG ───────────────────────────────────────────────
 const RAG_BG: Record<string, string> = { green: 'bg-green', amber: 'bg-orange', red: 'bg-red' }
@@ -36,7 +37,7 @@ type DashMode = 'multi' | 'produit'
 
 export default function DashboardPage() {
   const { data: produits = [], isLoading: loadProd } = useProduits()
-  const { data: taches   = [], isLoading: loadTach } = useTaches()
+  const { data: taches   = [], isLoading: loadTach } = useAllTaches()
   const { data: sprintActif }                        = useSprintActif()
   const { data: finConfig }                          = useFinanceConfig()
   const { isAdmin, getRoleForProduit }               = useAuth()
@@ -67,7 +68,7 @@ export default function DashboardPage() {
   }, [mode])
 
   const allParents = useMemo(
-    () => taches.filter(t => !t.parent_id && !templateIds.has(t.produit_id as number)),
+    () => taches.filter((t: Tache) => !t.parent_id && !templateIds.has(t.produit_id as number)),
     [taches, produits]
   )
 
@@ -75,7 +76,7 @@ export default function DashboardPage() {
   const metricsMap = useMemo(() => {
     const map = new Map<number, ProduitMetrics>()
     accessibles.forEach(p => {
-      map.set(p.id, computeProduitMetrics(p, allParents.filter(t => t.produit_id === p.id), finConfig, today))
+      map.set(p.id, computeProduitMetrics(p, allParents.filter((t: Tache) => t.produit_id === p.id), finConfig, today))
     })
     return map
   }, [accessibles, allParents, finConfig, today])

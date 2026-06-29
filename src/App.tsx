@@ -20,6 +20,7 @@ import ActivitePage    from '@/pages/activite/ActivitePage'
 import ReunionPage            from '@/pages/reunion/ReunionPage'
 import ProduitDashboardPage  from '@/pages/produit-dashboard/ProduitDashboardPage'
 import ProduitConfigPage     from '@/pages/produit-config/ProduitConfigPage'
+import PlanChargesPage       from '@/pages/plancharges/PlanChargesPage'
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({
@@ -93,6 +94,7 @@ function AppRoutes() {
       <Route path="/montravail"  element={<MonTravailPage />} />
       <Route path="/activite"    element={requireProduit(<ActivitePage />)} />
       <Route path="/reunion"             element={<ReunionPage />} />
+      <Route path="/plan-charges"        element={<PlanChargesPage />} />
       <Route path="/produit-dashboard"  element={requireProduit(<ProduitDashboardPage />)} />
       <Route path="/produit-config"     element={requireProduit(<ProduitConfigPage />)} />
       <Route path="*"                   element={<Navigate to="/" replace />} />

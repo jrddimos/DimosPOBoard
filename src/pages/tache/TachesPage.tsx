@@ -11,7 +11,9 @@ import { useToast } from '@/hooks/useToast'
 import { confirm } from '@/components/ui/ConfirmModal'
 import { EPIC_LIST, JALON_LIST, MOSCOW_LIST, SPRINTS_LIST, METIERS_DEFAULT } from '@/constants'
 import { Search, Lock, Plus, Copy, Trash2, Edit2, ChevronRight, ChevronDown, X, CornerDownRight } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, parseCriteres, serializeCriteres, hasPendingCriteres } from '@/lib/utils'
+import type { CritereItem } from '@/lib/utils'
+import { CriteresEditor } from '@/components/ui/CriteresEditor'
 import type { Tache, Statut } from '@/types'
 
 type TabKey = 'add'|'edit'|'dup'|'del'
@@ -84,7 +86,7 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
   createTache:ReturnType<typeof useCreateTache>;createSub:ReturnType<typeof useCreateSousTache>;updateTache:ReturnType<typeof useUpdateTache>
   toast:ReturnType<typeof useToast>;initTitre?:string;initParentId?:string
 }) {
-  const mkBlank=()=>({epic:'',jalon:'',titre:initTitre,description:'',criteres:'',lien_dod:'',commentaire:'',
+  const mkBlank=()=>({epic:'',jalon:'',titre:initTitre,description:'',lien_dod:'',commentaire:'',
     sprint_debut:sprintActif??'',sprint_fin:'',moscow:'Must Have',priorite:'P2',effort_j:0,
     equipe:'',metier:'',type_fonction:'Fonction principale',type_tache:'Tâche',assigne_a:''})
 
@@ -96,6 +98,7 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
   }}
 
   const [form,setForm]=useState(mkBlank)
+  const [critereItems,setCritereItems]=useState<CritereItem[]>([])
   const [parentId,setParentId]=useState(initParentId)
   const [editTask,setEditTask]=useState<Tache|null>(null)
   const [confirmNew,setConfirmNew]=useState(false)  // question "repartir de cette tâche ?"
@@ -124,9 +127,10 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
   function selectTask(t:Tache){
     setEditTask(t);setConfirmNew(false)
     setParentId(t.parent_id??'')
+    setCritereItems(parseCriteres(t.criteres))
     setForm({
       epic:t.epic??'',jalon:t.jalon??'',titre:t.titre,description:t.description??'',
-      criteres:t.criteres??'',lien_dod:t.lien_dod??'',commentaire:t.commentaire??'',
+      lien_dod:t.lien_dod??'',commentaire:t.commentaire??'',
       sprint_debut:t.sprint_debut||t.sprint||'',sprint_fin:t.sprint_fin??'',
       moscow:t.moscow??'Must Have',priorite:t.priorite??'P2',effort_j:t.effort_j??0,
       equipe:t.equipe??'',metier:t.metier??'',type_fonction:t.type_fonction??'Fonction principale',
@@ -135,7 +139,7 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
     window.scrollTo({top:0,behavior:'smooth'})
   }
 
-  function reset(){setForm(mkBlank());setParentId('');setEditTask(null);setConfirmNew(false)}
+  function reset(){setForm(mkBlank());setCritereItems([]);setParentId('');setEditTask(null);setConfirmNew(false)}
 
   // Sous-tâche depuis tâche en cours : pré-remplit les champs communs de la parente
   function startSubtask(parent:Tache){
@@ -148,7 +152,7 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
   async function submit(e:React.FormEvent){
     e.preventDefault()
     if(!form.titre){toast('Le titre est obligatoire','error');return}
-    const payload={...form,effort_j:+form.effort_j,sprint:form.sprint_debut} as Partial<Tache>
+    const payload={...form,criteres:serializeCriteres(critereItems),effort_j:+form.effort_j,sprint:form.sprint_debut} as Partial<Tache>
     if(editTask){
       await updateTache.mutateAsync({id_tache:editTask.id_tache,updates:payload})
       toast(`✅ ${editTask.id_tache} modifiée`)
@@ -220,7 +224,11 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
           {/* Ligne 3 : User Story + Critères */}
           <div className="grid grid-cols-2 gap-4">
             <Grp label="User Story"><textarea value={form.description} onChange={set('description')} className="ds-textarea" rows={3} placeholder="En tant que… je veux… afin de…"/></Grp>
-            <Grp label="Critères d'acceptation"><textarea value={form.criteres} onChange={set('criteres')} className="ds-textarea" rows={3} placeholder="• Critère 1"/></Grp>
+            <Grp label="Critères d'acceptation">
+              <div className="ds-input min-h-[80px] flex flex-col">
+                <CriteresEditor items={critereItems} onChange={setCritereItems} />
+              </div>
+            </Grp>
           </div>
           {/* Ligne 4 : champs secondaires */}
           <div className="grid grid-cols-8 gap-4">
@@ -381,7 +389,15 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
     setEditForm(f=>({...f,assigne_a:tri,...(eq?{equipe:eq.nom}:{})}))
   }
 
-  async function savePanel(){if(!panelId)return;await updateTache.mutateAsync({id_tache:panelId,updates:editForm as Partial<Tache>});toast(`${panelId} mis à jour`)}
+  async function savePanel(){
+    if(!panelId)return
+    if(editForm.statut==='Fait' && hasPendingCriteres(String(editForm.criteres??''))){
+      const ok=await confirm({title:'Critères non validés',message:'Certains critères d\'acceptation ne sont pas cochés. Clôturer la tâche quand même ?',confirmLabel:'Clôturer',variant:'danger'})
+      if(!ok)return
+    }
+    await updateTache.mutateAsync({id_tache:panelId,updates:editForm as Partial<Tache>})
+    toast(`${panelId} mis à jour`)
+  }
 
   async function applyBulk(){
     if(!selected.length){toast('Sélectionnez des US','error');return}
@@ -624,7 +640,15 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
 
               {/* Textes */}
               <Grp label="User Story"><textarea value={String(editForm.description??'')} onChange={setF('description')} className="ds-textarea text-xs" rows={3}/></Grp>
-              <Grp label="Critères d'acceptation"><textarea value={String(editForm.criteres??'')} onChange={setF('criteres')} className="ds-textarea text-xs" rows={3}/></Grp>
+              <Grp label="Critères d'acceptation">
+                <div className="ds-input min-h-[72px] flex flex-col">
+                  <CriteresEditor
+                    items={parseCriteres(String(editForm.criteres??''))}
+                    onChange={items=>setEditForm(f=>({...f,criteres:serializeCriteres(items)}))}
+                    compact
+                  />
+                </div>
+              </Grp>
               <Grp label="Lien DoD">
                 <input value={String(editForm.lien_dod??'')} onChange={setF('lien_dod')} className="ds-input text-xs" placeholder="F1.1, F1.2…"/>
                 {!!editForm.lien_dod&&(

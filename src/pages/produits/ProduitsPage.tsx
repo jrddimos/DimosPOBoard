@@ -15,6 +15,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import {
   Plus, Check, X, Star, Copy, LayoutTemplate, Settings2,
   LayoutDashboard, ChevronRight, AlertTriangle, TrendingUp, TrendingDown, SlidersHorizontal,
+  Power, ChevronDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { BRAND_COLORS } from '@/constants'
@@ -45,13 +46,14 @@ interface ProduitForm { nom: string; description: string; couleur: string }
 type CreateMode = 'vierge' | 'dupliquer' | 'modele'
 
 // ── Carte produit (preview enrichie) ─────────────────────────────
-function ProduitCard({ p, isAdmin, isActif, roleLabel, roleColor, onEnterConfig, onEnterDashboard, onEdit, onDelete, onToggleTemplate }: {
+function ProduitCard({ p, isAdmin, isActif, roleLabel, roleColor, onEnterConfig, onEnterDashboard, onEdit, onDelete, onToggleTemplate, onToggleActif }: {
   p: Produit; isAdmin: boolean; isActif: boolean
   roleLabel: string; roleColor: string
   onEnterConfig: () => void
   onEnterDashboard: () => void
   onEdit: () => void; onDelete: () => void
   onToggleTemplate: () => void
+  onToggleActif: () => void
 }) {
   // Dernier trimestre actif (non clôturé)
   const trims    = Array.isArray(p.objectifs_trimestriels) ? p.objectifs_trimestriels : []
@@ -80,10 +82,11 @@ function ProduitCard({ p, isAdmin, isActif, roleLabel, roleColor, onEnterConfig,
 
   return (
     <div className={cn(
-      'group bg-white rounded-2xl border overflow-hidden transition-all cursor-pointer',
+      'group bg-white rounded-2xl border overflow-hidden transition-all',
+      p.actif ? 'cursor-pointer' : 'cursor-default opacity-60 grayscale-[40%]',
       isActif ? 'border-purple ring-2 ring-purple/20 shadow-md' : 'border-border hover:shadow-md hover:-translate-y-0.5',
       p.is_template && 'ring-1 ring-orange/30',
-    )} onClick={onEnterConfig}>
+    )} onClick={p.actif ? onEnterConfig : undefined}>
       {/* Barre couleur */}
       <div className="h-2 shrink-0" style={{ background: p.couleur ?? '#4A4CC8' }} />
 
@@ -101,6 +104,9 @@ function ProduitCard({ p, isAdmin, isActif, roleLabel, roleColor, onEnterConfig,
               {isActif && (
                 <span className="text-[10px] px-1.5 py-0.5 bg-purple/10 text-purple font-bold rounded-full shrink-0">Actif</span>
               )}
+              {!p.actif && (
+                <span className="text-[10px] px-1.5 py-0.5 bg-subtle/10 text-subtle font-bold rounded-full shrink-0">Inactif</span>
+              )}
             </div>
             {p.description && (
               <p className="text-xs text-subtle line-clamp-1">{p.description}</p>
@@ -108,25 +114,42 @@ function ProduitCard({ p, isAdmin, isActif, roleLabel, roleColor, onEnterConfig,
           </div>
           {/* Actions — stoppent la propagation du clic carte */}
           <div className="flex gap-1 ml-2 shrink-0" onClick={e => e.stopPropagation()}>
-            <button onClick={onEnterDashboard} title="Voir le dashboard"
-              className="p-1.5 rounded-lg hover:bg-bg text-subtle hover:text-purple transition-colors">
-              <LayoutDashboard size={13} />
-            </button>
+            {p.actif && (
+              <button onClick={onEnterDashboard} title="Voir le dashboard"
+                className="p-1.5 rounded-lg hover:bg-bg text-subtle hover:text-purple transition-colors">
+                <LayoutDashboard size={13} />
+              </button>
+            )}
             {isAdmin && (
               <>
-                <button onClick={onToggleTemplate} title={p.is_template ? 'Retirer le statut modèle' : 'Marquer comme modèle'}
+                {p.actif && (
+                  <button onClick={onToggleTemplate} title={p.is_template ? 'Retirer le statut modèle' : 'Marquer comme modèle'}
+                    className={cn('p-1.5 rounded-lg transition-colors',
+                      p.is_template ? 'text-orange bg-orange/5 hover:bg-orange/10' : 'text-subtle hover:bg-bg hover:text-orange')}>
+                    <Star size={13} className={p.is_template ? 'fill-amber-400 stroke-amber-500' : ''} />
+                  </button>
+                )}
+                {p.actif && (
+                  <button onClick={onEdit}
+                    className="p-1.5 rounded-lg hover:bg-bg text-subtle hover:text-navy transition-colors">
+                    <Settings2 size={13} />
+                  </button>
+                )}
+                <button
+                  onClick={onToggleActif}
+                  title={p.actif ? 'Désactiver ce produit' : 'Réactiver ce produit'}
                   className={cn('p-1.5 rounded-lg transition-colors',
-                    p.is_template ? 'text-orange bg-orange/5 hover:bg-orange/10' : 'text-subtle hover:bg-bg hover:text-orange')}>
-                  <Star size={13} className={p.is_template ? 'fill-amber-400 stroke-amber-500' : ''} />
+                    p.actif
+                      ? 'text-subtle hover:bg-orange/10 hover:text-orange'
+                      : 'text-green bg-green/10 hover:bg-green/20')}>
+                  <Power size={13} />
                 </button>
-                <button onClick={onEdit}
-                  className="p-1.5 rounded-lg hover:bg-bg text-subtle hover:text-navy transition-colors">
-                  <Settings2 size={13} />
-                </button>
-                <button onClick={onDelete}
-                  className="p-1.5 rounded-lg hover:bg-red/10 text-subtle hover:text-red transition-colors">
-                  <X size={13} />
-                </button>
+                {p.actif && (
+                  <button onClick={onDelete}
+                    className="p-1.5 rounded-lg hover:bg-red/10 text-subtle hover:text-red transition-colors">
+                    <X size={13} />
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -531,13 +554,17 @@ export default function ProduitsPage() {
   const toast    = useToast()
   const navigate = useNavigate()
 
-  const [showCreate,     setShowCreate]     = useState(false)
-  const [editingId,      setEditingId]      = useState<number | null>(null)
+  const [showCreate,      setShowCreate]      = useState(false)
+  const [editingId,       setEditingId]       = useState<number | null>(null)
   const [showRagDefaults, setShowRagDefaults] = useState(false)
+  const [showArchives,    setShowArchives]    = useState(false)
 
+  // Produits accessibles (actifs) — vue normale
   const produitsAccessibles = produits.filter(p =>
     p.actif && (isAdmin || getRoleForProduit(p.id) !== null)
   )
+  // Produits inactifs (admin uniquement)
+  const produitsInactifs = isAdmin ? produits.filter(p => !p.actif) : []
 
   function roleLabel(pid: number) {
     if (isAdmin) return 'Admin'
@@ -602,6 +629,16 @@ export default function ProduitsPage() {
     toast(p.is_template ? `"${p.nom}" retiré des modèles` : `"${p.nom}" marqué comme modèle`)
   }
 
+  async function handleToggleActif(p: Produit) {
+    await updateProduit.mutateAsync({ id: p.id, updates: { actif: !p.actif } })
+    if (!p.actif) {
+      toast(`"${p.nom}" réactivé — visible dans toutes les vues`)
+    } else {
+      toast(`"${p.nom}" désactivé — masqué de toutes les vues`)
+      if (produitActif?.id === p.id) setProduitActif(null)
+    }
+  }
+
   const isSaving   = createProduit.isPending || duplicateProduit.isPending
   const nbModeles  = produitsAccessibles.filter(p => p.is_template).length
 
@@ -615,6 +652,7 @@ export default function ProduitsPage() {
         <span className="text-xs text-subtle ml-2">
           {produitsAccessibles.length - nbModeles} produit{produitsAccessibles.length - nbModeles !== 1 ? 's' : ''}
           {nbModeles > 0 && ` · ${nbModeles} modèle${nbModeles !== 1 ? 's' : ''}`}
+          {produitsInactifs.length > 0 && ` · ${produitsInactifs.length} archivé${produitsInactifs.length !== 1 ? 's' : ''}`}
         </span>
         {isAdmin && (
           <button onClick={() => setShowRagDefaults(v => !v)}
@@ -649,7 +687,7 @@ export default function ProduitsPage() {
         />
       )}
 
-      {/* Grille produits */}
+      {/* Grille produits actifs */}
       {produitsAccessibles.length === 0 ? (
         <div className="text-center py-20 text-subtle">
           <div className="text-4xl mb-3">📦</div>
@@ -680,8 +718,45 @@ export default function ProduitsPage() {
                 onEdit={() => { setEditingId(p.id); setShowCreate(false) }}
                 onDelete={() => handleDelete(p)}
                 onToggleTemplate={() => handleToggleTemplate(p)}
+                onToggleActif={() => handleToggleActif(p)}
               />
             )
+          )}
+        </div>
+      )}
+
+      {/* Section produits archivés (admin uniquement) */}
+      {produitsInactifs.length > 0 && (
+        <div className="mt-8">
+          <button
+            onClick={() => setShowArchives(v => !v)}
+            className="flex items-center gap-2 mb-4 text-subtle hover:text-navy transition-colors group">
+            <ChevronDown size={14} className={cn('transition-transform duration-200', !showArchives && '-rotate-90')} />
+            <span className="text-xs font-semibold uppercase tracking-wider">
+              Archivés ({produitsInactifs.length})
+            </span>
+            <span className="text-[10px] text-subtle/60">— désactivés, masqués de toutes les vues</span>
+          </button>
+
+          {showArchives && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {produitsInactifs.map(p => (
+                <ProduitCard
+                  key={p.id}
+                  p={p}
+                  isAdmin={isAdmin}
+                  isActif={false}
+                  roleLabel="Admin"
+                  roleColor="bg-subtle/10 text-subtle"
+                  onEnterConfig={() => {}}
+                  onEnterDashboard={() => {}}
+                  onEdit={() => {}}
+                  onDelete={() => handleDelete(p)}
+                  onToggleTemplate={() => {}}
+                  onToggleActif={() => handleToggleActif(p)}
+                />
+              ))}
+            </div>
           )}
         </div>
       )}

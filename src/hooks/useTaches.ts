@@ -22,6 +22,18 @@ export function useTaches() {
   })
 }
 
+export function useAllTaches() {
+  return useQuery({
+    queryKey: ['taches', 'all'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('taches').select('*').order('id_tache')
+      if (error) throw error
+      return (data ?? []) as Tache[]
+    },
+    staleTime: 30_000,
+  })
+}
+
 export function useTachesByProduit(produitId: number) {
   return useQuery({
     queryKey: ['taches', produitId],

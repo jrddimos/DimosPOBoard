@@ -24,6 +24,32 @@ export function formatDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
+// ── Critères d'acceptation ────────────────────────────────────
+export interface CritereItem { id: string; text: string; checked: boolean }
+
+export function parseCriteres(raw: string | null | undefined): CritereItem[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) return parsed as CritereItem[]
+  } catch {}
+  // Rétrocompatibilité : texte libre ligne par ligne
+  return raw.split('\n').map(l => l.trim()).filter(Boolean).map(l => ({
+    id: Math.random().toString(36).slice(2),
+    text: l.replace(/^[•\-*]\s*/, ''),
+    checked: false,
+  }))
+}
+
+export function serializeCriteres(items: CritereItem[]): string {
+  return JSON.stringify(items)
+}
+
+export function hasPendingCriteres(raw: string | null | undefined): boolean {
+  const items = parseCriteres(raw)
+  return items.length > 0 && items.some(i => !i.checked)
+}
+
 export function downloadCSV(data: Record<string, unknown>[], filename: string, headers: string[], cols: string[]) {
   const rows = [headers, ...data.map(row => cols.map(col => {
     const val = row[col]

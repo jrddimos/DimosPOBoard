@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils'
 import {
   ChevronLeft, ChevronRight, Play, Pause, SkipBack, SkipForward,
   Plus, X, Check, Save, Printer, ChevronDown, ChevronUp, AlertTriangle,
-  Target, Zap, Maximize2, Minimize2,
+  Target, Maximize2, Minimize2,
 } from 'lucide-react'
 import type { Produit, TrimObjectif } from '@/hooks/useProduits'
 import type { Sprint } from '@/types'
@@ -24,23 +24,23 @@ import type { BandeauScope }   from '@/pages/produit-dashboard/ProduitBandeauRow
 // ── Phases ────────────────────────────────────────────────────────
 const PHASES = [
   { label: 'Revues produits',        minutes: 25, color: 'bg-purple',    text: 'text-purple'    },
-  { label: 'Synchro opérationnelle', minutes: 20, color: 'bg-blue-500',  text: 'text-blue-500'  },
+  { label: 'Synchro opérationnelle', minutes: 20, color: 'bg-blue',      text: 'text-blue'      },
   { label: 'Rituels & process',      minutes: 10, color: 'bg-amber-500', text: 'text-amber-500' },
-  { label: 'Wrap-up',               minutes:  5, color: 'bg-green-500', text: 'text-green-500' },
+  { label: 'Wrap-up',               minutes:  5, color: 'bg-green',     text: 'text-green'     },
 ] as const
 
 const STATUTS_PRESENTE = ['On track', 'At risk', 'Off track', 'En pause', 'Non présenté'] as const
 const STATUT_COLORS: Record<string, string> = {
-  'On track':     'bg-green-100 text-green-700',
+  'On track':     'bg-green/15 text-green',
   'At risk':      'bg-amber-100 text-amber-700',
-  'Off track':    'bg-red-100 text-red-600',
+  'Off track':    'bg-red/15 text-red',
   'En pause':     'bg-gray-100 text-gray-500',
   'Non présenté': 'bg-gray-50 text-gray-400',
 }
 const TRIM_BAR: Record<string, string> = {
-  'On track':  'bg-green-500',
+  'On track':  'bg-green',
   'At risk':   'bg-amber-400',
-  'Off track': 'bg-red-500',
+  'Off track': 'bg-red',
   'En pause':  'bg-gray-400',
 }
 
@@ -70,12 +70,9 @@ function fmtTime(seconds: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
-}
 
 // ── Types locaux ──────────────────────────────────────────────────
-type SprintFull = Sprint & { produit_id: number }
+
 
 interface RevueLocale {
   statut_presente: string
@@ -85,27 +82,31 @@ interface RevueLocale {
 }
 interface SujetLocale { id: string; type_tag: string; titre: string }
 
-// ── Bloc objectif trimestriel (interactif) ────────────────────────
+// ── Bloc objectif trimestriel (collapsible, mode flat ou carte) ───
 function TrimBlock({
-  trims, onToggle,
+  trims, onToggle, flat = false,
 }: {
   trims: TrimObjectif[]
   onToggle: (trimId: string, itemId: string, checked: boolean) => void
+  flat?: boolean
 }) {
+  const [open, setOpen] = useState(false)
   const t = [...trims].reverse().find(x => x.objectifs?.length || x.statut)
   if (!t) return null
 
-  const items = t.objectifs ?? []
-  const pct   = trimAvancement(t)
-  const done  = items.filter(o => o.checked).length
-  const barColor = t.statut ? (TRIM_BAR[t.statut] ?? 'bg-green-500') : 'bg-green-500'
+  const items    = t.objectifs ?? []
+  const pct      = trimAvancement(t)
+  const done     = items.filter(o => o.checked).length
+  const barColor = t.statut ? (TRIM_BAR[t.statut] ?? 'bg-green') : 'bg-green'
 
-  return (
-    <div className="rounded-lg border border-border bg-bg px-3 py-2.5 space-y-2">
-      {/* Titre + statut + % */}
-      <div className="flex items-center gap-2">
+  const inner = (
+    <>
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-border/20 transition-colors text-left"
+      >
         <Target size={10} className="text-purple shrink-0" />
-        <span className="text-[10px] font-bold text-navy uppercase tracking-wider">Objectif</span>
+        <span className="text-[10px] font-bold text-navy uppercase tracking-wider">Objectif trim</span>
         {t.trimestre && <span className="text-[10px] text-subtle">— {t.trimestre}</span>}
         <div className="flex items-center gap-1.5 ml-auto">
           {t.statut && (
@@ -113,23 +114,22 @@ function TrimBlock({
               {t.statut}
             </span>
           )}
-          {pct !== null && <span className="text-[10px] font-bold text-navy tabular-nums">{pct} %</span>}
+          {pct !== null && <span className="text-[10px] font-bold text-navy tabular-nums">{pct}%</span>}
+          {open ? <ChevronUp size={10} className="text-subtle ml-1" /> : <ChevronDown size={10} className="text-subtle ml-1" />}
         </div>
-      </div>
+      </button>
 
-      {/* Barre avancement */}
       {pct !== null && (
-        <div className="flex items-center gap-2">
-          <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
+        <div className="px-3 pb-2 flex items-center gap-2">
+          <div className="flex-1 h-1 rounded-full bg-border overflow-hidden">
             <div className={cn('h-full rounded-full transition-all', barColor)} style={{ width: `${pct}%` }} />
           </div>
           <span className="text-[10px] text-subtle tabular-nums">{done}/{items.length}</span>
         </div>
       )}
 
-      {/* Checklist */}
-      {items.length > 0 && (
-        <div className="space-y-1.5 pt-0.5">
+      {open && items.length > 0 && (
+        <div className="px-3 pb-2.5 space-y-1.5 border-t border-border/40 pt-2">
           {items.map(obj => (
             <button
               key={obj.id}
@@ -138,80 +138,27 @@ function TrimBlock({
             >
               <div className={cn(
                 'mt-0.5 w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-all',
-                obj.checked
-                  ? 'bg-green-500 border-green-500'
-                  : 'border-border group-hover:border-purple/60'
+                obj.checked ? 'bg-green border-green' : 'border-border group-hover:border-purple/60'
               )}>
                 {obj.checked && <Check size={8} className="text-white" />}
               </div>
-              <span className={cn(
-                'text-xs leading-snug flex-1',
-                obj.checked ? 'line-through text-subtle/60' : 'text-navy/80'
-              )}>
+              <span className={cn('text-xs leading-snug flex-1', obj.checked ? 'line-through text-subtle/60' : 'text-navy/80')}>
                 {obj.texte || <span className="italic text-subtle/40">Sans titre</span>}
               </span>
             </button>
           ))}
         </div>
       )}
-    </div>
+      {open && items.length === 0 && (
+        <p className="px-3 pb-2.5 text-xs text-subtle/40 italic border-t border-border/40 pt-2">Aucun objectif défini</p>
+      )}
+    </>
   )
+
+  if (flat) return <>{inner}</>
+  return <div className="rounded-lg border border-border bg-bg overflow-hidden">{inner}</div>
 }
 
-// ── Bloc sprint ───────────────────────────────────────────────────
-function SprintBlock({ sprint, label }: { sprint: SprintFull; label?: string }) {
-  const stats   = sprint.stats
-  const pct     = stats?.pct ?? null
-  const bloque  = stats?.bloque ?? 0
-  const isClosed = sprint.statut === 'cloture'
-
-  return (
-    <div className={cn(
-      'rounded-lg border px-3 py-2 space-y-1.5',
-      isClosed ? 'border-border bg-bg' : 'border-purple/30 bg-purple/5'
-    )}>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 text-[10px] font-bold text-navy uppercase tracking-wider">
-          <Zap size={10} className={isClosed ? 'text-subtle' : 'text-purple'} />
-          {label ?? (isClosed ? 'Dernier sprint clôturé' : 'Sprint en cours')}
-          <span className="font-normal text-subtle normal-case">— {sprint.numero}</span>
-        </div>
-        {isClosed && sprint.closed_at && (
-          <span className="text-[10px] text-subtle shrink-0">clôt. {fmtDate(sprint.closed_at)}</span>
-        )}
-      </div>
-
-      {/* Barre progression */}
-      {pct !== null && (
-        <div className="flex items-center gap-2">
-          <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
-            <div
-              className={cn('h-full rounded-full transition-all', pct >= 80 ? 'bg-green-500' : pct >= 50 ? 'bg-amber-400' : 'bg-red-500')}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-          <span className="text-[10px] font-bold text-navy shrink-0 tabular-nums">{pct} %</span>
-          {stats && (
-            <span className="text-[10px] text-subtle shrink-0">{stats.fait}/{stats.total}</span>
-          )}
-        </div>
-      )}
-
-      {/* Blocages */}
-      {bloque > 0 && (
-        <div className="flex items-center gap-1 text-red-600">
-          <AlertTriangle size={11} />
-          <span className="text-[10px] font-bold">{bloque} blocage{bloque > 1 ? 's' : ''}</span>
-        </div>
-      )}
-
-      {/* Review (sprint clôturé) */}
-      {isClosed && sprint.review && (
-        <p className="text-[10px] text-subtle leading-snug line-clamp-2 italic">"{sprint.review}"</p>
-      )}
-    </div>
-  )
-}
 
 
 // ── Parse sprint (même logique que SetupPage) ─────────────────────
@@ -232,17 +179,14 @@ function parseSprint(s: Sprint | null | undefined) {
 
 // ── Carte produit dans la réunion ─────────────────────────────────
 function ProduitRevueCard({
-  p, revue, onChange, sprintActif, lastSprint, onToggleObjectif,
+  p, revue, onChange, onToggleObjectif,
 }: {
   p: Produit
   revue: RevueLocale
   onChange: (field: keyof RevueLocale, value: string | number | boolean) => void
-  sprintActif: SprintFull | null
-  lastSprint: SprintFull | null
   onToggleObjectif: (trimId: string, itemId: string, checked: boolean) => void
 }) {
-  const trims         = Array.isArray(p.objectifs_trimestriels) ? p.objectifs_trimestriels : []
-  const displaySprint = sprintActif ?? lastSprint
+  const trims = Array.isArray(p.objectifs_trimestriels) ? p.objectifs_trimestriels : []
 
   const [scope,            setScope]            = useState<BandeauScope>('sprint')
   const [zoomed,           setZoomed]           = useState(false)
@@ -291,7 +235,7 @@ function ProduitRevueCard({
           </div>
         </div>
         {revue.blocages > 0 && (
-          <div className="flex items-center gap-1 text-red-600 shrink-0">
+          <div className="flex items-center gap-1 text-red shrink-0">
             <AlertTriangle size={13} />
             <span className="text-xs font-bold">{revue.blocages}</span>
           </div>
@@ -345,96 +289,132 @@ function ProduitRevueCard({
         />
       </div>
 
-      {/* Bouton détail sprint */}
-      {scope === 'sprint' && effectiveSprintObj && (
-        <button
-          onClick={e => { e.stopPropagation(); setSprintDetailOpen(v => !v) }}
-          className="flex items-center gap-1.5 w-full px-5 py-1.5 border-t border-border/40 text-[10px] font-semibold text-navy/60 hover:bg-bg/40 transition-colors text-left"
-        >
-          {sprintDetailOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-          <span>Objectifs & Review — S{effectiveSprintObj.numero}</span>
-          {items.length > 0 && (
-            <span className={cn('ml-auto font-bold', pct === 100 ? 'text-green' : 'text-subtle')}>
-              {doneCount}/{items.length} · {pct}%
+      {/* Carte Objectifs & Review — même style que TrimBlock */}
+      {!zoomed && ((scope === 'sprint' && !!effectiveSprintObj) || trims.length > 0) && (
+        <div className="mx-4 mb-3 rounded-lg border border-border bg-bg overflow-hidden">
+
+          {/* ─ En-tête principal ─ */}
+          <button
+            onClick={e => { e.stopPropagation(); setSprintDetailOpen(v => !v) }}
+            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-border/20 transition-colors text-left"
+          >
+            <Target size={10} className="text-purple shrink-0" />
+            <span className="text-[10px] font-bold text-navy uppercase tracking-wider">
+              {scope === 'sprint' && effectiveSprintObj
+                ? `Objectifs & Review — S${effectiveSprintObj.numero}`
+                : 'Objectifs & Review'}
             </span>
+            {scope === 'sprint' && items.length > 0 && (
+              <span className={cn('text-[10px] font-bold tabular-nums ml-auto', pct === 100 ? 'text-green' : 'text-navy/60')}>
+                {doneCount}/{items.length} · {pct}%
+              </span>
+            )}
+            {sprintDetailOpen
+              ? <ChevronUp size={10} className="text-subtle ml-1 shrink-0" />
+              : <ChevronDown size={10} className="text-subtle ml-1 shrink-0" />}
+          </button>
+
+          {/* ─ Barre sprint ─ */}
+          {scope === 'sprint' && items.length > 0 && (
+            <div className="px-3 pb-2 flex items-center gap-2">
+              <div className="flex-1 h-1 rounded-full bg-border overflow-hidden">
+                <div className="h-full bg-green rounded-full transition-all" style={{ width: `${pct}%` }} />
+              </div>
+              <span className="text-[10px] text-subtle tabular-nums">{doneCount}/{items.length}</span>
+            </div>
           )}
-        </button>
-      )}
 
-      {/* Section détail sprint — miroir de SetupPage */}
-      {scope === 'sprint' && sprintDetailOpen && effectiveSprintObj && (
-        <div className="border-t border-border/40 bg-bg/10">
-          <div className="grid grid-cols-2 divide-x divide-border/40">
+          {/* ─ Contenu expandable ─ */}
+          {sprintDetailOpen && (
+            <div className="border-t border-border/40">
 
-            {/* Objectifs */}
-            <div className="flex flex-col gap-2.5 p-4">
-              <div className="text-[9px] font-bold text-subtle uppercase tracking-wider">
-                Objectifs — S{effectiveSprintObj.numero}
-              </div>
-              {freeObj && (
-                <div className="text-xs text-navy/80 leading-relaxed whitespace-pre-line bg-white border border-border rounded-lg px-3 py-2">
-                  {freeObj}
+              {/* Sprint Objectifs & Review */}
+              {scope === 'sprint' && effectiveSprintObj && (
+                <div className="grid grid-cols-2 divide-x divide-border/40">
+
+                  {/* Objectifs */}
+                  <div className="flex flex-col gap-2.5 p-4">
+                    <div className="text-[9px] font-bold text-subtle uppercase tracking-wider">
+                      Objectifs — S{effectiveSprintObj.numero}
+                    </div>
+                    {freeObj && (
+                      <div className="text-xs text-navy/80 leading-relaxed whitespace-pre-line bg-white border border-border rounded-lg px-3 py-2">
+                        {freeObj}
+                      </div>
+                    )}
+                    {items.length > 0 && (
+                      <>
+                        <div className="text-[9px] font-semibold text-subtle">Objectifs clés ({items.length})</div>
+                        <ul className="flex flex-col gap-1">
+                          {items.map(item => (
+                            <li key={item} className="flex items-center gap-2 px-2 py-1 rounded-lg bg-white border border-border/40 text-xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-purple/50 shrink-0" />
+                              <span className="text-navy">{item}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                    {!freeObj && items.length === 0 && (
+                      <p className="text-xs text-subtle/40 italic">Aucun objectif défini pour ce sprint</p>
+                    )}
+                  </div>
+
+                  {/* Review + Checklist */}
+                  <div className="flex flex-col gap-2.5 p-4">
+                    <div className="text-[9px] font-bold text-subtle uppercase tracking-wider">Sprint Review</div>
+                    {freeRev && (
+                      <div className="text-xs text-navy/80 leading-relaxed whitespace-pre-line bg-white border border-border rounded-lg px-3 py-2">
+                        {freeRev}
+                      </div>
+                    )}
+                    {items.length > 0 && (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <div className="text-[9px] font-semibold text-subtle">Checklist objectifs</div>
+                          <span className={cn('text-[9px] font-bold ml-auto', pct === 100 ? 'text-green' : 'text-subtle')}>
+                            {doneCount}/{items.length} · {pct}%
+                          </span>
+                        </div>
+                        <div className="w-full h-1 bg-border rounded-full overflow-hidden">
+                          <div className="h-full bg-green rounded-full transition-all" style={{ width: `${pct}%` }} />
+                        </div>
+                        <ul className="flex flex-col gap-1.5">
+                          {items.map(item => (
+                            <li key={item} className={cn('flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs',
+                              checks[item] ? 'bg-green/10 text-green' : 'bg-white border border-border/40 text-navy')}>
+                              <span className={cn('w-4 h-4 rounded flex items-center justify-center border shrink-0',
+                                checks[item] ? 'bg-green border-green text-white' : 'border-border bg-white')}>
+                                {checks[item] && <Check size={10} />}
+                              </span>
+                              <span className={cn('flex-1', checks[item] && 'line-through opacity-60')}>{item}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                    {!freeRev && items.length === 0 && (
+                      <p className="text-xs text-subtle/40 italic">Aucune review saisie pour ce sprint</p>
+                    )}
+                  </div>
+
                 </div>
               )}
-              {items.length > 0 && (
-                <>
-                  <div className="text-[9px] font-semibold text-subtle">Objectifs clés ({items.length})</div>
-                  <ul className="flex flex-col gap-1">
-                    {items.map(item => (
-                      <li key={item} className="flex items-center gap-2 px-2 py-1 rounded-lg bg-white border border-border/40 text-xs">
-                        <span className="w-1.5 h-1.5 rounded-full bg-purple/50 shrink-0" />
-                        <span className="text-navy">{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-              {!freeObj && items.length === 0 && (
-                <p className="text-xs text-subtle/40 italic">Aucun objectif défini pour ce sprint</p>
-              )}
-            </div>
 
-            {/* Review + Checklist */}
-            <div className="flex flex-col gap-2.5 p-4">
-              <div className="text-[9px] font-bold text-subtle uppercase tracking-wider">
-                Sprint Review
-              </div>
-              {freeRev && (
-                <div className="text-xs text-navy/80 leading-relaxed whitespace-pre-line bg-white border border-border rounded-lg px-3 py-2">
-                  {freeRev}
+              {/* Objectif trim — flat, séparé si sprint aussi présent */}
+              {trims.length > 0 && (
+                <div className={cn(scope === 'sprint' && effectiveSprintObj && 'border-t border-border/40')}>
+                  <TrimBlock
+                    trims={trims}
+                    onToggle={(trimId, itemId, checked) => onToggleObjectif(trimId, itemId, checked)}
+                    flat
+                  />
                 </div>
               )}
-              {items.length > 0 && (
-                <>
-                  <div className="flex items-center gap-2">
-                    <div className="text-[9px] font-semibold text-subtle">Checklist objectifs</div>
-                    <span className={cn('text-[9px] font-bold ml-auto', pct === 100 ? 'text-green' : 'text-subtle')}>
-                      {doneCount}/{items.length} · {pct}%
-                    </span>
-                  </div>
-                  <div className="w-full h-1 bg-border rounded-full overflow-hidden">
-                    <div className="h-full bg-green rounded-full transition-all" style={{ width: `${pct}%` }} />
-                  </div>
-                  <ul className="flex flex-col gap-1.5">
-                    {items.map(item => (
-                      <li key={item} className={cn('flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs',
-                        checks[item] ? 'bg-green/10 text-green' : 'bg-white border border-border/40 text-navy')}>
-                        <span className={cn('w-4 h-4 rounded flex items-center justify-center border shrink-0',
-                          checks[item] ? 'bg-green border-green text-white' : 'border-border bg-white')}>
-                          {checks[item] && <Check size={10} />}
-                        </span>
-                        <span className={cn('flex-1', checks[item] && 'line-through opacity-60')}>{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-              {!freeRev && items.length === 0 && (
-                <p className="text-xs text-subtle/40 italic">Aucune review saisie pour ce sprint</p>
-              )}
-            </div>
 
-          </div>
+            </div>
+          )}
+
         </div>
       )}
 
@@ -442,18 +422,6 @@ function ProduitRevueCard({
       {zoomed && (
         <div className="border-t border-border">
           <ProduitDashboardBody produit={p} />
-        </div>
-      )}
-
-      {/* Blocs avancement */}
-      {!zoomed && (trims.length > 0 || displaySprint) && (
-        <div className="px-4 pb-3 pt-2 space-y-2">
-          {trims.length > 0 && (
-            <TrimBlock trims={trims} onToggle={(trimId, itemId, checked) => onToggleObjectif(trimId, itemId, checked)} />
-          )}
-          {displaySprint && (
-            <SprintBlock sprint={displaySprint} label={sprintActif ? 'Sprint en cours' : 'Dernier sprint clôturé'} />
-          )}
         </div>
       )}
 
@@ -505,26 +473,7 @@ export default function ReunionPage() {
   const { data: dbRevues } = useRevuesByReunion(reunion?.id ?? null)
   const { data: dbSujets } = useSujetsByReunion(reunion?.id ?? null)
 
-  const activeProducts   = produits.filter(p => p.actif && !p.is_template)
-  const activeProductIds = activeProducts.map(p => p.id)
-
-  // Fetch sprints (actifs + dernier cloturé) pour tous les produits actifs
-  const { data: allSprints = [] } = useQuery({
-    queryKey: ['sprints-reunion', activeProductIds.join(',')],
-    queryFn: async () => {
-      if (activeProductIds.length === 0) return []
-      const { data, error } = await supabase
-        .from('sprints')
-        .select('*')
-        .in('produit_id', activeProductIds)
-        .in('statut', ['en_cours', 'cloture'])
-        .order('numero', { ascending: false })
-      if (error) throw error
-      return (data ?? []) as SprintFull[]
-    },
-    enabled: activeProductIds.length > 0,
-    staleTime: 60_000,
-  })
+  const activeProducts = produits.filter(p => p.actif && !p.is_template)
 
   function handleToggleObjectif(produitId: number, trimId: string, itemId: string, checked: boolean) {
     const produit = produits.find(p => p.id === produitId)
@@ -537,12 +486,6 @@ export default function ReunionPage() {
     updateProduit.mutate({ id: produitId, updates: { objectifs_trimestriels: newTrims } })
   }
 
-  function getSprintInfo(produitId: number) {
-    const ps       = allSprints.filter(s => s.produit_id === produitId)
-    const actif    = ps.find(s => s.statut === 'en_cours') ?? null
-    const lastClosed = ps.find(s => s.statut === 'cloture') ?? null
-    return { actif, lastClosed }
-  }
 
   // Timer
   const [currentPhase, setCurrentPhase] = useState(0)
@@ -567,7 +510,7 @@ export default function ReunionPage() {
       return next
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProductIds.join(',')])
+  }, [activeProducts.map(p => p.id).join(',')])
 
   // Charger données DB → état local
   useEffect(() => {
@@ -735,7 +678,7 @@ export default function ReunionPage() {
                     )}>
                     <div className={cn(
                       'w-5 h-5 rounded-full border-2 flex items-center justify-center text-[10px] font-bold shrink-0',
-                      isCurrent ? 'border-white text-white' : isDone ? 'border-green-500 bg-green-500 text-white' : 'border-border'
+                      isCurrent ? 'border-white text-white' : isDone ? 'border-green bg-green text-white' : 'border-border'
                     )}>
                       {isDone ? <Check size={10} /> : i + 1}
                     </div>
@@ -756,7 +699,7 @@ export default function ReunionPage() {
                   <span className="text-[10px] font-normal text-subtle">
                     {activeProducts.length} produit{activeProducts.length > 1 ? 's' : ''}
                     {totalBlockages > 0 && (
-                      <span className="ml-2 text-red-600 font-semibold">
+                      <span className="ml-2 text-red font-semibold">
                         · {totalBlockages} blocage{totalBlockages > 1 ? 's' : ''}
                       </span>
                     )}
@@ -776,15 +719,12 @@ export default function ReunionPage() {
                   <div className="text-center py-10 text-subtle text-sm">Aucun produit actif</div>
                 ) : (
                   activeProducts.map(p => {
-                    const { actif, lastClosed } = getSprintInfo(p.id)
                     return (
                       <ProduitRevueCard
                         key={p.id}
                         p={p}
                         revue={revues[p.id] ?? { statut_presente: '', blocages: 0, notes: '', expanded: false }}
                         onChange={(f, v) => updateRevue(p.id, f, v)}
-                        sprintActif={actif}
-                        lastSprint={lastClosed}
                         onToggleObjectif={(trimId, itemId, checked) =>
                           handleToggleObjectif(p.id, trimId, itemId, checked)
                         }

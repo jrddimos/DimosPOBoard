@@ -352,10 +352,10 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
   const globalTargetDateEarly = produit.date_lancement_cible ? new Date(produit.date_lancement_cible) : null
 
   const globalCursorPctEarly = firstTrimStartEarly && globalTargetDateEarly && globalTargetDateEarly > firstTrimStartEarly
-    ? Math.min(100, Math.round(
+    ? Math.min(100, Math.max(0, Math.round(
         (today.getTime() - firstTrimStartEarly.getTime()) /
         (globalTargetDateEarly.getTime() - firstTrimStartEarly.getTime()) * 100
-      ))
+      )))
     : null
 
   // ── RAG ──────────────────────────────────────────────────────
@@ -372,7 +372,7 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
   // Sprint budget RAG : consommation effort vs avancement US (delta = %effort - %done)
   const ragB = isGlobalScope
     ? ((totalBudget - totalInvest - totalAchats) > 0
-        ? ragBudget(realiseEtpEur, totalBudget - totalInvest - totalAchats, null) : null)
+        ? ragBudget(realiseEtpEur, totalBudget - totalInvest - totalAchats, globalCursorPctEarly) : null)
     : isSprintScope
       ? (effortTotalSprint > 0
           ? ragBudget(effortFaitSprint, effortTotalSprint, backlogPctSprint) : null)

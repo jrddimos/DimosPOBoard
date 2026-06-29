@@ -9,7 +9,7 @@ import { BRAND_COLORS } from '@/constants'
 import {
   LayoutDashboard, List, Kanban, FilePlus, Settings,
   ChevronDown, LogOut, Zap, ClipboardCheck, User, Clock, X,
-  Users, Package, Briefcase, CalendarClock, BarChart3, Euro, Camera,
+  Users, Package, Briefcase, CalendarClock, BarChart3, Euro, Camera, TrendingUp,
 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 
@@ -20,7 +20,8 @@ interface NavItem  { id: string; label: string; href: string; icon: React.ReactN
 // ── Navigation globale (toujours visible) ─────────────────────
 const GLOBAL_NAV: NavItem[] = [
   { id:'dashboard', label:'Dashboard',    href:'/',                  icon:<LayoutDashboard size={17}/> },
-  { id:'reunion',   label:'Réunion PO',   href:'/reunion',           icon:<CalendarClock size={17}/> },
+  { id:'reunion',      label:'Réunion PO',     href:'/reunion',           icon:<CalendarClock size={17}/> },
+  { id:'plan-charges', label:'Plan de charges', href:'/plan-charges',    icon:<TrendingUp size={17}/> },
   { id:'produits',  label:'Produits',     href:'/produits',          icon:<Package size={17}/> },
   { id:'metiers',   label:'Thèmes',       href:'/setup?tab=metiers', icon:<Briefcase size={17}/> },
   { id:'equipes-utilisateurs', label:'Équipes & Utilisateurs', href:'/admin/equipes', icon:<Users size={17}/>, adminOnly: true },
