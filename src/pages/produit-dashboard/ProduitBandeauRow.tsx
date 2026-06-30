@@ -26,9 +26,18 @@ function getISOWeek(date: Date) {
   return 1 + Math.round(((d.getTime() - w1.getTime()) / 86400000 - 3 + ((w1.getDay() + 6) % 7)) / 7)
 }
 function fmtDate(iso: string) { return new Date(iso).toLocaleDateString('fr-FR') }
-function barColor(pct: number) { return pct >= 75 ? 'bg-green' : pct >= 40 ? 'bg-orange' : 'bg-red' }
+function barColor(pct: number) { return pct >= 75 ? 'bg-emerald-400' : pct >= 40 ? 'bg-amber-400' : 'bg-rose-400' }
 
-const RAG_BG: Record<string, string> = { green: 'bg-green', amber: 'bg-orange', red: 'bg-red' }
+const RAG_CFG: Record<string, { bg: string; text: string; border: string }> = {
+  green: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
+  amber: { bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200'   },
+  red:   { bg: 'bg-rose-50',    text: 'text-rose-700',    border: 'border-rose-200'    },
+}
+const TRAJ_CFG: Record<string, { bg: string; text: string; border: string; label: string }> = {
+  green: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', label: 'En cours'  },
+  amber: { bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200',   label: 'À risque'  },
+  red:   { bg: 'bg-rose-50',    text: 'text-rose-700',    border: 'border-rose-200',    label: 'En retard' },
+}
 
 function RagIcon({ rag, size = 14 }: { rag: Rag; size?: number }) {
   if (rag === 'green') return <CheckCircle  size={size} />
@@ -38,14 +47,28 @@ function RagIcon({ rag, size = 14 }: { rag: Rag; size?: number }) {
 }
 
 function RagCell({ label, rag, sub, tooltip }: { label: string; rag: Rag; sub?: string; tooltip?: string }) {
+  const cfg = rag ? RAG_CFG[rag] : null
   return (
     <Tooltip content={tooltip}>
-      <div className="flex flex-col border border-border rounded-lg overflow-hidden min-w-[80px] flex-1 cursor-help">
-        <div className="text-[9px] font-bold text-navy uppercase tracking-wider px-2 py-1 bg-bg border-b border-border text-center">{label}</div>
-        <div className={cn('flex items-center justify-center py-2', rag ? `${RAG_BG[rag]} text-white` : 'bg-bg text-subtle/30')}>
-          {rag ? <RagIcon rag={rag} size={16} /> : <span className="text-xs">—</span>}
+      <div className={cn(
+        'flex flex-col rounded-xl border overflow-hidden min-w-[80px] flex-1 cursor-help',
+        cfg ? cn(cfg.bg, cfg.border) : 'bg-slate-50 border-slate-200'
+      )}>
+        <div className={cn('text-[9px] font-bold uppercase tracking-wider px-2 py-1.5 text-center border-b',
+          cfg ? cn(cfg.text, cfg.border) : 'text-slate-400 border-slate-200')}>
+          {label}
         </div>
-        {sub && <div className="text-[8px] text-subtle text-center px-1 py-0.5 bg-bg border-t border-border leading-tight">{sub}</div>}
+        <div className="flex items-center justify-center py-2.5">
+          {cfg
+            ? <span className={cfg.text}><RagIcon rag={rag} size={18} /></span>
+            : <span className="text-slate-300 text-sm">—</span>}
+        </div>
+        {sub && (
+          <div className={cn('text-[8px] text-center px-1 py-0.5 border-t leading-tight font-medium',
+            cfg ? cn(cfg.text, cfg.border, 'opacity-70') : 'text-slate-400 border-slate-200')}>
+            {sub}
+          </div>
+        )}
       </div>
     </Tooltip>
   )
@@ -286,27 +309,28 @@ export function ProduitBandeauRow({
       </div>
 
       {/* Trajectoire + Livraison */}
-      <div className="flex items-stretch divide-x divide-border">
+      <div className="flex items-center divide-x divide-border">
         <Tooltip content={tipTraj}>
-          <div className="flex flex-col items-center justify-center px-5 py-3 min-w-[100px] cursor-help">
-            <div className="text-[9px] text-subtle uppercase font-bold tracking-wider mb-1">Trajectoire</div>
-            <div className={cn('text-sm font-black px-3 py-1 rounded-lg',
-              trajectoire === 'green' ? 'text-green bg-green/10'
-              : trajectoire === 'amber' ? 'text-orange bg-orange/10'
-              : trajectoire === 'red'   ? 'text-red bg-red/10'
-              : 'text-subtle bg-bg')}>
-              {trajectoire === 'green' ? 'ON TRACK' : trajectoire === 'amber' ? 'AT RISK' : trajectoire === 'red' ? 'RETARD' : '—'}
-            </div>
+          <div className="flex flex-col items-center gap-1.5 px-5 py-3 min-w-[120px] cursor-help">
+            <div className="text-[9px] text-subtle uppercase font-bold tracking-wider">Trajectoire</div>
+            {trajectoire && TRAJ_CFG[trajectoire] ? (
+              <div className={cn('text-xs font-bold px-3 py-1 rounded-xl border whitespace-nowrap',
+                TRAJ_CFG[trajectoire].bg, TRAJ_CFG[trajectoire].text, TRAJ_CFG[trajectoire].border)}>
+                {TRAJ_CFG[trajectoire].label}
+              </div>
+            ) : (
+              <div className="text-xs font-bold px-3 py-1 rounded-xl bg-slate-50 text-slate-400 border border-slate-100">—</div>
+            )}
           </div>
         </Tooltip>
         <Tooltip content={tipD}>
-          <div className="flex flex-col items-center justify-center px-5 py-3 min-w-[80px] cursor-help">
-            <div className="text-[9px] text-subtle uppercase font-bold tracking-wider mb-1">Livraison est.</div>
+          <div className="flex flex-col items-center gap-1.5 px-5 py-3 min-w-[80px] cursor-help">
+            <div className="text-[9px] text-subtle uppercase font-bold tracking-wider">Livraison est.</div>
             <div className={cn('text-sm font-black tabular-nums',
-              ragD === 'green' ? 'text-green'
-              : ragD === 'amber' ? 'text-orange'
-              : ragD === 'red'   ? 'text-red'
-              : 'text-subtle')}>
+              ragD === 'green' ? 'text-emerald-600'
+              : ragD === 'amber' ? 'text-amber-600'
+              : ragD === 'red'   ? 'text-rose-600'
+              : 'text-slate-400')}>
               {livraison}
             </div>
           </div>

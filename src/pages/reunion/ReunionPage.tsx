@@ -23,25 +23,25 @@ import type { BandeauScope }   from '@/pages/produit-dashboard/ProduitBandeauRow
 
 // ── Phases ────────────────────────────────────────────────────────
 const PHASES = [
-  { label: 'Revues produits',        minutes: 25, color: 'bg-purple',    text: 'text-purple'    },
-  { label: 'Synchro opérationnelle', minutes: 20, color: 'bg-blue',      text: 'text-blue'      },
-  { label: 'Rituels & process',      minutes: 10, color: 'bg-amber-500', text: 'text-amber-500' },
-  { label: 'Wrap-up',               minutes:  5, color: 'bg-green',     text: 'text-green'     },
+  { label: 'Revues produits',        minutes: 25, bg: 'bg-indigo-50',  border: 'border-indigo-200', text: 'text-indigo-700',  dot: 'bg-indigo-400',  timerBg: 'bg-indigo-50',  timerText: 'text-indigo-700' },
+  { label: 'Synchro opérationnelle', minutes: 20, bg: 'bg-sky-50',     border: 'border-sky-200',    text: 'text-sky-700',     dot: 'bg-sky-400',     timerBg: 'bg-sky-50',     timerText: 'text-sky-700'    },
+  { label: 'Rituels & process',      minutes: 10, bg: 'bg-amber-50',   border: 'border-amber-200',  text: 'text-amber-700',   dot: 'bg-amber-400',   timerBg: 'bg-amber-50',   timerText: 'text-amber-700'  },
+  { label: 'Wrap-up',               minutes:  5, bg: 'bg-emerald-50', border: 'border-emerald-200',text: 'text-emerald-700', dot: 'bg-emerald-400', timerBg: 'bg-emerald-50', timerText: 'text-emerald-700'},
 ] as const
 
 const STATUTS_PRESENTE = ['On track', 'At risk', 'Off track', 'En pause', 'Non présenté'] as const
 const STATUT_COLORS: Record<string, string> = {
-  'On track':     'bg-green/15 text-green',
-  'At risk':      'bg-amber-100 text-amber-700',
-  'Off track':    'bg-red/15 text-red',
-  'En pause':     'bg-gray-100 text-gray-500',
-  'Non présenté': 'bg-gray-50 text-gray-400',
+  'On track':     'bg-emerald-50 text-emerald-700 border border-emerald-200',
+  'At risk':      'bg-amber-50 text-amber-700 border border-amber-200',
+  'Off track':    'bg-rose-50 text-rose-700 border border-rose-200',
+  'En pause':     'bg-slate-100 text-slate-500 border border-slate-200',
+  'Non présenté': 'bg-slate-50 text-slate-400 border border-slate-100',
 }
 const TRIM_BAR: Record<string, string> = {
-  'On track':  'bg-green',
+  'On track':  'bg-emerald-400',
   'At risk':   'bg-amber-400',
-  'Off track': 'bg-red',
-  'En pause':  'bg-gray-400',
+  'Off track': 'bg-rose-400',
+  'En pause':  'bg-slate-300',
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -97,7 +97,7 @@ function TrimBlock({
   const items    = t.objectifs ?? []
   const pct      = trimAvancement(t)
   const done     = items.filter(o => o.checked).length
-  const barColor = t.statut ? (TRIM_BAR[t.statut] ?? 'bg-green') : 'bg-green'
+  const barColor = t.statut ? (TRIM_BAR[t.statut] ?? 'bg-emerald-400') : 'bg-emerald-400'
 
   const inner = (
     <>
@@ -105,16 +105,16 @@ function TrimBlock({
         onClick={() => setOpen(v => !v)}
         className="w-full flex items-center gap-2 px-3 py-2 hover:bg-border/20 transition-colors text-left"
       >
-        <Target size={10} className="text-purple shrink-0" />
-        <span className="text-[10px] font-bold text-navy uppercase tracking-wider">Objectif trim</span>
-        {t.trimestre && <span className="text-[10px] text-subtle">— {t.trimestre}</span>}
+        <Target size={10} className="text-indigo-500 shrink-0" />
+        <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Objectif trim</span>
+        {t.trimestre && <span className="text-[10px] text-slate-400">— {t.trimestre}</span>}
         <div className="flex items-center gap-1.5 ml-auto">
           {t.statut && (
             <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full font-semibold', STATUT_COLORS[t.statut] ?? 'bg-gray-100')}>
               {t.statut}
             </span>
           )}
-          {pct !== null && <span className="text-[10px] font-bold text-navy tabular-nums">{pct}%</span>}
+          {pct !== null && <span className="text-[10px] font-bold text-slate-700 tabular-nums">{pct}%</span>}
           {open ? <ChevronUp size={10} className="text-subtle ml-1" /> : <ChevronDown size={10} className="text-subtle ml-1" />}
         </div>
       </button>
@@ -138,11 +138,11 @@ function TrimBlock({
             >
               <div className={cn(
                 'mt-0.5 w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-all',
-                obj.checked ? 'bg-green border-green' : 'border-border group-hover:border-purple/60'
+                obj.checked ? 'bg-emerald-500 border-emerald-500' : 'border-slate-200 group-hover:border-indigo-300'
               )}>
                 {obj.checked && <Check size={8} className="text-white" />}
               </div>
-              <span className={cn('text-xs leading-snug flex-1', obj.checked ? 'line-through text-subtle/60' : 'text-navy/80')}>
+              <span className={cn('text-xs leading-snug flex-1', obj.checked ? 'line-through text-slate-400' : 'text-slate-700')}>
                 {obj.texte || <span className="italic text-subtle/40">Sans titre</span>}
               </span>
             </button>
@@ -215,7 +215,7 @@ function ProduitRevueCard({
   const pct       = items.length > 0 ? Math.round(doneCount / items.length * 100) : 0
 
   return (
-    <div className="border border-border rounded-xl overflow-hidden bg-white">
+    <div className="border border-white rounded-2xl overflow-hidden bg-white shadow-md">
       <div className="h-1 shrink-0" style={{ background: p.couleur ?? '#4A4CC8' }} />
 
       {/* En-tête cliquable */}
@@ -235,7 +235,7 @@ function ProduitRevueCard({
           </div>
         </div>
         {revue.blocages > 0 && (
-          <div className="flex items-center gap-1 text-red shrink-0">
+          <div className="flex items-center gap-1 text-rose-600 shrink-0">
             <AlertTriangle size={13} />
             <span className="text-xs font-bold">{revue.blocages}</span>
           </div>
@@ -256,7 +256,7 @@ function ProduitRevueCard({
                 {(['sprint', 'trim', 'global'] as BandeauScope[]).map(v => (
                   <button key={v} onClick={e => { e.stopPropagation(); setScope(v) }}
                     className={cn('px-2.5 py-1 font-semibold transition-colors',
-                      scope === v ? 'bg-purple text-white' : 'text-subtle hover:bg-bg')}>
+                      scope === v ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50')}>
                     {v === 'sprint' ? 'Sprint' : v === 'trim' ? 'Trim' : 'Global'}
                   </button>
                 ))}
@@ -267,7 +267,7 @@ function ProduitRevueCard({
                   value={selectedSprintNum ?? ''}
                   onChange={e => { e.stopPropagation(); setSelectedSprintNum(e.target.value || null) }}
                   onClick={e => e.stopPropagation()}
-                  className="text-[9px] border border-border rounded px-1.5 py-0.5 text-navy font-semibold bg-white cursor-pointer focus:outline-none focus:border-purple"
+                  className="text-[9px] border border-slate-200 rounded px-1.5 py-0.5 text-slate-700 font-semibold bg-white cursor-pointer focus:outline-none focus:border-indigo-300"
                 >
                   <option value="">Actif / Dernier</option>
                   {[...sortedSprints].reverse().map(s => (
@@ -281,7 +281,7 @@ function ProduitRevueCard({
           }
           extraRight={
             <button onClick={e => { e.stopPropagation(); setZoomed(v => !v) }}
-              className="flex items-center gap-1.5 px-4 text-[11px] font-semibold text-purple hover:text-purple/80 transition-colors shrink-0">
+              className="flex items-center gap-1.5 px-4 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 transition-colors shrink-0">
               {zoomed ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
               {zoomed ? 'Réduire' : 'Zoom'}
             </button>
@@ -298,14 +298,14 @@ function ProduitRevueCard({
             onClick={e => { e.stopPropagation(); setSprintDetailOpen(v => !v) }}
             className="w-full flex items-center gap-2 px-3 py-2 hover:bg-border/20 transition-colors text-left"
           >
-            <Target size={10} className="text-purple shrink-0" />
-            <span className="text-[10px] font-bold text-navy uppercase tracking-wider">
+            <Target size={10} className="text-indigo-500 shrink-0" />
+            <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">
               {scope === 'sprint' && effectiveSprintObj
                 ? `Objectifs & Review — S${effectiveSprintObj.numero}`
                 : 'Objectifs & Review'}
             </span>
             {scope === 'sprint' && items.length > 0 && (
-              <span className={cn('text-[10px] font-bold tabular-nums ml-auto', pct === 100 ? 'text-green' : 'text-navy/60')}>
+              <span className={cn('text-[10px] font-bold tabular-nums ml-auto', pct === 100 ? 'text-emerald-600' : 'text-slate-500')}>
                 {doneCount}/{items.length} · {pct}%
               </span>
             )}
@@ -318,7 +318,7 @@ function ProduitRevueCard({
           {scope === 'sprint' && items.length > 0 && (
             <div className="px-3 pb-2 flex items-center gap-2">
               <div className="flex-1 h-1 rounded-full bg-border overflow-hidden">
-                <div className="h-full bg-green rounded-full transition-all" style={{ width: `${pct}%` }} />
+                <div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
               </div>
               <span className="text-[10px] text-subtle tabular-nums">{doneCount}/{items.length}</span>
             </div>
@@ -348,7 +348,7 @@ function ProduitRevueCard({
                         <ul className="flex flex-col gap-1">
                           {items.map(item => (
                             <li key={item} className="flex items-center gap-2 px-2 py-1 rounded-lg bg-white border border-border/40 text-xs">
-                              <span className="w-1.5 h-1.5 rounded-full bg-purple/50 shrink-0" />
+                              <span className="w-1.5 h-1.5 rounded-full bg-indigo-300 shrink-0" />
                               <span className="text-navy">{item}</span>
                             </li>
                           ))}
@@ -372,19 +372,19 @@ function ProduitRevueCard({
                       <>
                         <div className="flex items-center gap-2">
                           <div className="text-[9px] font-semibold text-subtle">Checklist objectifs</div>
-                          <span className={cn('text-[9px] font-bold ml-auto', pct === 100 ? 'text-green' : 'text-subtle')}>
+                          <span className={cn('text-[9px] font-bold ml-auto', pct === 100 ? 'text-emerald-600' : 'text-slate-400')}>
                             {doneCount}/{items.length} · {pct}%
                           </span>
                         </div>
                         <div className="w-full h-1 bg-border rounded-full overflow-hidden">
-                          <div className="h-full bg-green rounded-full transition-all" style={{ width: `${pct}%` }} />
+                          <div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
                         </div>
                         <ul className="flex flex-col gap-1.5">
                           {items.map(item => (
                             <li key={item} className={cn('flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs',
-                              checks[item] ? 'bg-green/10 text-green' : 'bg-white border border-border/40 text-navy')}>
+                              checks[item] ? 'bg-emerald-50 text-emerald-700' : 'bg-white border border-slate-100 text-slate-700')}>
                               <span className={cn('w-4 h-4 rounded flex items-center justify-center border shrink-0',
-                                checks[item] ? 'bg-green border-green text-white' : 'border-border bg-white')}>
+                                checks[item] ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-200 bg-white')}>
                                 {checks[item] && <Check size={10} />}
                               </span>
                               <span className={cn('flex-1', checks[item] && 'line-through opacity-60')}>{item}</span>
@@ -623,7 +623,7 @@ export default function ReunionPage() {
             <button onClick={() => navigateWeek(-1)} className="p-1 rounded hover:bg-bg text-subtle hover:text-navy transition-colors">
               <ChevronLeft size={14} />
             </button>
-            <span className={cn('text-xs font-bold px-2', isCurrentWeek ? 'text-purple' : 'text-navy')}>
+            <span className={cn('text-xs font-bold px-2', isCurrentWeek ? 'text-indigo-600' : 'text-slate-700')}>
               Semaine {semaine} — {annee}
             </span>
             <button onClick={() => navigateWeek(1)} className="p-1 rounded hover:bg-bg text-subtle hover:text-navy transition-colors">
@@ -632,7 +632,7 @@ export default function ReunionPage() {
           </div>
           {!isCurrentWeek && (
             <button onClick={() => { setSemaine(initWeek.semaine); setAnnee(initWeek.annee) }}
-              className="text-[10px] text-purple hover:underline">
+              className="text-[10px] text-indigo-600 hover:underline">
               Cette semaine
             </button>
           )}
@@ -673,17 +673,17 @@ export default function ReunionPage() {
                 return (
                   <button key={i} onClick={() => goToPhase(i)}
                     className={cn(
-                      'flex-1 flex flex-col items-center gap-1 px-2 py-2.5 rounded-xl transition-all text-center',
-                      isCurrent ? `${ph.color} text-white` : isDone ? 'bg-bg text-navy/50' : 'hover:bg-bg text-subtle'
+                      'flex-1 flex flex-col items-center gap-1 px-2 py-2.5 rounded-xl transition-all text-center border',
+                      isCurrent ? `${ph.bg} ${ph.text} ${ph.border}` : isDone ? 'bg-slate-50 text-slate-400 border-slate-100' : 'hover:bg-slate-50 text-slate-400 border-transparent'
                     )}>
                     <div className={cn(
                       'w-5 h-5 rounded-full border-2 flex items-center justify-center text-[10px] font-bold shrink-0',
-                      isCurrent ? 'border-white text-white' : isDone ? 'border-green bg-green text-white' : 'border-border'
+                      isCurrent ? `${ph.border} ${ph.text}` : isDone ? 'border-emerald-400 bg-emerald-400 text-white' : 'border-slate-200'
                     )}>
                       {isDone ? <Check size={10} /> : i + 1}
                     </div>
                     <span className="text-[10px] font-semibold leading-tight">{ph.label}</span>
-                    <span className={cn('text-[9px]', isCurrent ? 'text-white/70' : 'text-subtle/60')}>{ph.minutes} min</span>
+                    <span className={cn('text-[9px]', isCurrent ? 'opacity-60' : 'text-slate-400')}>{ph.minutes} min</span>
                   </button>
                 )
               })}
@@ -699,7 +699,7 @@ export default function ReunionPage() {
                   <span className="text-[10px] font-normal text-subtle">
                     {activeProducts.length} produit{activeProducts.length > 1 ? 's' : ''}
                     {totalBlockages > 0 && (
-                      <span className="ml-2 text-red font-semibold">
+                      <span className="ml-2 text-rose-600 font-semibold">
                         · {totalBlockages} blocage{totalBlockages > 1 ? 's' : ''}
                       </span>
                     )}
@@ -768,25 +768,25 @@ export default function ReunionPage() {
         <div className="w-60 shrink-0 space-y-4 print:hidden">
 
           {/* Timer */}
-          <div className={cn('rounded-2xl text-white p-5 space-y-3', phase.color)}>
-            <div className="text-[10px] uppercase tracking-widest font-bold opacity-70 text-center">
+          <div className={cn('rounded-2xl border p-5 space-y-3', phase.timerBg, phase.border)}>
+            <div className={cn('text-[10px] uppercase tracking-widest font-bold opacity-60 text-center', phase.timerText)}>
               Phase {currentPhase + 1}/{PHASES.length}
             </div>
-            <div className="text-5xl font-mono font-bold text-center tabular-nums">
+            <div className={cn('text-5xl font-mono font-bold text-center tabular-nums', phase.timerText)}>
               {fmtTime(timeLeft)}
             </div>
-            <div className="h-1.5 rounded-full bg-white/20 overflow-hidden">
-              <div className="h-full rounded-full bg-white/80 transition-all" style={{ width: `${phasePct}%` }} />
+            <div className="h-1.5 rounded-full bg-white/80 overflow-hidden">
+              <div className={cn('h-full rounded-full transition-all', phase.dot)} style={{ width: `${phasePct}%` }} />
             </div>
-            <div className="text-[10px] text-white/60 text-center">{phase.label}</div>
+            <div className={cn('text-[10px] text-center opacity-60', phase.timerText)}>{phase.label}</div>
             <div className="flex items-center justify-center gap-2">
               <button onClick={() => goToPhase(Math.max(0, currentPhase - 1))}
                 disabled={currentPhase === 0}
-                className="p-2 rounded-lg bg-white/20 hover:bg-white/30 disabled:opacity-30 transition-colors">
+                className={cn('p-2 rounded-lg bg-white/60 hover:bg-white/90 disabled:opacity-30 transition-colors', phase.timerText)}>
                 <SkipBack size={14} />
               </button>
               <button onClick={() => setIsRunning(r => !r)}
-                className="px-4 py-2 rounded-xl bg-white/20 hover:bg-white/30 font-semibold text-sm transition-colors flex items-center gap-1.5">
+                className={cn('px-4 py-2 rounded-xl bg-white/60 hover:bg-white/90 font-semibold text-sm transition-colors flex items-center gap-1.5', phase.timerText)}>
                 {isRunning
                   ? <><Pause size={14} /> Pause</>
                   : <><Play size={14} /> {timeLeft === phase.minutes * 60 ? 'Démarrer' : 'Reprendre'}</>
@@ -794,7 +794,7 @@ export default function ReunionPage() {
               </button>
               <button onClick={() => goToPhase(Math.min(PHASES.length - 1, currentPhase + 1))}
                 disabled={currentPhase === PHASES.length - 1}
-                className="p-2 rounded-lg bg-white/20 hover:bg-white/30 disabled:opacity-30 transition-colors">
+                className={cn('p-2 rounded-lg bg-white/60 hover:bg-white/90 disabled:opacity-30 transition-colors', phase.timerText)}>
                 <SkipForward size={14} />
               </button>
             </div>
@@ -805,7 +805,7 @@ export default function ReunionPage() {
             <div className="text-[10px] uppercase tracking-widest font-bold text-subtle mb-2">Progression</div>
             {PHASES.map((ph, i) => (
               <div key={i} className={cn('flex items-center gap-2 text-xs', i === currentPhase ? 'font-bold text-navy' : 'text-subtle')}>
-                <div className={cn('w-2 h-2 rounded-full shrink-0', ph.color, i > currentPhase && 'opacity-30')} />
+                <div className={cn('w-2 h-2 rounded-full shrink-0', ph.dot, i > currentPhase && 'opacity-30')} />
                 <span className="flex-1 truncate">{ph.label}</span>
                 <span className="tabular-nums">{ph.minutes}'</span>
               </div>
@@ -821,7 +821,7 @@ export default function ReunionPage() {
             <div className="flex items-center justify-between mb-3">
               <span className="text-[10px] uppercase tracking-widest font-bold text-subtle">Sujets transverses</span>
               <button onClick={() => setSujets(prev => [...prev, { id: crypto.randomUUID(), type_tag: '', titre: '' }])}
-                className="p-1 rounded hover:bg-bg text-subtle hover:text-purple transition-colors">
+                className="p-1 rounded hover:bg-slate-50 text-slate-400 hover:text-indigo-600 transition-colors">
                 <Plus size={13} />
               </button>
             </div>
@@ -844,7 +844,7 @@ export default function ReunionPage() {
                       placeholder="Sujet…"
                     />
                     <button onClick={() => setSujets(prev => prev.filter(x => x.id !== s.id))}
-                      className="p-1 rounded hover:bg-red/10 text-subtle hover:text-red transition-colors shrink-0 mt-0.5">
+                      className="p-1 rounded hover:bg-rose-50 text-slate-400 hover:text-rose-500 transition-colors shrink-0 mt-0.5">
                       <X size={11} />
                     </button>
                   </div>

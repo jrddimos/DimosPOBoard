@@ -14,12 +14,22 @@ import { EPIC_COLORS } from '@/constants'
 
 // ── Types ────────────────────────────────────────────────────────
 type Rag = 'green' | 'amber' | 'red' | null
-const RAG_BG: Record<string, string> = { green: 'bg-green', amber: 'bg-orange', red: 'bg-red' }
+
+const RAG_CFG: Record<string, { bg: string; text: string; border: string; icon: (s: number) => React.ReactNode }> = {
+  green: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', icon: s => <CheckCircle  size={s} /> },
+  amber: { bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200',   icon: s => <AlertTriangle size={s} /> },
+  red:   { bg: 'bg-rose-50',    text: 'text-rose-700',    border: 'border-rose-200',    icon: s => <XCircle      size={s} /> },
+}
+const TRAJ_CFG: Record<string, { bg: string; text: string; label: string }> = {
+  green: { bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'En cours'  },
+  amber: { bg: 'bg-amber-50',   text: 'text-amber-700',   label: 'À risque'  },
+  red:   { bg: 'bg-rose-50',    text: 'text-rose-700',    label: 'En retard' },
+}
 
 function RagIcon({ rag, size = 14 }: { rag: Rag; size?: number }) {
-  if (rag === 'green') return <CheckCircle   size={size} />
-  if (rag === 'amber') return <AlertTriangle  size={size} />
-  if (rag === 'red')   return <XCircle       size={size} />
+  if (rag === 'green') return <CheckCircle  size={size} />
+  if (rag === 'amber') return <AlertTriangle size={size} />
+  if (rag === 'red')   return <XCircle      size={size} />
   return null
 }
 
@@ -77,19 +87,33 @@ function ragBlocages(bloque: number, risques: number): Rag {
   const t = bloque + risques
   return t === 0 ? 'green' : t <= 2 ? 'amber' : 'red'
 }
-function barColor(pct: number)  { return pct >= 75 ? 'bg-green'    : pct >= 40 ? 'bg-orange'    : 'bg-red'    }
-function textColor(pct: number) { return pct >= 75 ? 'text-green'  : pct >= 40 ? 'text-orange'  : 'text-red'  }
+function barColor(pct: number)  { return pct >= 75 ? 'bg-emerald-400' : pct >= 40 ? 'bg-amber-400' : 'bg-rose-400' }
+function textColor(pct: number) { return pct >= 75 ? 'text-emerald-600' : pct >= 40 ? 'text-amber-600' : 'text-rose-600' }
 
 // ── Composants ───────────────────────────────────────────────────
 function RagCell({ label, rag, sub, tooltip }: { label: string; rag: Rag; sub?: string; tooltip?: string }) {
+  const cfg = rag ? RAG_CFG[rag] : null
   return (
     <Tooltip content={tooltip}>
-      <div className="flex flex-col border border-border rounded-lg overflow-hidden min-w-[80px] cursor-help">
-        <div className="text-[9px] font-bold text-navy uppercase tracking-wider px-2 py-1 bg-bg border-b border-border text-center">{label}</div>
-        <div className={cn('flex items-center justify-center py-2', rag ? `${RAG_BG[rag]} text-white` : 'bg-bg text-subtle/30')}>
-          {rag ? <RagIcon rag={rag} size={16} /> : <span className="text-xs">—</span>}
+      <div className={cn(
+        'flex flex-col rounded-xl border overflow-hidden min-w-[80px] cursor-help transition-colors',
+        cfg ? cn(cfg.bg, cfg.border) : 'bg-slate-50 border-slate-200'
+      )}>
+        <div className={cn('text-[9px] font-bold uppercase tracking-wider px-2 py-1.5 text-center border-b',
+          cfg ? cn(cfg.text, cfg.border) : 'text-slate-400 border-slate-200')}>
+          {label}
         </div>
-        {sub && <div className="text-[8px] text-subtle text-center px-1 py-0.5 bg-bg border-t border-border leading-tight">{sub}</div>}
+        <div className="flex items-center justify-center py-2.5">
+          {cfg
+            ? <span className={cfg.text}><RagIcon rag={rag} size={18} /></span>
+            : <span className="text-slate-300 text-sm">—</span>}
+        </div>
+        {sub && (
+          <div className={cn('text-[8px] text-center px-1 py-0.5 border-t leading-tight font-medium',
+            cfg ? cn(cfg.text, cfg.border, 'opacity-70') : 'text-slate-400 border-slate-200')}>
+            {sub}
+          </div>
+        )}
       </div>
     </Tooltip>
   )
@@ -99,9 +123,9 @@ function Section({ title, children, className, noPad, action, scrollable }: {
   title: string; children: ReactNode; className?: string; noPad?: boolean; action?: ReactNode; scrollable?: boolean
 }) {
   return (
-    <div className={cn('bg-white border border-border rounded-xl overflow-hidden flex flex-col', className)}>
-      <div className="px-3 py-1.5 bg-navy/5 border-b border-border shrink-0 flex items-center gap-2">
-        <span className="text-[9px] font-bold text-navy uppercase tracking-widest flex-1">{title}</span>
+    <div className={cn('bg-white border border-white rounded-2xl overflow-hidden flex flex-col shadow-md', className)}>
+      <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 shrink-0 flex items-center gap-2">
+        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest flex-1">{title}</span>
         {action}
       </div>
       <div className={cn('flex-1 min-h-0', !noPad && 'p-3', scrollable && 'overflow-y-auto')}>
@@ -119,12 +143,12 @@ function MiniBar({ pct, color = 'bg-purple' }: { pct: number; color?: string }) 
   )
 }
 
-function StatChip({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) {
+function StatChip({ label, value, sub, color, bg, border }: { label: string; value: string | number; sub?: string; color?: string; bg?: string; border?: string }) {
   return (
-    <div className="bg-bg rounded-lg px-2 py-1.5 text-center">
-      <div className="text-[9px] text-subtle uppercase tracking-wider">{label}</div>
-      <div className={cn('text-sm font-bold text-navy tabular-nums', color)}>{value}</div>
-      {sub && <div className="text-[9px] text-subtle">{sub}</div>}
+    <div className={cn('rounded-xl px-2 py-2 text-center border', bg ?? 'bg-slate-50', border ?? 'border-slate-100')}>
+      <div className="text-[9px] text-slate-500 uppercase tracking-wider font-medium">{label}</div>
+      <div className={cn('text-sm font-bold tabular-nums mt-0.5', color ?? 'text-slate-700')}>{value}</div>
+      {sub && <div className="text-[9px] text-slate-400">{sub}</div>}
     </div>
   )
 }
@@ -138,10 +162,10 @@ function AvancementStats({ total, fait, enCours, bloque, backlogPct, effortFait,
   return (
     <>
       <div className="grid grid-cols-4 gap-2 mb-3">
-        <StatChip label="Total US"  value={total} />
-        <StatChip label="Terminées" value={fait}    sub={`${backlogPct} %`} color="text-green" />
-        <StatChip label="En cours"  value={enCours} color={enCours > 0 ? 'text-orange' : ''} />
-        <StatChip label="Bloquées"  value={bloque}  color={bloque > 0 ? 'text-red font-bold' : ''} />
+        <StatChip label="Total US"  value={total} bg="bg-slate-50"   border="border-slate-100" color="text-slate-700" />
+        <StatChip label="Terminées" value={fait}    sub={`${backlogPct} %`} bg="bg-emerald-50" border="border-emerald-100" color="text-emerald-700" />
+        <StatChip label="En cours"  value={enCours} bg={enCours > 0 ? 'bg-amber-50'  : 'bg-slate-50'} border={enCours > 0 ? 'border-amber-100'  : 'border-slate-100'} color={enCours > 0 ? 'text-amber-700'  : 'text-slate-400'} />
+        <StatChip label="Bloquées"  value={bloque}  bg={bloque > 0  ? 'bg-rose-50'   : 'bg-slate-50'} border={bloque > 0  ? 'border-rose-100'   : 'border-slate-100'} color={bloque > 0  ? 'text-rose-700'   : 'text-slate-400'} />
       </div>
       <div className="space-y-2">
         <div>
@@ -174,7 +198,8 @@ function AvancementStats({ total, fait, enCours, bloque, backlogPct, effortFait,
 
 function ToggleBtn({ active, onClick, children, expand }: { active: boolean; onClick: () => void; children: ReactNode; expand?: boolean }) {
   return (
-    <button onClick={onClick} className={cn('px-2 py-0.5 text-[9px] font-semibold transition-colors text-center', expand && 'flex-1', active ? 'bg-navy text-white' : 'text-subtle hover:text-navy')}>
+    <button onClick={onClick} className={cn('px-2 py-1 text-[9px] font-semibold transition-colors text-center', expand && 'flex-1',
+      active ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50')}>
       {children}
     </button>
   )
@@ -603,11 +628,11 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
     setEditingActionId(null)
   }
   const dateColor = (iso: string | null): string => {
-    if (!iso) return 'text-subtle'
+    if (!iso) return 'text-slate-400'
     const diff = (new Date(iso).getTime() - Date.now()) / 86_400_000
-    if (diff < 0) return 'text-red font-semibold'
-    if (diff < 7) return 'text-orange font-semibold'
-    return 'text-navy'
+    if (diff < 0) return 'text-rose-600 font-semibold'
+    if (diff < 7) return 'text-amber-600 font-semibold'
+    return 'text-slate-700'
   }
 
   // ── JSX ──────────────────────────────────────────────────────
@@ -627,7 +652,7 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
       </div>
 
       {/* Bandeau en-tête */}
-      <div className="bg-white border border-border rounded-xl mb-4 overflow-hidden">
+      <div className="bg-white border border-white rounded-2xl mb-4 overflow-hidden shadow-md">
         <div className="grid grid-cols-[1fr_auto_auto]">
           <div className="flex items-center gap-6 px-5 py-3 border-r border-border flex-wrap">
             <div>
@@ -672,24 +697,25 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
           </div>
 
           {/* Trajectoire + Livraison */}
-          <div className="flex items-stretch divide-x divide-border">
+          <div className="flex items-center divide-x divide-border">
             <Tooltip content={tipDelai}>
-              <div className="flex flex-col items-center justify-center px-5 py-3 min-w-[100px] cursor-help">
-                <div className="text-[9px] text-subtle uppercase font-bold tracking-wider mb-1">Trajectoire</div>
-                <div className={cn('text-sm font-black px-3 py-1 rounded-lg',
-                  ragD === 'green' ? 'text-green bg-green/10'
-                  : ragD === 'amber' ? 'text-orange bg-orange/10'
-                  : ragD === 'red'   ? 'text-red bg-red/10'
-                  : 'text-subtle bg-bg')}>
-                  {ragD === 'green' ? 'ON TRACK' : ragD === 'amber' ? 'AT RISK' : ragD === 'red' ? 'RETARD' : '—'}
-                </div>
+              <div className="flex flex-col items-center gap-1.5 px-5 py-3 min-w-[120px] cursor-help">
+                <div className="text-[9px] text-subtle uppercase font-bold tracking-wider">Trajectoire</div>
+                {ragD && TRAJ_CFG[ragD] ? (
+                  <div className={cn('text-xs font-bold px-3 py-1 rounded-xl border whitespace-nowrap', TRAJ_CFG[ragD].bg, TRAJ_CFG[ragD].text,
+                    ragD === 'green' ? 'border-emerald-200' : ragD === 'amber' ? 'border-amber-200' : 'border-rose-200')}>
+                    {TRAJ_CFG[ragD].label}
+                  </div>
+                ) : (
+                  <div className="text-xs font-bold px-3 py-1 rounded-xl bg-slate-50 text-slate-400 border border-slate-100">—</div>
+                )}
               </div>
             </Tooltip>
             <Tooltip content={tipLivraison}>
-              <div className="flex flex-col items-center justify-center px-5 py-3 min-w-[80px] cursor-help">
-                <div className="text-[9px] text-subtle uppercase font-bold tracking-wider mb-1">Livraison est.</div>
+              <div className="flex flex-col items-center gap-1.5 px-5 py-3 min-w-[80px] cursor-help">
+                <div className="text-[9px] text-subtle uppercase font-bold tracking-wider">Livraison est.</div>
                 <div className={cn('text-sm font-black tabular-nums',
-                  ragD === 'green' ? 'text-green' : ragD === 'amber' ? 'text-orange' : ragD === 'red' ? 'text-red' : 'text-subtle')}>
+                  ragD === 'green' ? 'text-emerald-600' : ragD === 'amber' ? 'text-amber-600' : ragD === 'red' ? 'text-rose-600' : 'text-slate-400')}>
                   {estimatedDeliveryDate
                     ? fmtDate(estimatedDeliveryDate.toISOString())
                     : cibleDate ? fmtDate(cibleDate) : '—'}
@@ -712,12 +738,12 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
             {produit.niveau_risque && (
               <div className="mt-2 flex items-center gap-1.5">
                 <span className="text-[10px] font-bold text-subtle uppercase">Risque</span>
-                <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full font-semibold', {
-                  'bg-green/10 text-green':   produit.niveau_risque === 'Faible',
-                  'bg-orange/10 text-orange': produit.niveau_risque === 'Moyen',
-                  'bg-orange/20 text-orange': produit.niveau_risque === 'Élevé',
-                  'bg-red/10 text-red':       produit.niveau_risque === 'Critique',
-                })}>
+                <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full font-semibold border',
+                  produit.niveau_risque === 'Faible'   && 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                  produit.niveau_risque === 'Moyen'    && 'bg-amber-50 text-amber-700 border-amber-200',
+                  produit.niveau_risque === 'Élevé'    && 'bg-orange-50 text-orange-700 border-orange-200',
+                  produit.niveau_risque === 'Critique' && 'bg-rose-50 text-rose-700 border-rose-200',
+                )}>
                   {produit.niveau_risque}
                 </span>
               </div>
@@ -725,7 +751,7 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
             {produit.date_lancement_cible && (
               <div className="mt-2 pt-2 border-t border-border flex justify-between items-center">
                 <span className="text-[10px] text-subtle">Lancement cible</span>
-                <span className={cn('text-[10px] font-bold', delaiInfo.onTime ? 'text-navy' : 'text-red')}>
+                <span className={cn('text-[10px] font-bold', delaiInfo.onTime ? 'text-slate-700' : 'text-rose-600')}>
                   {fmtDate(produit.date_lancement_cible)}
                 </span>
               </div>
@@ -860,23 +886,23 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
             <div className="flex-1 min-w-0 h-full">
               <Section title={`Points ouverts — ${blockedTaches.length} bloquée${blockedTaches.length !== 1 ? 's' : ''}`} noPad scrollable className="h-full">
                 {blockedTaches.length === 0
-                  ? <div className="p-3"><p className="text-xs text-green font-medium flex items-center gap-1.5"><Check size={12} /> Aucun point bloquant</p></div>
+                  ? <div className="p-3"><p className="text-xs text-emerald-600 font-medium flex items-center gap-1.5"><Check size={12} /> Aucun point bloquant</p></div>
                   : (
                     <table className="w-full text-xs">
                       <thead>
-                        <tr className="border-b border-border text-left">
+                        <tr className="border-b border-slate-100 text-left">
                           {['ID', 'Titre', 'Épic', 'Sprint', 'Équipe', 'Assigné'].map(h => (
-                            <th key={h} className="px-3 py-2 text-[9px] font-bold text-subtle uppercase tracking-wider bg-bg">{h}</th>
+                            <th key={h} className="px-3 py-2 text-[9px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50">{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {blockedTaches.map((t, i) => (
-                          <tr key={t.id_tache} className={cn('border-b border-border/50', i % 2 === 0 ? 'bg-white' : 'bg-bg/40')}>
-                            <td className="px-3 py-2 font-mono font-bold text-red">{t.id_tache}</td>
-                            <td className="px-3 py-2 text-navy font-medium max-w-[180px]">
+                          <tr key={t.id_tache} className={cn('border-b border-slate-50', i % 2 === 0 ? 'bg-white' : 'bg-rose-50/30')}>
+                            <td className="px-3 py-2 font-mono font-bold text-rose-600">{t.id_tache}</td>
+                            <td className="px-3 py-2 text-slate-700 font-medium max-w-[180px]">
                               <div className="flex items-center gap-1.5">
-                                <AlertTriangle size={10} className="text-red shrink-0" />
+                                <AlertTriangle size={10} className="text-rose-500 shrink-0" />
                                 <span className="line-clamp-1">{t.titre}</span>
                               </div>
                             </td>
@@ -924,13 +950,13 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                       </tr>
                       <tr className="border-b border-border/50">
                         <td className="px-3 py-1.5 font-medium text-navy">Restant</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-navy" colSpan={2}>{effortRestant > 0 ? `${effortRestant} j` : <span className="text-green font-semibold">Terminé</span>}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-slate-700" colSpan={2}>{effortRestant > 0 ? `${effortRestant} j` : <span className="text-emerald-600 font-semibold">Terminé</span>}</td>
                       </tr>
-                      <tr className="bg-navy/5">
-                        <td className="px-3 py-2 font-bold text-navy">Delta effort</td>
+                      <tr className="bg-slate-50">
+                        <td className="px-3 py-2 font-bold text-slate-700">Delta effort</td>
                         <td className="px-3 py-2 text-right font-bold tabular-nums" colSpan={2}>
                           {effortTotalSprint > 0
-                            ? <span className={cn(delta <= 10 ? 'text-green' : delta <= 20 ? 'text-orange' : 'text-red')}>
+                            ? <span className={cn(delta <= 10 ? 'text-emerald-600' : delta <= 20 ? 'text-amber-600' : 'text-rose-600')}>
                                 {delta >= 0 ? '+' : ''}{delta} pts
                               </span>
                             : '—'}
@@ -986,11 +1012,11 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                       <td className="px-3 py-1.5 text-right tabular-nums text-navy">{bInvest > 0 ? fmt(bInvest) : '—'}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums text-navy">{rInvest > 0 ? fmt(rInvest) : '—'}</td>
                     </tr>
-                    <tr className="bg-navy/5">
-                      <td className="px-3 py-2 font-bold text-navy">Total</td>
-                      <td className="px-3 py-2 text-right font-bold text-navy tabular-nums">{bTotal > 0 ? fmt(bTotal) : '—'}</td>
+                    <tr className="bg-slate-50">
+                      <td className="px-3 py-2 font-bold text-slate-700">Total</td>
+                      <td className="px-3 py-2 text-right font-bold text-slate-700 tabular-nums">{bTotal > 0 ? fmt(bTotal) : '—'}</td>
                       <td className="px-3 py-2 text-right font-bold tabular-nums">
-                        {rTotal > 0 ? <span className={cn(rTotal <= bTotal ? 'text-green' : 'text-red')}>{fmt(rTotal)}</span> : '—'}
+                        {rTotal > 0 ? <span className={cn(rTotal <= bTotal ? 'text-emerald-600' : 'text-rose-600')}>{fmt(rTotal)}</span> : '—'}
                       </td>
                     </tr>
                   </tbody>
@@ -1005,16 +1031,16 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
               <tbody>
                 <tr className="border-b border-border/50">
                   <td className="px-3 py-1.5 font-medium text-navy">Outcome</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-green font-semibold">{totalOutcome > 0 ? fmt(totalOutcome) : '—'}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-emerald-600 font-semibold">{totalOutcome > 0 ? fmt(totalOutcome) : '—'}</td>
                 </tr>
                 <tr className="border-b border-border/50">
                   <td className="px-3 py-1.5 font-medium text-navy">Budget</td>
                   <td className="px-3 py-1.5 text-right tabular-nums text-navy">{totalBudget > 0 ? fmt(totalBudget) : '—'}</td>
                 </tr>
-                <tr className="bg-navy/5">
-                  <td className="px-3 py-2 font-bold text-navy">ROI estimé</td>
+                <tr className="bg-slate-50">
+                  <td className="px-3 py-2 font-bold text-slate-700">ROI estimé</td>
                   <td className="px-3 py-2 text-right font-bold tabular-nums">
-                    {roi !== null ? <span className={cn(roi >= 0 ? 'text-green' : 'text-red')}>{roi >= 0 ? '+' : ''}{roi} %</span> : '—'}
+                    {roi !== null ? <span className={cn(roi >= 0 ? 'text-emerald-600' : 'text-rose-600')}>{roi >= 0 ? '+' : ''}{roi} %</span> : '—'}
                   </td>
                 </tr>
               </tbody>
@@ -1030,24 +1056,24 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
               </button>
             }>
             {addingRisque && (
-              <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-bg/60">
+              <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 bg-slate-50">
                 <input autoFocus value={newRisqueTitre} onChange={e => setNewRisqueTitre(e.target.value)}
                   onKeyDown={e => { if (e.key==='Enter') addRisque(); if (e.key==='Escape') setAddingRisque(false) }}
                   placeholder="Décrire le risque…"
-                  className="flex-1 text-xs bg-transparent outline-none text-navy placeholder:text-subtle/50" />
-                <button onClick={addRisque} className="text-green hover:opacity-70"><Check size={12} /></button>
-                <button onClick={() => setAddingRisque(false)} className="text-subtle hover:text-red"><X size={12} /></button>
+                  className="flex-1 text-xs bg-transparent outline-none text-slate-700 placeholder:text-slate-400" />
+                <button onClick={addRisque} className="text-emerald-600 hover:opacity-70"><Check size={12} /></button>
+                <button onClick={() => setAddingRisque(false)} className="text-subtle hover:text-rose-500"><X size={12} /></button>
               </div>
             )}
             {openRisques.length === 0 && !addingRisque
-              ? <div className="p-3"><p className="text-xs text-green font-medium flex items-center gap-1.5"><Check size={12} /> Aucun risque identifié</p></div>
-              : <div className="divide-y divide-border">
+              ? <div className="p-3"><p className="text-xs text-emerald-600 font-medium flex items-center gap-1.5"><Check size={12} /> Aucun risque identifié</p></div>
+              : <div className="divide-y divide-slate-100">
                   {openRisques.map(r => (
-                    <div key={r.id} className="flex items-start gap-2 px-3 py-2 hover:bg-bg/40 transition-colors group">
-                      <AlertTriangle size={11} className="text-orange shrink-0 mt-0.5" />
-                      <span className="flex-1 text-xs text-navy leading-snug">{r.titre}</span>
+                    <div key={r.id} className="flex items-start gap-2 px-3 py-2 hover:bg-amber-50/40 transition-colors group">
+                      <AlertTriangle size={11} className="text-amber-500 shrink-0 mt-0.5" />
+                      <span className="flex-1 text-xs text-slate-700 leading-snug">{r.titre}</span>
                       <button onClick={() => cloturerRisque(r.id)} title="Clôturer"
-                        className="text-[9px] text-subtle hover:text-green opacity-0 group-hover:opacity-100 transition-all shrink-0 font-medium">
+                        className="text-[9px] text-slate-400 hover:text-emerald-600 opacity-0 group-hover:opacity-100 transition-all shrink-0 font-medium">
                         Clôturer
                       </button>
                     </div>
@@ -1059,7 +1085,7 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
             <Section title="Historique trims" className="shrink-0">
               <div className="flex flex-wrap gap-1">
                 {closedTrims.map(t => (
-                  <span key={t.id} className="text-[10px] px-1.5 py-0.5 rounded-full bg-navy/10 text-navy font-medium flex items-center gap-1">
+                  <span key={t.id} className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 font-medium flex items-center gap-1">
                     <Lock size={8} /> {t.trimestre || 'Trim.'}
                   </span>
                 ))}
@@ -1076,12 +1102,12 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
           noPad
           action={
             <button onClick={() => { setAddingAction(true); setNewActionTitre(''); setNewActionAssigne(''); setNewActionDate('') }}
-              className="flex items-center gap-1 text-[9px] text-subtle hover:text-navy transition-colors">
+              className="flex items-center gap-1 text-[9px] text-slate-400 hover:text-slate-700 transition-colors">
               <Plus size={10} /> Ajouter
             </button>
           }>
           {addingAction && (
-            <div className="px-3 py-2 border-b border-border bg-bg/60 space-y-2">
+            <div className="px-3 py-2 border-b border-slate-100 bg-slate-50 space-y-2">
               <textarea autoFocus rows={3} value={newActionTitre} onChange={e => setNewActionTitre(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Escape') setAddingAction(false) }}
                 placeholder="Décrire l'action… (Entrée pour sauter une ligne)"
@@ -1099,17 +1125,17 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                 <input type="date" value={newActionDate} onChange={e => setNewActionDate(e.target.value)}
                   className="text-xs bg-white border border-border rounded px-2 py-1 outline-none text-navy focus:border-purple/50" />
                 <div className="ml-auto flex items-center gap-2">
-                  <button onClick={addAction} className="flex items-center gap-1 text-[9px] font-semibold text-white bg-green px-2 py-1 rounded hover:opacity-80">
+                  <button onClick={addAction} className="flex items-center gap-1 text-[9px] font-semibold text-white bg-emerald-600 px-2 py-1 rounded hover:opacity-80">
                     <Check size={10} /> Ajouter
                   </button>
-                  <button onClick={() => setAddingAction(false)} className="text-subtle hover:text-red"><X size={13} /></button>
+                  <button onClick={() => setAddingAction(false)} className="text-subtle hover:text-rose-500"><X size={13} /></button>
                 </div>
               </div>
             </div>
           )}
 
           {openActions.length === 0 && !addingAction
-            ? <div className="p-3"><p className="text-xs text-green font-medium flex items-center gap-1.5"><Check size={12} /> Aucune action en attente</p></div>
+            ? <div className="p-3"><p className="text-xs text-emerald-600 font-medium flex items-center gap-1.5"><Check size={12} /> Aucune action en attente</p></div>
             : (
               <table className="w-full text-xs table-fixed">
                 <colgroup>
@@ -1117,16 +1143,16 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                   <col className="w-24" /><col className="w-24" /><col className="w-24" /><col className="w-20" />
                 </colgroup>
                 <thead>
-                  <tr className="border-b border-border text-left">
+                  <tr className="border-b border-slate-100 text-left">
                     {['Action', 'Assigné', 'Créée le', 'Échéance', 'Report 1', 'Report 2', ''].map(h => (
-                      <th key={h} className="px-3 py-2 text-[9px] font-bold text-subtle uppercase tracking-wider bg-bg">{h}</th>
+                      <th key={h} className="px-3 py-2 text-[9px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {openActions.map((a, i) => {
                     const isEditing = editingActionId === a.id
-                    const rowCls = cn('border-b border-border/50 group', i % 2 === 0 ? 'bg-white' : 'bg-bg/40')
+                    const rowCls = cn('border-b border-slate-50 group', i % 2 === 0 ? 'bg-white' : 'bg-slate-50/60')
                     const inputCls = 'w-full text-xs bg-white border border-purple/40 rounded px-1.5 py-0.5 outline-none text-navy focus:border-purple/70'
 
                     if (isEditing) return (
@@ -1154,8 +1180,8 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                         <td className="px-2 py-1.5"><input type="date" className={inputCls} value={editValues.r2}   onChange={e => setEditValues(v => ({ ...v, r2: e.target.value }))} /></td>
                         <td className="px-2 py-1.5">
                           <div className="flex items-center gap-2 justify-end">
-                            <button onClick={saveEdit} className="text-green hover:opacity-70"><Check size={12} /></button>
-                            <button onClick={() => setEditingActionId(null)} className="text-subtle hover:text-red"><X size={12} /></button>
+                            <button onClick={saveEdit} className="text-emerald-600 hover:opacity-70"><Check size={12} /></button>
+                            <button onClick={() => setEditingActionId(null)} className="text-subtle hover:text-rose-500"><X size={12} /></button>
                           </div>
                         </td>
                       </tr>
@@ -1193,7 +1219,7 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                                 className={cn('transition-colors', subtaskRowId === a.id ? 'text-purple' : 'text-subtle hover:text-purple')}
                                 title="Créer une sous-tâche"><CornerDownRight size={13} /></button>
                               <button onClick={() => cloturerAction(a.id)}
-                                className="text-[9px] text-subtle hover:text-green font-medium">Clôturer</button>
+                                className="text-[9px] text-subtle hover:text-emerald-600 font-medium">Clôturer</button>
                             </div>
                           </td>
                         </tr>
@@ -1212,7 +1238,7 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                                   className="flex items-center gap-1 text-[9px] font-semibold text-white bg-purple px-2 py-1 rounded disabled:opacity-40">
                                   <CornerDownRight size={10} /> Créer sous-tâche
                                 </button>
-                                <button onClick={() => setSubtaskRowId(null)} className="text-subtle hover:text-red"><X size={13} /></button>
+                                <button onClick={() => setSubtaskRowId(null)} className="text-subtle hover:text-rose-500"><X size={13} /></button>
                               </div>
                             </td>
                           </tr>

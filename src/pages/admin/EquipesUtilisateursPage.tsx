@@ -11,15 +11,17 @@ import { confirm } from '@/components/ui/ConfirmModal'
 import { BRAND_COLORS } from '@/constants'
 import type { RoleProduit, UserProfile } from '@/contexts/AuthContext'
 import type { Equipe } from '@/types'
-import { Plus, X, Pencil, Trash2, Users, UserPlus, Shield, ChevronDown, ChevronRight, Camera, Mail, Clock, Send } from 'lucide-react'
+import { Plus, X, Pencil, Trash2, Users, UserPlus, Shield, ChevronDown, ChevronRight, Camera, Mail, Clock, Send, Search, ArrowUpDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Spinner } from '@/components/ui/Spinner'
 
 const ROLE_COLORS: Record<RoleProduit, string> = {
-  po:      'bg-navy/10 text-navy',
-  dev:     'bg-green/10 text-green',
-  lecteur: 'bg-subtle/10 text-subtle',
+  po:      'bg-slate-100 text-slate-700',
+  dev:     'bg-emerald-50 text-emerald-700',
+  lecteur: 'bg-slate-50 text-slate-500',
 }
+
+type SortKey = 'nom' | 'equipe' | 'admin'
 
 // ── InlineEdit ─────────────────────────────────────────────────
 function InlineEdit({ value, onSave, placeholder = '' }: { value: string; onSave: (v: string) => void; placeholder?: string }) {
@@ -27,7 +29,7 @@ function InlineEdit({ value, onSave, placeholder = '' }: { value: string; onSave
   const [val, setVal] = useState(value)
   if (!editing) return (
     <button onClick={() => { setVal(value); setEditing(true) }}
-      className="flex items-center gap-1 text-sm font-semibold text-navy hover:text-purple transition-colors group">
+      className="flex items-center gap-1 text-sm font-semibold text-navy hover:text-indigo-600 transition-colors group">
       {value || <span className="text-subtle italic">{placeholder}</span>}
       <Pencil size={11} className="opacity-0 group-hover:opacity-60" />
     </button>
@@ -37,8 +39,10 @@ function InlineEdit({ value, onSave, placeholder = '' }: { value: string; onSave
       <input value={val} onChange={e => setVal(e.target.value)} autoFocus
         className="ds-input py-0.5 text-sm font-semibold w-40"
         onKeyDown={e => { if (e.key === 'Enter') { onSave(val); setEditing(false) } if (e.key === 'Escape') setEditing(false) }} />
-      <button onClick={() => { onSave(val); setEditing(false) }} className="p-1 rounded-lg bg-green/10 text-green hover:bg-green/20 text-xs">✓</button>
-      <button onClick={() => setEditing(false)} className="p-1 rounded-lg bg-red/10 text-red hover:bg-red/20 text-xs">✕</button>
+      <button onClick={() => { onSave(val); setEditing(false) }}
+        className="p-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs">✓</button>
+      <button onClick={() => setEditing(false)}
+        className="p-1 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 text-xs">✕</button>
     </div>
   )
 }
@@ -66,17 +70,16 @@ function PendingSection({
   const [editingId, setEditingId] = useState<number | null>(null)
 
   return (
-    <div className="border border-orange/25 rounded-xl overflow-hidden">
-      {/* En-tête compact cliquable */}
+    <div className="border border-amber-200 rounded-xl overflow-hidden">
       <button onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center gap-2 px-3 py-2 bg-orange/5 hover:bg-orange/10 transition-colors text-left">
-        <Clock size={11} className="text-orange shrink-0" />
-        <span className="text-xs font-semibold text-orange">En attente d'invitation ({pendingProfiles.length})</span>
-        <ChevronDown size={11} className={cn('ml-auto text-orange/60 transition-transform', !open && '-rotate-90')} />
+        className="w-full flex items-center gap-2 px-3 py-2 bg-amber-50 hover:bg-amber-100 transition-colors text-left">
+        <Clock size={11} className="text-amber-600 shrink-0" />
+        <span className="text-xs font-semibold text-amber-600">En attente d'invitation ({pendingProfiles.length})</span>
+        <ChevronDown size={11} className={cn('ml-auto text-amber-400 transition-transform', !open && '-rotate-90')} />
       </button>
 
       {open && (
-        <div className="divide-y divide-orange/10">
+        <div className="divide-y divide-amber-100">
           {pendingProfiles.map(pp => (
             <PendingRow key={pp.id} pp={pp}
               editing={editingId === pp.id}
@@ -133,7 +136,6 @@ function PendingRow({
     pending_produit_roles: pp.pending_produit_roles ?? {} as Record<string, string>,
   })
 
-  // Sync form when pp changes (after save)
   useState(() => {
     setForm({
       display_name: pp.display_name,
@@ -149,7 +151,7 @@ function PendingRow({
 
   function save() {
     const roles = form.pending_produit_roles
-    const ids   = Object.entries(roles).filter(([,r]) => r !== 'none').map(([id]) => Number(id))
+    const ids   = Object.entries(roles).filter(([, r]) => r !== 'none').map(([id]) => Number(id))
     onUpdate({
       display_name:         form.display_name.trim() || pp.display_name,
       trigramme:            form.trigramme.toUpperCase() || null,
@@ -159,7 +161,7 @@ function PendingRow({
       role_global:          form.role_global,
       equipe_ids:           form.equipe_ids,
       pending_produit_ids:  ids,
-      pending_produit_roles: Object.fromEntries(Object.entries(roles).filter(([,r]) => r !== 'none')),
+      pending_produit_roles: Object.fromEntries(Object.entries(roles).filter(([, r]) => r !== 'none')),
     })
     onEdit()
   }
@@ -172,13 +174,14 @@ function PendingRow({
       <div className="flex items-center gap-2 px-3 py-2">
         <span className="inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-[9px] font-bold shrink-0"
           style={{ background: pp.couleur ?? '#4A4CC8' }}>
-          {pp.trigramme ?? displayName.slice(0,2).toUpperCase()}
+          {pp.trigramme ?? displayName.slice(0, 2).toUpperCase()}
         </span>
         <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
           <span className="text-xs font-semibold text-navy truncate">{displayName}</span>
           {pp.trigramme && <span className="text-[10px] text-subtle font-mono bg-bg px-1 rounded">{pp.trigramme}</span>}
-          {pp.role_global === 'admin' && <span className="text-[10px] bg-purple/10 text-purple font-semibold px-1.5 rounded">Admin</span>}
-          {/* Chips produits */}
+          {pp.role_global === 'admin' && (
+            <span className="text-[10px] bg-indigo-50 text-indigo-700 font-semibold px-1.5 rounded">Admin</span>
+          )}
           {(pp.pending_produit_ids ?? []).map(pid => {
             const p = produitsActifs.find(x => x.id === pid)
             return p ? (
@@ -189,7 +192,6 @@ function PendingRow({
             ) : null
           })}
         </div>
-        {/* Actions */}
         <div className="flex items-center gap-0.5 shrink-0">
           <button onClick={onEdit}
             className={cn('p-1.5 rounded hover:bg-bg text-subtle hover:text-navy transition-colors text-[11px]', editing && 'bg-bg text-navy')}>
@@ -197,12 +199,12 @@ function PendingRow({
           </button>
           {!inviting && (
             <button onClick={onInviteOpen}
-              className="p-1.5 rounded hover:bg-orange/10 text-subtle hover:text-orange transition-colors">
+              className="p-1.5 rounded hover:bg-amber-50 text-subtle hover:text-amber-600 transition-colors">
               <Mail size={11} />
             </button>
           )}
           <button onClick={onDelete}
-            className="p-1.5 rounded hover:bg-red/10 text-subtle hover:text-red transition-colors">
+            className="p-1.5 rounded hover:bg-rose-50 text-subtle hover:text-rose-600 transition-colors">
             <Trash2 size={11} />
           </button>
         </div>
@@ -225,8 +227,7 @@ function PendingRow({
 
       {/* Form édition complète */}
       {editing && (
-        <div className="px-3 pb-3 pt-2 bg-bg/40 border-t border-orange/10 space-y-3">
-          {/* Identité */}
+        <div className="px-3 pb-3 pt-2 bg-slate-50 border-t border-amber-100 space-y-3">
           <div className="grid grid-cols-3 gap-2">
             <div className="col-span-2">
               <div className="ds-label mb-1">Nom affiché</div>
@@ -235,7 +236,7 @@ function PendingRow({
             </div>
             <div>
               <div className="ds-label mb-1">Trigramme</div>
-              <input value={form.trigramme} onChange={e => setForm(f => ({ ...f, trigramme: e.target.value.toUpperCase().slice(0,3) }))}
+              <input value={form.trigramme} onChange={e => setForm(f => ({ ...f, trigramme: e.target.value.toUpperCase().slice(0, 3) }))}
                 className="ds-input text-xs uppercase tracking-widest" maxLength={3} />
             </div>
           </div>
@@ -250,7 +251,6 @@ function PendingRow({
             </div>
           </div>
 
-          {/* Couleur */}
           <div>
             <div className="ds-label mb-1.5">Couleur</div>
             <div className="flex gap-1.5 flex-wrap">
@@ -262,21 +262,21 @@ function PendingRow({
             </div>
           </div>
 
-          {/* Rôle global */}
           <div>
             <div className="ds-label mb-1">Rôle global</div>
             <div className="flex gap-2">
               {[{ val: null, label: 'Utilisateur' }, { val: 'admin' as const, label: 'Admin' }].map(opt => (
                 <button key={String(opt.val)} type="button" onClick={() => setForm(f => ({ ...f, role_global: opt.val }))}
                   className={cn('flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all',
-                    form.role_global === opt.val ? 'border-purple bg-purple/5 text-purple' : 'border-border text-subtle hover:border-navy/30')}>
+                    form.role_global === opt.val
+                      ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+                      : 'border-border text-subtle hover:border-slate-300')}>
                   {opt.val && <Shield size={10} />} {opt.label}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Équipes */}
           {equipesActives.length > 0 && (
             <div>
               <div className="ds-label mb-1">Équipes</div>
@@ -287,7 +287,7 @@ function PendingRow({
                     <button key={eq.id} type="button"
                       onClick={() => setForm(f => ({ ...f, equipe_ids: sel ? f.equipe_ids.filter(x => x !== eq.id) : [...f.equipe_ids, eq.id] }))}
                       className={cn('flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border transition-all',
-                        sel ? 'text-white border-transparent' : 'border-border text-subtle hover:border-purple/40')}
+                        sel ? 'text-white border-transparent' : 'border-border text-subtle hover:border-indigo-200')}
                       style={sel ? { background: eq.couleur ?? '#4A4CC8' } : undefined}>
                       {eq.nom}
                     </button>
@@ -297,25 +297,24 @@ function PendingRow({
             </div>
           )}
 
-          {/* Accès produits */}
           {produitsActifs.length > 0 && (
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <div className="ds-label mb-0">Accès produits</div>
                 <div className="flex gap-1.5 ml-auto">
-                  {(['po','dev','lecteur'] as const).map(r => (
+                  {(['po', 'dev', 'lecteur'] as const).map(r => (
                     <button key={r} type="button"
                       onClick={() => setForm(f => ({
                         ...f,
                         pending_produit_roles: Object.fromEntries(produitsActifs.map(p => [String(p.id), r])),
                       }))}
-                      className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-border hover:border-purple/50 hover:text-purple text-subtle transition-colors capitalize">
+                      className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-border hover:border-indigo-300 hover:text-indigo-600 text-subtle transition-colors capitalize">
                       Tout {r}
                     </button>
                   ))}
                   <button type="button"
                     onClick={() => setForm(f => ({ ...f, pending_produit_roles: {} }))}
-                    className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-border hover:border-red/40 hover:text-red text-subtle transition-colors">
+                    className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-border hover:border-rose-300 hover:text-rose-600 text-subtle transition-colors">
                     Aucun
                   </button>
                 </div>
@@ -375,24 +374,27 @@ export default function EquipesUtilisateursPage() {
   const deleteRole     = useDeleteRoleProduit()
   const deleteUser     = useDeleteUser()
   const uploadAvatar   = useUploadAvatar()
-  const createPending       = useCreatePendingProfile()
-  const deletePending       = useDeletePendingProfile()
-  const sendInvitation      = useSendInvitationToPending()
-  const updatePending       = useUpdatePendingProfile()
+  const createPending  = useCreatePendingProfile()
+  const deletePending  = useDeletePendingProfile()
+  const sendInvitation = useSendInvitationToPending()
+  const updatePending  = useUpdatePendingProfile()
 
   const { data: pendingProfiles = [] } = usePendingProfiles()
 
   // ── État UI ─────────────────────────────────────────────────
-  const [newEquipeNom,    setNewEquipeNom]    = useState('')
+  const [newEquipeNom,     setNewEquipeNom]     = useState('')
   const [newEquipeCouleur, setNewEquipeCouleur] = useState(BRAND_COLORS[0])
-  const [filterEquipe,   setFilterEquipe]    = useState<number | null>(null)
-  const [search,         setSearch]          = useState('')
-  const [showInvite,     setShowInvite]      = useState(false)
-  const [formMode,       setFormMode]        = useState<'email' | 'pending'>('email')
-  const [editingUser,    setEditingUser]      = useState<string | null>(null)
-  const [expandRoles,    setExpandRoles]      = useState<string | null>(null)
-  const [inviteTarget,   setInviteTarget]     = useState<PendingProfile | null>(null)
-  const [inviteEmail,    setInviteEmail]      = useState('')
+  const [filterEquipe,     setFilterEquipe]     = useState<number | null>(null)
+  const [search,           setSearch]           = useState('')
+  const [sortBy,           setSortBy]           = useState<SortKey>(() => {
+    try { return (localStorage.getItem('users-sortBy') as SortKey) || 'nom' } catch { return 'nom' }
+  })
+  const [showInvite,    setShowInvite]    = useState(false)
+  const [formMode,      setFormMode]      = useState<'email' | 'pending'>('email')
+  const [editingUser,   setEditingUser]   = useState<string | null>(null)
+  const [expandRoles,   setExpandRoles]   = useState<string | null>(null)
+  const [inviteTarget,  setInviteTarget]  = useState<PendingProfile | null>(null)
+  const [inviteEmail,   setInviteEmail]   = useState('')
 
   const [inv, setInv] = useState({
     email: '', display_name: '', trigramme: '', prenom: '', nom: '',
@@ -404,9 +406,9 @@ export default function EquipesUtilisateursPage() {
 
   if (loadEq || loadU) return <Layout><Spinner /></Layout>
 
-  const produitsActifs   = produits.filter(p => p.actif)
-  const equipesActives   = equipes.filter(e => e.actif)
-  const equipeMap        = Object.fromEntries(equipes.map(e => [e.id, e])) as Record<number, Equipe>
+  const produitsActifs = produits.filter(p => p.actif)
+  const equipesActives = equipes.filter(e => e.actif)
+  const equipeMap      = Object.fromEntries(equipes.map(e => [e.id, e])) as Record<number, Equipe>
 
   const usersFiltered = utilisateurs.filter(u => {
     if (!u.actif) return false
@@ -418,6 +420,28 @@ export default function EquipesUtilisateursPage() {
       if (!match.includes(q)) return false
     }
     return true
+  })
+
+  function handleSortBy(k: SortKey) {
+    setSortBy(k)
+    try { localStorage.setItem('users-sortBy', k) } catch {}
+  }
+
+  const usersSorted = [...usersFiltered].sort((a, b) => {
+    if (sortBy === 'nom') {
+      const na = (a.prenom ?? a.display_name ?? '').toLowerCase()
+      const nb = (b.prenom ?? b.display_name ?? '').toLowerCase()
+      return na.localeCompare(nb, 'fr')
+    }
+    if (sortBy === 'equipe') {
+      const ea = (a.equipe_ids ?? []).map(id => equipeMap[id]?.nom ?? '').sort().join(',')
+      const eb = (b.equipe_ids ?? []).map(id => equipeMap[id]?.nom ?? '').sort().join(',')
+      return ea.localeCompare(eb, 'fr')
+    }
+    if (sortBy === 'admin') {
+      return (b.role_global === 'admin' ? 1 : 0) - (a.role_global === 'admin' ? 1 : 0)
+    }
+    return 0
   })
 
   // ── Équipes ─────────────────────────────────────────────────
@@ -434,7 +458,6 @@ export default function EquipesUtilisateursPage() {
       message: hasUsers ? `${eq.nom} a des membres qui seront désaffectés.` : `${eq.nom} sera définitivement supprimée.`,
       confirmLabel: 'Supprimer', variant: 'danger',
     })) return
-    // Retirer cette équipe de tous les utilisateurs membres
     for (const u of utilisateurs.filter(u => (u.equipe_ids ?? []).includes(eq.id))) {
       const newIds = (u.equipe_ids ?? []).filter(id => id !== eq.id)
       await setEquipes.mutateAsync({ user_id: u.user_id, equipe_ids: newIds })
@@ -444,7 +467,6 @@ export default function EquipesUtilisateursPage() {
     if (filterEquipe === eq.id) setFilterEquipe(null)
   }
 
-  // ── Assignation équipes ─────────────────────────────────────
   async function addToEquipe(user_id: string, equipe_id: number, current_ids: number[]) {
     if (current_ids.includes(equipe_id)) return
     await setEquipes.mutateAsync({ user_id, equipe_ids: [...current_ids, equipe_id] })
@@ -456,7 +478,6 @@ export default function EquipesUtilisateursPage() {
     toast(`Retiré de ${equipeMap[equipe_id]?.nom}`)
   }
 
-  // ── Edition profil ──────────────────────────────────────────
   function startEdit(u: UserProfile) {
     setEditingUser(u.user_id)
     setEditForm({ trigramme: u.trigramme ?? '', prenom: u.prenom ?? '', nom: u.nom ?? '', role_metier: u.role_metier ?? '', couleur: u.couleur ?? BRAND_COLORS[0] })
@@ -488,12 +509,11 @@ export default function EquipesUtilisateursPage() {
 
   async function handleDeleteUser(u: UserProfile) {
     const name = `${u.prenom ?? ''} ${u.nom ?? u.display_name ?? u.user_id}`.trim()
-    if (!await confirm({ title: 'Supprimer l\'utilisateur ?', message: `"${name}" sera définitivement supprimé.`, confirmLabel: 'Supprimer', variant: 'danger' })) return
+    if (!await confirm({ title: "Supprimer l'utilisateur ?", message: `"${name}" sera définitivement supprimé.`, confirmLabel: 'Supprimer', variant: 'danger' })) return
     await deleteUser.mutateAsync(u.user_id)
     toast(`"${name}" supprimé`)
   }
 
-  // ── Invitation ───────────────────────────────────────────────
   function openInvite() {
     setInv({ email: '', display_name: '', trigramme: '', prenom: '', nom: '', role_metier: '', couleur: BRAND_COLORS[0], isAdmin: false })
     setInvEquipes(filterEquipe !== null ? [filterEquipe] : [])
@@ -523,9 +543,7 @@ export default function EquipesUtilisateursPage() {
           role_metier: inv.role_metier || null,
           couleur:     inv.couleur || null,
         }})
-        if (invEquipes.length > 0) {
-          await setEquipes.mutateAsync({ user_id: userId, equipe_ids: invEquipes })
-        }
+        if (invEquipes.length > 0) await setEquipes.mutateAsync({ user_id: userId, equipe_ids: invEquipes })
       }
       toast(`Invitation envoyée à ${inv.email}`)
       setShowInvite(false)
@@ -546,12 +564,8 @@ export default function EquipesUtilisateursPage() {
         couleur:             inv.couleur,
         role_global:         inv.isAdmin ? 'admin' : null,
         equipe_ids:          invEquipes,
-        pending_produit_ids: Object.entries(invRoles)
-          .filter(([, r]) => r !== 'none')
-          .map(([id]) => Number(id)),
-        pending_produit_roles: Object.fromEntries(
-          Object.entries(invRoles).filter(([, r]) => r !== 'none')
-        ),
+        pending_produit_ids: Object.entries(invRoles).filter(([, r]) => r !== 'none').map(([id]) => Number(id)),
+        pending_produit_roles: Object.fromEntries(Object.entries(invRoles).filter(([, r]) => r !== 'none')),
       })
       toast(`Profil "${name}" créé — invitation à envoyer plus tard`)
       setShowInvite(false)
@@ -582,8 +596,13 @@ export default function EquipesUtilisateursPage() {
     const teamsForUser  = userEquipeIds.map(id => equipeMap[id]).filter(Boolean)
     const teamsToAdd    = equipesActives.filter(e => !userEquipeIds.includes(e.id))
 
+    // Résumé accès produits (sans déplier)
+    const produitAcces = produitsActifs
+      .map(p => ({ p, role: getRoleForUser(u.user_id, p.id) }))
+      .filter(x => x.role !== null)
+
     return (
-      <div className="flex flex-col bg-white rounded-xl border border-border overflow-hidden hover:border-purple/30 transition-colors">
+      <div className="flex flex-col bg-white rounded-xl border border-border overflow-hidden hover:border-indigo-200 transition-colors">
         {/* Header */}
         <div className="flex items-start gap-2.5 p-3">
           <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 mt-0.5">
@@ -601,10 +620,10 @@ export default function EquipesUtilisateursPage() {
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-sm font-semibold text-navy truncate">{displayName}</span>
               {u.role_global === 'admin' && (
-                <span className="text-[10px] font-bold text-purple bg-purple/10 px-1.5 py-0.5 rounded-full shrink-0">Admin</span>
+                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-full shrink-0">Admin</span>
               )}
               {isMe && (
-                <span className="text-[10px] font-bold text-navy bg-navy/10 px-1.5 py-0.5 rounded-full shrink-0">Vous</span>
+                <span className="text-[10px] font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded-full shrink-0">Vous</span>
               )}
             </div>
             <div className="text-xs text-subtle">{u.role_metier || '—'}{u.trigramme ? ` · ${u.trigramme}` : ''}</div>
@@ -626,17 +645,29 @@ export default function EquipesUtilisateursPage() {
               {teamsForUser.length === 0 && (
                 <span className="text-[10px] text-subtle italic">Sans équipe</span>
               )}
-              {/* Ajouter une équipe */}
               {teamsToAdd.length > 0 && (
-                <select
-                  value=""
-                  onChange={e => { if (e.target.value) addToEquipe(u.user_id, Number(e.target.value), userEquipeIds) }}
-                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full border border-dashed border-border bg-bg text-subtle cursor-pointer focus:outline-none hover:border-purple/50 appearance-none">
+                <select value="" onChange={e => { if (e.target.value) addToEquipe(u.user_id, Number(e.target.value), userEquipeIds) }}
+                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full border border-dashed border-border bg-bg text-subtle cursor-pointer focus:outline-none hover:border-indigo-200 appearance-none">
                   <option value="">+ équipe</option>
                   {teamsToAdd.map(e => <option key={e.id} value={e.id}>{e.nom}</option>)}
                 </select>
               )}
             </div>
+
+            {/* Aperçu accès produits */}
+            {produitAcces.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {produitAcces.slice(0, 4).map(({ p, role }) => (
+                  <span key={p.id} className={cn('inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full', ROLE_COLORS[role!])}>
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: p.couleur ?? '#4A4CC8' }} />
+                    {role!.toUpperCase()}
+                  </span>
+                ))}
+                {produitAcces.length > 4 && (
+                  <span className="text-[9px] text-subtle self-center">+{produitAcces.length - 4}</span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Actions */}
@@ -651,12 +682,12 @@ export default function EquipesUtilisateursPage() {
                   title={u.role_global === 'admin' ? 'Retirer admin' : 'Donner admin'}
                   className={cn('p-1.5 rounded transition-colors',
                     u.role_global === 'admin'
-                      ? 'bg-purple/15 text-purple hover:bg-red/10 hover:text-red'
-                      : 'text-subtle hover:bg-purple/10 hover:text-purple')}>
+                      ? 'bg-indigo-100 text-indigo-600 hover:bg-rose-50 hover:text-rose-600'
+                      : 'text-subtle hover:bg-indigo-50 hover:text-indigo-600')}>
                   <Shield size={12} />
                 </button>
                 <button onClick={() => handleDeleteUser(u)}
-                  className="p-1.5 rounded hover:bg-red/10 text-subtle hover:text-red transition-colors">
+                  className="p-1.5 rounded hover:bg-rose-50 text-subtle hover:text-rose-600 transition-colors">
                   <Trash2 size={12} />
                 </button>
               </>
@@ -694,7 +725,6 @@ export default function EquipesUtilisateursPage() {
             <div>
               <div className="ds-label mb-2">Avatar</div>
               <div className="flex items-center gap-3">
-                {/* Prévisualisation */}
                 <div className="relative w-12 h-12 rounded-full overflow-hidden shrink-0 cursor-pointer group"
                   onClick={() => fileRef.current?.click()}>
                   {u.avatar_url ? (
@@ -710,7 +740,6 @@ export default function EquipesUtilisateursPage() {
                   </div>
                 </div>
                 <div className="flex-1 min-w-0">
-                  {/* Palette de couleurs */}
                   <div className="flex flex-wrap gap-1 mb-2">
                     {BRAND_COLORS.map(c => (
                       <button key={c} type="button" onClick={() => setEditForm(f => ({ ...f, couleur: c }))}
@@ -718,17 +747,15 @@ export default function EquipesUtilisateursPage() {
                         style={{ background: c }} />
                     ))}
                   </div>
-                  {/* Actions photo */}
                   <div className="flex gap-1.5 flex-wrap">
-                    <button type="button" onClick={() => fileRef.current?.click()}
-                      disabled={uploadAvatar.isPending}
+                    <button type="button" onClick={() => fileRef.current?.click()} disabled={uploadAvatar.isPending}
                       className="ds-btn ds-btn-sm flex items-center gap-1 text-xs">
                       <Camera size={11} /> {uploadAvatar.isPending ? 'Upload…' : 'Changer la photo'}
                     </button>
                     {u.avatar_url && (
                       <button type="button"
                         onClick={async () => { await uploadAvatar.mutateAsync({ user_id: u.user_id, file: null }); toast('Photo supprimée') }}
-                        className="ds-btn ds-btn-sm text-red hover:bg-red/10 flex items-center gap-1 text-xs">
+                        className="ds-btn ds-btn-sm text-rose-600 hover:bg-rose-50 flex items-center gap-1 text-xs">
                         <X size={11} /> Supprimer
                       </button>
                     )}
@@ -752,13 +779,16 @@ export default function EquipesUtilisateursPage() {
           </div>
         )}
 
-        {/* Accès produits */}
+        {/* Accès produits (accordéon) */}
         {produitsActifs.length > 0 && (
           <div className="border-t border-border/40">
             <button onClick={() => setExpandRoles(isExpanded ? null : u.user_id)}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-subtle hover:text-navy transition-colors">
               {isExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
               Accès produits
+              {!isExpanded && produitAcces.length > 0 && (
+                <span className="ml-auto text-[10px] text-indigo-600 font-medium">{produitAcces.length} accès</span>
+              )}
             </button>
             {isExpanded && (
               <div className="px-3 pb-2 flex flex-col gap-1">
@@ -803,13 +833,11 @@ export default function EquipesUtilisateursPage() {
         </button>
       </div>
 
-      {/* Layout principal : gauche équipes / droite utilisateurs */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
 
         {/* ── Colonne gauche : Équipes ─────────────────────── */}
         <div className="flex flex-col gap-3 lg:sticky lg:top-4">
 
-          {/* Créer une équipe */}
           <div className="ds-card">
             <div className="ds-card-title">Nouvelle équipe</div>
             <div className="flex flex-col gap-2">
@@ -829,7 +857,6 @@ export default function EquipesUtilisateursPage() {
             </div>
           </div>
 
-          {/* Liste des équipes */}
           <div className="ds-card">
             <div className="ds-card-title">
               Équipes ({equipesActives.length})
@@ -846,7 +873,7 @@ export default function EquipesUtilisateursPage() {
                 return (
                   <div key={eq.id}
                     className={cn('flex items-center gap-2 p-2.5 rounded-lg border transition-all cursor-pointer',
-                      isFiltered ? 'border-purple bg-purple/5' : 'border-border bg-white hover:border-purple/30')}
+                      isFiltered ? 'border-indigo-300 bg-indigo-50' : 'border-border bg-white hover:border-indigo-200')}
                     onClick={() => setFilterEquipe(isFiltered ? null : eq.id)}>
                     <div className="w-3 h-3 rounded-full shrink-0" style={{ background: eq.couleur ?? '#4A4CC8' }} />
                     <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
@@ -854,7 +881,7 @@ export default function EquipesUtilisateursPage() {
                     </div>
                     <span className="text-xs text-subtle shrink-0">{nb}</span>
                     <button onClick={e => { e.stopPropagation(); deleteEq(eq) }}
-                      className="p-1 rounded hover:bg-red/10 text-subtle hover:text-red shrink-0">
+                      className="p-1 rounded hover:bg-rose-50 text-subtle hover:text-rose-600 shrink-0">
                       <Trash2 size={12} />
                     </button>
                   </div>
@@ -872,14 +899,13 @@ export default function EquipesUtilisateursPage() {
 
           {/* Formulaire d'invitation */}
           {showInvite && (
-            <div className="bg-white rounded-2xl border border-purple/30 p-5 shadow-sm">
+            <div className="bg-white rounded-2xl border border-indigo-200 p-5 shadow-sm">
               <div className="flex items-center gap-2 mb-4">
-                <UserPlus size={15} className="text-purple" />
+                <UserPlus size={15} className="text-indigo-600" />
                 <span className="text-sm font-semibold text-navy">Ajouter un utilisateur</span>
                 <button onClick={() => setShowInvite(false)} className="ml-auto p-1 rounded-lg hover:bg-bg text-subtle hover:text-navy"><X size={14} /></button>
               </div>
 
-              {/* Toggle mode */}
               <div className="flex gap-1 p-1 bg-bg rounded-xl mb-4 w-fit">
                 {([
                   { mode: 'email'   as const, label: 'Inviter par email', icon: <Mail size={11} /> },
@@ -896,7 +922,7 @@ export default function EquipesUtilisateursPage() {
               </div>
 
               {formMode === 'pending' && (
-                <p className="text-xs text-subtle bg-orange/5 border border-orange/20 rounded-lg px-3 py-2 mb-3">
+                <p className="text-xs text-subtle bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
                   Le profil est créé immédiatement et peut être assigné aux produits / plan de charges.
                   L'invitation par email sera envoyée quand vous serez prêt.
                 </p>
@@ -951,7 +977,6 @@ export default function EquipesUtilisateursPage() {
                 </div>
               </div>
 
-              {/* Équipes */}
               {equipesActives.length > 0 && (
                 <div className="mb-3">
                   <div className="ds-label mb-1.5">Équipes</div>
@@ -962,7 +987,7 @@ export default function EquipesUtilisateursPage() {
                         <button key={eq.id} type="button"
                           onClick={() => setInvEquipes(prev => sel ? prev.filter(id => id !== eq.id) : [...prev, eq.id])}
                           className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all',
-                            sel ? 'border-transparent text-white' : 'border-border bg-white text-subtle hover:border-purple/40')}
+                            sel ? 'border-transparent text-white' : 'border-border bg-white text-subtle hover:border-indigo-200')}
                           style={sel ? { background: eq.couleur ?? '#4A4CC8' } : undefined}>
                           <span className="w-1.5 h-1.5 rounded-full shrink-0"
                             style={{ background: sel ? 'white' : (eq.couleur ?? '#4A4CC8') }} />
@@ -975,13 +1000,14 @@ export default function EquipesUtilisateursPage() {
               )}
 
               <div className="grid grid-cols-2 gap-3 mb-4">
-                {/* Rôle global */}
                 <div><div className="ds-label mb-1">Rôle global</div>
                   <div className="flex gap-2">
                     {[{ val: false, label: 'Utilisateur' }, { val: true, label: 'Administrateur' }].map(opt => (
                       <button key={String(opt.val)} type="button" onClick={() => setInv(f => ({ ...f, isAdmin: opt.val }))}
                         className={cn('flex-1 px-2 py-1.5 rounded-xl border text-xs font-semibold transition-all',
-                          inv.isAdmin === opt.val ? 'border-purple bg-purple/5 text-purple' : 'border-border text-subtle hover:border-navy/30 hover:text-navy')}>
+                          inv.isAdmin === opt.val
+                            ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+                            : 'border-border text-subtle hover:border-slate-300 hover:text-navy')}>
                         {opt.val && <Shield size={10} className="inline mr-1" />}{opt.label}
                       </button>
                     ))}
@@ -989,22 +1015,20 @@ export default function EquipesUtilisateursPage() {
                 </div>
               </div>
 
-              {/* Accès produits */}
               {!inv.isAdmin && produitsActifs.length > 0 && (
                 <div className="mb-4">
                   <div className="flex items-center gap-2 mb-2">
                     <div className="ds-label mb-0">Accès produits</div>
                     <div className="flex gap-1.5 ml-auto">
-                      {(['po','dev','lecteur'] as RoleProduit[]).map(r => (
+                      {(['po', 'dev', 'lecteur'] as RoleProduit[]).map(r => (
                         <button key={r} type="button"
                           onClick={() => setInvRoles(Object.fromEntries(produitsActifs.map(p => [p.id, r])))}
-                          className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-border hover:border-purple/50 hover:text-purple text-subtle transition-colors capitalize">
+                          className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-border hover:border-indigo-300 hover:text-indigo-600 text-subtle transition-colors capitalize">
                           Tout {r}
                         </button>
                       ))}
-                      <button type="button"
-                        onClick={() => setInvRoles({})}
-                        className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-border hover:border-red/40 hover:text-red text-subtle transition-colors">
+                      <button type="button" onClick={() => setInvRoles({})}
+                        className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-border hover:border-rose-300 hover:text-rose-600 text-subtle transition-colors">
                         Aucun
                       </button>
                     </div>
@@ -1030,18 +1054,15 @@ export default function EquipesUtilisateursPage() {
 
               <div className="flex gap-2 pt-3 border-t border-border">
                 {formMode === 'email' ? (
-                  <button onClick={handleInvite}
-                    disabled={inviteUser.isPending || !inv.email.trim()}
+                  <button onClick={handleInvite} disabled={inviteUser.isPending || !inv.email.trim()}
                     className="ds-btn-primary ds-btn-sm flex items-center gap-1.5 disabled:opacity-40">
-                    <Send size={13} />
-                    {inviteUser.isPending ? 'Envoi…' : "Envoyer l'invitation"}
+                    <Send size={13} /> {inviteUser.isPending ? 'Envoi…' : "Envoyer l'invitation"}
                   </button>
                 ) : (
                   <button onClick={handleCreatePending}
                     disabled={createPending.isPending || (!inv.display_name.trim() && !inv.prenom.trim())}
                     className="ds-btn-primary ds-btn-sm flex items-center gap-1.5 disabled:opacity-40">
-                    <UserPlus size={13} />
-                    {createPending.isPending ? 'Création…' : 'Créer le profil'}
+                    <UserPlus size={13} /> {createPending.isPending ? 'Création…' : 'Créer le profil'}
                   </button>
                 )}
                 <button onClick={() => setShowInvite(false)} className="ds-btn ds-btn-sm">Annuler</button>
@@ -1049,7 +1070,7 @@ export default function EquipesUtilisateursPage() {
             </div>
           )}
 
-          {/* ── Profils en attente ───────────────────────── */}
+          {/* Profils en attente */}
           {pendingProfiles.length > 0 && (
             <PendingSection
               pendingProfiles={pendingProfiles}
@@ -1069,14 +1090,39 @@ export default function EquipesUtilisateursPage() {
             />
           )}
 
-          {/* Barre de recherche + filtre actif */}
-          <div className="flex items-center gap-2">
-            <div className="ds-searchbar flex-1">
-              <span className="text-subtle text-xs">🔍</span>
+          {/* Barre recherche + tri */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative flex-1 min-w-[180px]">
+              <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
               <input value={search} onChange={e => setSearch(e.target.value)}
-                placeholder="Rechercher par nom, trigramme, rôle…" />
-              {search && <button onClick={() => setSearch('')} className="text-subtle hover:text-navy"><X size={12} /></button>}
+                placeholder="Rechercher par nom, trigramme, rôle…"
+                className="ds-input text-xs pl-7 py-1.5 w-full placeholder:text-slate-400" />
+              {search && (
+                <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-subtle hover:text-navy">
+                  <X size={12} />
+                </button>
+              )}
             </div>
+
+            {/* Tri */}
+            <div className="flex items-center rounded-lg border border-slate-200 overflow-hidden text-[11px] font-medium">
+              <span className="px-2 text-slate-400 border-r border-slate-200 py-1.5">
+                <ArrowUpDown size={11} />
+              </span>
+              {([
+                { k: 'nom',    label: 'Nom' },
+                { k: 'equipe', label: 'Équipe' },
+                { k: 'admin',  label: 'Admin' },
+              ] as { k: SortKey; label: string }[]).map(({ k, label }) => (
+                <button key={k} onClick={() => handleSortBy(k)}
+                  className={cn('px-2.5 py-1.5 border-l border-slate-200 transition-colors',
+                    sortBy === k ? 'bg-indigo-50 text-indigo-700' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'
+                  )}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
             {filterEquipe !== null && (
               <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold shrink-0"
                 style={{ borderColor: equipeMap[filterEquipe]?.couleur ?? '#4A4CC8', color: equipeMap[filterEquipe]?.couleur ?? '#4A4CC8', background: (equipeMap[filterEquipe]?.couleur ?? '#4A4CC8') + '15' }}>
@@ -1086,14 +1132,14 @@ export default function EquipesUtilisateursPage() {
               </div>
             )}
             <div className="text-xs text-subtle shrink-0">
-              {usersFiltered.length} / {utilisateurs.filter(u => u.actif).length}
+              {usersSorted.length} / {utilisateurs.filter(u => u.actif).length}
             </div>
           </div>
 
           {/* Grille utilisateurs */}
-          {usersFiltered.length > 0 ? (
+          {usersSorted.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {usersFiltered.map(u => <UserCard key={u.user_id} u={u} />)}
+              {usersSorted.map(u => <UserCard key={u.user_id} u={u} />)}
             </div>
           ) : (
             <div className="ds-card flex flex-col items-center justify-center py-16 text-subtle gap-3">

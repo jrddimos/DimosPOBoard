@@ -229,8 +229,15 @@ export function useUpdatePendingProfile() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, updates }: { id: number; updates: Partial<Omit<PendingProfile, 'id' | 'created_at'>> }) => {
-      const { error } = await supabase.from('pending_profiles').update(updates).eq('id', id)
-      if (error) throw error
+      // RPC SECURITY DEFINER — contourne le schema cache PostgREST pour les colonnes ALTER TABLE
+      const { error } = await supabase.rpc('update_pending_profile_data', {
+        p_id:   id,
+        p_data: updates,
+      })
+      if (error) {
+        console.error('[pending RPC] code:', error.code, '| msg:', error.message, '| details:', error.details)
+        throw error
+      }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pending_profiles'] }),
   })

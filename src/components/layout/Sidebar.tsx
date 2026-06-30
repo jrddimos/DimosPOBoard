@@ -3,15 +3,198 @@ import { cn } from '@/lib/utils'
 import { useSprintActif } from '@/hooks/useSprints'
 import { useAuth } from '@/contexts/AuthContext'
 import { useProduit } from '@/contexts/ProduitContext'
-import { useProduits } from '@/hooks/useProduits'
+import { useProduits, useUpdateProduit } from '@/hooks/useProduits'
+import type { ActionLop } from '@/hooks/useProduits'
 import { useUploadAvatar, useUpdateProfile } from '@/hooks/useUserManagement'
 import { BRAND_COLORS } from '@/constants'
 import {
   LayoutDashboard, List, Kanban, FilePlus, Settings,
   ChevronDown, LogOut, Zap, ClipboardCheck, User, Clock, X,
   Users, Package, Briefcase, CalendarClock, BarChart3, Euro, Camera, TrendingUp,
+  StickyNote, Plus, Check, ArrowRight,
 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
+
+// ── Quick Notes Panel ─────────────────────────────────────────
+interface QuickNote { id: string; text: string; done: boolean }
+
+function QuickNotesPanel({ userId, userName, onClose }: {
+  userId:   string
+  userName: string
+  onClose:  () => void
+}) {
+  const key = `quick_notes_${userId}`
+  const { data: produits = [] } = useProduits()
+  const updateProduit           = useUpdateProduit()
+  const inputRef                = useRef<HTMLInputElement>(null)
+
+  const [notes, setNotes] = useState<QuickNote[]>(() => {
+    try { return JSON.parse(localStorage.getItem(key) ?? '[]') } catch { return [] }
+  })
+  const [input,     setInput]     = useState('')
+  const [sendingId, setSendingId] = useState<string | null>(null)
+
+  useEffect(() => { localStorage.setItem(key, JSON.stringify(notes)) }, [notes, key])
+  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 80) }, [])
+
+  function add() {
+    const text = input.trim(); if (!text) return
+    setNotes(n => [...n, { id: Date.now().toString(), text, done: false }])
+    setInput('')
+    inputRef.current?.focus()
+  }
+
+  function toggle(id: string) { setNotes(n => n.map(x => x.id === id ? { ...x, done: !x.done } : x)) }
+  function remove(id: string) { setNotes(n => n.filter(x => x.id !== id)) }
+
+  async function sendToLop(note: QuickNote, produitId: number) {
+    const produit = produits.find(p => p.id === produitId)
+    if (!produit) return
+    const action: ActionLop = {
+      id:                   Date.now().toString(),
+      titre:                note.text,
+      created_at:           new Date().toISOString(),
+      date_cloture_estimee: null,
+      report_1:             null,
+      report_2:             null,
+      assigne_id:           userId,
+      assigne_nom:          userName,
+      cloture:              false,
+      cloture_at:           null,
+    }
+    await updateProduit.mutateAsync({
+      id:      produitId,
+      updates: { actions_lop: [...(produit.actions_lop ?? []), action] },
+    })
+    setSendingId(null)
+    remove(note.id)
+  }
+
+  const openNotes = notes.filter(n => !n.done)
+  const doneNotes = notes.filter(n => n.done)
+  const produitsActifs = produits.filter(p => p.actif)
+
+  return (
+    <>
+      {/* Clic extérieur pour fermer */}
+      <div className="fixed inset-0 z-[59]" onClick={onClose} />
+
+      {/* Panel flottant ancré en bas à gauche, juste à droite de la sidebar */}
+      <div className="fixed bottom-4 left-[14.5rem] z-[60] w-[360px] max-h-[70vh] bg-white shadow-2xl flex flex-col rounded-2xl border border-border overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+          <div className="flex items-center gap-2.5">
+            <StickyNote size={15} className="text-indigo-400" />
+            <div>
+              <h2 className="text-sm font-bold text-navy">Points à traiter</h2>
+              <p className="text-[10px] text-subtle">
+                {openNotes.length} en attente · {doneNotes.length} traité{doneNotes.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-bg text-subtle hover:text-navy transition-colors">
+            <X size={15} />
+          </button>
+        </div>
+
+        {/* Liste */}
+        <div className="flex-1 overflow-y-auto">
+          {openNotes.length === 0 && doneNotes.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-20 text-subtle/30">
+              <StickyNote size={36} className="mb-3" />
+              <p className="text-xs italic">Aucun point à traiter</p>
+            </div>
+          )}
+
+          {/* Points ouverts */}
+          <div className="divide-y divide-border/30">
+            {openNotes.map(note => (
+              <div key={note.id} className="px-4 py-3 group/row hover:bg-bg/40 transition-colors">
+                <div className="flex items-start gap-2.5">
+                  <button onClick={() => toggle(note.id)}
+                    className="mt-0.5 w-4 h-4 rounded border border-border hover:border-emerald-400/50 hover:bg-emerald-50/50 shrink-0 transition-colors" />
+                  <p className="flex-1 text-sm text-navy/85 leading-snug">{note.text}</p>
+                  <button onClick={() => remove(note.id)}
+                    className="opacity-0 group-hover/row:opacity-100 p-1 rounded hover:bg-rose-50 text-subtle hover:text-rose-600 transition-all shrink-0 mt-0.5">
+                    <X size={12} />
+                  </button>
+                </div>
+
+                {/* Envoyer vers LOP */}
+                {sendingId === note.id ? (
+                  <div className="mt-2 ml-6 flex flex-wrap gap-1.5">
+                    <span className="text-[10px] text-subtle/60 w-full mb-0.5">Choisir le produit :</span>
+                    {produitsActifs.map(p => (
+                      <button key={p.id} onClick={() => sendToLop(note, p.id)}
+                        disabled={updateProduit.isPending}
+                        className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full text-white hover:opacity-80 transition-opacity disabled:opacity-50"
+                        style={{ background: p.couleur ?? '#4A4CC8' }}>
+                        {p.nom}
+                      </button>
+                    ))}
+                    <button onClick={() => setSendingId(null)}
+                      className="text-[11px] px-2.5 py-1 rounded-full border border-border text-subtle hover:text-rose-600 transition-colors">
+                      Annuler
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => setSendingId(note.id)}
+                    className="mt-1.5 ml-6 flex items-center gap-1 text-[10px] text-subtle/40 hover:text-indigo-600 opacity-0 group-hover/row:opacity-100 transition-all">
+                    <ArrowRight size={10} /> Envoyer vers LOP produit
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Points traités (repliés) */}
+          {doneNotes.length > 0 && (
+            <details className="group/done border-t border-border/40">
+              <summary className="flex items-center gap-2 px-4 py-2 text-[10px] text-subtle/50 uppercase tracking-wider font-semibold cursor-pointer hover:text-subtle list-none select-none">
+                <ChevronDown size={11} className="transition-transform group-open/done:rotate-0 -rotate-90" />
+                Traités ({doneNotes.length})
+              </summary>
+              <div className="divide-y divide-border/20">
+                {doneNotes.map(note => (
+                  <div key={note.id} className="flex items-start gap-2.5 px-4 py-2.5 group/d hover:bg-bg/30">
+                    <button onClick={() => toggle(note.id)}
+                      className="mt-0.5 w-4 h-4 rounded border border-emerald-300 bg-emerald-50 shrink-0 flex items-center justify-center">
+                      <Check size={9} className="text-emerald-600" />
+                    </button>
+                    <span className="flex-1 text-xs text-subtle/40 line-through leading-snug">{note.text}</span>
+                    <button onClick={() => remove(note.id)}
+                      className="opacity-0 group-hover/d:opacity-100 p-1 rounded hover:bg-rose-50 text-subtle hover:text-rose-600 transition-all shrink-0 mt-0.5">
+                      <X size={11} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+        </div>
+
+        {/* Saisie */}
+        <div className="px-4 py-3 border-t border-border bg-bg/50 shrink-0">
+          <div className="flex items-center gap-2 bg-white rounded-xl border border-border px-3 py-2.5 focus-within:border-indigo-300 transition-colors">
+            <Plus size={13} className="text-subtle/40 shrink-0" />
+            <input ref={inputRef} value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') add(); if (e.key === 'Escape') onClose() }}
+              placeholder="Ajouter un point à traiter…"
+              className="flex-1 text-sm text-navy placeholder:text-subtle/40 outline-none bg-transparent" />
+            {input.trim() && (
+              <button onClick={add}
+                className="text-[11px] font-semibold text-white bg-indigo-600 px-2.5 py-1 rounded-lg hover:bg-indigo-700 transition-colors shrink-0">
+                ↵
+              </button>
+            )}
+          </div>
+          <p className="text-[10px] text-subtle/30 mt-1.5 text-center">Entrée pour ajouter · Hover pour actions · Échap pour fermer</p>
+        </div>
+      </div>
+    </>
+  )
+}
 
 // ── Types ─────────────────────────────────────────────────────
 interface NavChild { label: string; href: string }
@@ -48,7 +231,7 @@ const PRODUCT_NAV: NavItem[] = [
   { id:'backlog',  label:'Backlog',   href:'/backlog',   icon:<List size={17}/> },
   { id:'dod',      label:'DoD',       href:'/dod',       icon:<ClipboardCheck size={17}/> },
   { id:'activite', label:'Activité',  href:'/activite',  icon:<Clock size={17}/> },
-  { id:'setup',    label:'Setup',     href:'/setup',     icon:<Settings size={17}/>,
+  { id:'setup',    label:'Setup',     href:'/setup?tab=sprints', icon:<Settings size={17}/>,
     children:[
       { label:'Sprints', href:'/setup?tab=sprints' },
       { label:'Epics',   href:'/setup?tab=epics'   },
@@ -158,7 +341,7 @@ function ProductDropdown({ onClose }: { onClose: () => void }) {
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.couleur ?? '#4A4CC8' }} />
                 <span className="flex-1 truncate">{p.nom}</span>
                 {p.is_template && <span className="text-amber-400 text-[10px]">★</span>}
-                {produitActif?.id === p.id && <span className="text-purple text-xs">✓</span>}
+                {produitActif?.id === p.id && <span className="text-indigo-400 text-xs">✓</span>}
               </button>
             ))
           )}
@@ -237,7 +420,8 @@ function ProfileFooter() {
   const updateProfile = useUpdateProfile()
   const fileRef       = useRef<HTMLInputElement>(null)
   const panelRef      = useRef<HTMLDivElement>(null)
-  const [open, setOpen] = useState(false)
+  const [open,      setOpen]      = useState(false)
+  const [showNotes, setShowNotes] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -280,7 +464,7 @@ function ProfileFooter() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-white/90 text-xs font-semibold truncate">{displayName}</div>
-              {isAdmin && <div className="text-purple/60 text-[10px]">Admin</div>}
+              {isAdmin && <div className="text-indigo-400 text-[10px]">Admin</div>}
             </div>
             <button onClick={() => setOpen(false)} className="p-1 rounded hover:bg-white/10 text-white/40 hover:text-white/80">
               <X size={13} />
@@ -300,7 +484,7 @@ function ProfileFooter() {
               if (!user) return
               await uploadAvatar.mutateAsync({ user_id: user.id, file: null })
               await refreshProfile()
-            }} className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-xl text-white/40 hover:text-red/70 hover:bg-red/10 text-xs transition-colors mb-3">
+            }} className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-xl text-white/40 hover:text-rose-400 hover:bg-rose-500/10 text-xs transition-colors mb-3">
               <X size={11} /> Supprimer la photo
             </button>
           )}
@@ -343,10 +527,37 @@ function ProfileFooter() {
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-white/80 text-xs font-semibold truncate">{displayName}</div>
-          {isAdmin && <div className="text-purple/70 text-[10px]">Admin</div>}
+          {isAdmin && <div className="text-indigo-400 text-[10px]">Admin</div>}
         </div>
         <Camera size={11} className="text-white/30 shrink-0" />
       </button>
+
+      {/* Points à traiter */}
+      {user && (
+        <>
+          <button onClick={() => setShowNotes(true)}
+            className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-white/50 hover:text-white/80 hover:bg-white/10 text-xs transition-colors">
+            <StickyNote size={13} />
+            <span className="flex-1 text-left">Points à traiter</span>
+            {(() => {
+              try {
+                const notes: QuickNote[] = JSON.parse(localStorage.getItem(`quick_notes_${user.id}`) ?? '[]')
+                const n = notes.filter(x => !x.done).length
+                return n > 0 ? (
+                  <span className="text-[9px] font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded-full">{n}</span>
+                ) : null
+              } catch { return null }
+            })()}
+          </button>
+          {showNotes && (
+            <QuickNotesPanel
+              userId={user.id}
+              userName={profile?.display_name ?? user.email ?? ''}
+              onClose={() => setShowNotes(false)}
+            />
+          )}
+        </>
+      )}
 
       {/* Déconnexion */}
       <button onClick={async () => {
@@ -403,7 +614,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         {/* Logo */}
         <div className="px-5 py-5 border-b border-white/10 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-purple rounded-lg flex items-center justify-center">
+            <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center">
               <Zap size={16} className="text-white" />
             </div>
             <div>
