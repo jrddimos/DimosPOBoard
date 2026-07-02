@@ -3,12 +3,16 @@ import { Layout } from '@/components/layout/Layout'
 import { Spinner } from '@/components/ui/Spinner'
 import { useTaches } from '@/hooks/useTaches'
 import { useDod, useCreateDodItem, useUpdateDodItem, useDeleteDodItem, type DodItem } from '@/hooks/useDod'
+import { useDodCategories, useCreateDodCategorie, type DodCategorie } from '@/hooks/useDodCategories'
 import { useToast } from '@/hooks/useToast'
 import { ToastContainer } from '@/components/ui/Toast'
+import { confirm } from '@/components/ui/ConfirmModal'
+import { supabase } from '@/lib/supabase'
+import { useQueryClient } from '@tanstack/react-query'
 import { EPIC_LIST, EPIC_COLORS, JALON_LIST, JALON_COLORS } from '@/constants'
 import { epicShortName } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { Plus, Pencil, Trash2, Check, X, ToggleLeft, ToggleRight, SlidersHorizontal, ClipboardCheck, BookOpen, BarChart3 } from 'lucide-react'
+import { Plus, Pencil, Trash2, Check, X, ToggleLeft, ToggleRight, SlidersHorizontal, ClipboardCheck, BookOpen, BarChart3, Tag } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
 import { SelectPicker } from '@/components/ui/SelectPicker'
 import { ToggleGroup } from '@/components/ui/ToggleGroup'
@@ -19,22 +23,10 @@ type PageTab  = 'referentiel' | 'couverture'
 type GroupBy  = 'epic' | 'jalon'
 type FilterDod = 'all' | 'avec' | 'sans'
 
-const CATEGORIES = [
-  'F1 — ALIMENTATION - AVALOIR',
-  'F2 — TRAIN DE GALETS - PROFILAGE',
-  'F3 — REFENDAGE',
-  'F4 — COUPE - CISAILLE',
-  'F5 — CHÂSSIS & STRUCTURE',
-  'F6 — MOTORISATION & TRANSMISSION',
-  'F7 — INTERFACE OPÉRATEUR - COMMANDE',
-  'F8 — SÉCURITÉ & CONFORMITÉ CE',
-  'F9 — MAINTENANCE & SAV',
-  'F10 — PERFORMANCE & VALIDATION',
-]
-
 // ── Formulaire d'un critère DoD ───────────────────────────────
-function DodForm({ initial, onSave, onCancel, loading }: {
+function DodForm({ initial, categories, onSave, onCancel, loading }: {
   initial?: Partial<DodItem>
+  categories: DodCategorie[]
   onSave:   (v: Omit<DodItem, 'id' | 'created_at' | 'produit_id'>) => void
   onCancel: () => void
   loading:  boolean
@@ -67,7 +59,7 @@ function DodForm({ initial, onSave, onCancel, loading }: {
             onChange={setCategorie}
             placeholder="— Sans catégorie —"
             searchable
-            options={CATEGORIES.map(c => ({ value: c, label: c }))}
+            options={categories.map(c => ({ value: c.nom, label: c.nom }))}
           />
         </div>
         <div>
@@ -93,19 +85,104 @@ function DodForm({ initial, onSave, onCancel, loading }: {
   )
 }
 
+// ── Gestion des catégories DoD (par produit) ───────────────────
+function CategoriesManager({ categories, items, produitId, qc, toast }: {
+  categories: DodCategorie[]; items: DodItem[]; produitId: number
+  qc: ReturnType<typeof useQueryClient>; toast: ReturnType<typeof useToast>
+}) {
+  const createCategorie = useCreateDodCategorie()
+  const [nom, setNom] = useState('')
+
+  function countFor(nomCat: string) { return items.filter(i => i.categorie === nomCat).length }
+
+  async function add() {
+    const v = nom.trim()
+    if (!v) return
+    if (categories.some(c => c.nom.toLowerCase() === v.toLowerCase())) { toast('Cette catégorie existe déjà', 'error'); return }
+    await createCategorie.mutateAsync(v)
+    setNom('')
+    toast(`Catégorie "${v}" ajoutée`)
+  }
+
+  async function rename(cat: DodCategorie) {
+    const next = window.prompt('Renommer la catégorie', cat.nom)?.trim()
+    if (!next || next === cat.nom) return
+    const ok = await confirm({ title: 'Renommer la catégorie ?', message: `"${cat.nom}" → "${next}" sur tous les critères concernés.`, confirmLabel: 'Renommer' })
+    if (!ok) return
+    await supabase.from('dod_categories').update({ nom: next }).eq('id', cat.id)
+    await supabase.from('dod').update({ categorie: next }).eq('categorie', cat.nom).eq('produit_id', produitId)
+    qc.invalidateQueries({ queryKey: ['dod_categories', produitId] })
+    qc.invalidateQueries({ queryKey: ['dod', produitId] })
+    toast('Catégorie renommée')
+  }
+
+  async function del(cat: DodCategorie) {
+    const n = countFor(cat.nom)
+    const ok = await confirm({
+      title: 'Supprimer cette catégorie ?',
+      message: n > 0 ? `${n} critère${n > 1 ? 's' : ''} concerné${n > 1 ? 's' : ''} n'aur${n > 1 ? 'ont' : 'a'} plus de catégorie.` : 'Aucun critère concerné.',
+      confirmLabel: 'Supprimer', variant: 'danger',
+    })
+    if (!ok) return
+    await supabase.from('dod_categories').delete().eq('id', cat.id)
+    await supabase.from('dod').update({ categorie: null }).eq('categorie', cat.nom).eq('produit_id', produitId)
+    qc.invalidateQueries({ queryKey: ['dod_categories', produitId] })
+    qc.invalidateQueries({ queryKey: ['dod', produitId] })
+    toast('Catégorie supprimée')
+  }
+
+  return (
+    <div className="bg-bg border border-border rounded-xl p-4 flex flex-col gap-3">
+      <div className="flex items-end gap-2">
+        <div className="flex-1">
+          <label className="ds-label mb-1 block">Nouvelle catégorie</label>
+          <input value={nom} onChange={e => setNom(e.target.value)} className="ds-input"
+            placeholder="Ex: Sécurité & Conformité"
+            onKeyDown={e => { if (e.key === 'Enter') add() }} />
+        </div>
+        <button onClick={add} disabled={createCategorie.isPending || !nom.trim()}
+          className="ds-btn-primary ds-btn-sm flex items-center gap-1.5">
+          <Plus size={13} /> Ajouter
+        </button>
+      </div>
+      {categories.length === 0 ? (
+        <p className="text-xs text-subtle italic">Aucune catégorie définie pour ce produit.</p>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {categories.map(cat => (
+            <div key={cat.id} className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-border">
+              <span className="flex-1 text-sm font-medium text-navy truncate">{cat.nom}</span>
+              <span className="text-xs text-subtle">{countFor(cat.nom)} critère{countFor(cat.nom) !== 1 ? 's' : ''}</span>
+              <button onClick={() => rename(cat)} title="Renommer" className="p-1.5 rounded-lg text-subtle hover:text-navy hover:bg-bg transition-colors">
+                <Pencil size={12} />
+              </button>
+              <button onClick={() => del(cat)} title="Supprimer" className="p-1.5 rounded-lg text-subtle hover:text-rose-600 hover:bg-rose-50 transition-colors">
+                <Trash2 size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Onglet Référentiel ────────────────────────────────────────
 function ReferentielTab() {
   const { data: items = [], isLoading } = useDod()
+  const { data: categories = [] } = useDodCategories()
   const create = useCreateDodItem()
   const update = useUpdateDodItem()
   const del    = useDeleteDodItem()
   const toast  = useToast()
+  const qc     = useQueryClient()
   const { canEdit }      = useAuth()
   const { produitActif } = useProduit()
   const canEditDod = produitActif ? canEdit(produitActif.id) : false
 
   const [showAdd, setShowAdd]   = useState(false)
   const [editId, setEditId]     = useState<number | null>(null)
+  const [showCategories, setShowCategories] = useState(false)
 
   const byCategorie = useMemo(() => {
     const map: Record<string, DodItem[]> = {}
@@ -147,15 +224,27 @@ function ReferentielTab() {
         <div className="text-xs text-subtle">
           {items.length} critère{items.length !== 1 ? 's' : ''} · {items.filter(i => i.actif).length} actif{items.filter(i => i.actif).length !== 1 ? 's' : ''}
         </div>
-        {!showAdd && canEditDod && (
-          <button onClick={() => setShowAdd(true)} className="ds-btn-primary ds-btn-sm flex items-center gap-1.5">
-            <Plus size={13} /> Ajouter un critère
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {canEditDod && (
+            <button onClick={() => setShowCategories(v => !v)}
+              className={cn('ds-btn-sm flex items-center gap-1.5', showCategories ? 'ds-btn-primary' : 'ds-btn')}>
+              <Tag size={13} /> Catégories
+            </button>
+          )}
+          {!showAdd && canEditDod && (
+            <button onClick={() => setShowAdd(true)} className="ds-btn-primary ds-btn-sm flex items-center gap-1.5">
+              <Plus size={13} /> Ajouter un critère
+            </button>
+          )}
+        </div>
       </div>
 
+      {showCategories && canEditDod && produitActif && (
+        <CategoriesManager categories={categories} items={items} produitId={produitActif.id} qc={qc} toast={toast} />
+      )}
+
       {showAdd && canEditDod && (
-        <DodForm onSave={handleCreate} onCancel={() => setShowAdd(false)} loading={create.isPending} />
+        <DodForm categories={categories} onSave={handleCreate} onCancel={() => setShowAdd(false)} loading={create.isPending} />
       )}
 
       {items.length === 0 && !showAdd ? (
@@ -176,6 +265,7 @@ function ReferentielTab() {
                 editId === item.id && canEditDod ? (
                   <DodForm key={item.id}
                     initial={item}
+                    categories={categories}
                     onSave={v => handleUpdate(item.id, v)}
                     onCancel={() => setEditId(null)}
                     loading={update.isPending} />

@@ -6,7 +6,11 @@
       "Skill(update-config:*)",
       "Bash(npx eslint *)",
       "Bash(grep -rn \"Jalon \\\\${\" src/ --include=\"*.tsx\" --include=\"*.ts\")",
-      "Bash(awk '/^CREATE POLICY/{c++} /^DROP POLICY IF EXISTS/{d++} END{print \"CREATE POLICY:\", c; print \"DROP POLICY IF EXISTS:\", d}' supabase/migrations/0001_enable_rls.sql)"
+      "Bash(awk '/^CREATE POLICY/{c++} /^DROP POLICY IF EXISTS/{d++} END{print \"CREATE POLICY:\", c; print \"DROP POLICY IF EXISTS:\", d}' supabase/migrations/0001_enable_rls.sql)",
+      "Bash(npm run *)",
+      "Bash(ls supabase/)",
+      "Bash(find supabase *)",
+      "Bash(grep -rn \"update_pending_profile_data\" supabase src)"
     ]
   }
 }
