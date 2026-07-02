@@ -13,8 +13,9 @@ import { cn } from '@/lib/utils'
 import {
   User, ChevronDown, ChevronRight, UserPlus, X,
   SlidersHorizontal, Zap, Archive, CheckCircle2,
-  Clock, CircleDot, Octagon
+  Clock, CircleDot, Octagon,
 } from 'lucide-react'
+import { SelectPicker } from '@/components/ui/SelectPicker'
 import type { Tache, Statut } from '@/types'
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -165,22 +166,24 @@ export default function MonTravailPage() {
   return (
     <Layout>
       {/* ── Topbar ─────────────────────────────────────────── */}
-      <div className="page-topbar -mx-3 -mt-3 mb-4 px-3 md:-mx-5 md:-mt-5 md:mb-6 md:px-5 flex-wrap gap-y-2">
+      <div className="page-topbar -mx-3 -mt-3 mb-4 px-3 md:-mx-5 md:-mt-5 md:mb-6 md:px-5 gap-y-2">
         <div className="flex items-center gap-2">
           <User size={16} className="text-subtle" />
           <h1 className="text-sm font-semibold text-navy">Mon Travail</h1>
         </div>
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-xs text-subtle hidden sm:inline font-medium">Membre</span>
-          <select value={selMembre} onChange={e => setSelMembre(e.target.value)}
-            className="ds-select w-44 text-xs py-1">
-            <option value="">-- Sélectionner --</option>
-            {membres_actifs.filter(m => m.trigramme).map(m => (
-              <option key={m.user_id} value={m.trigramme!}>
-                {m.trigramme} — {m.prenom ?? ''} {m.nom ?? ''}
-              </option>
-            ))}
-          </select>
+          <SelectPicker
+            value={selMembre}
+            onChange={setSelMembre}
+            placeholder="-- Sélectionner --"
+            searchable
+            className="w-56"
+            options={membres_actifs.filter(m => m.trigramme).map(m => ({
+              value: m.trigramme!,
+              label: `${m.trigramme} — ${m.prenom ?? ''} ${m.nom ?? ''}`
+            }))}
+          />
         </div>
       </div>
 

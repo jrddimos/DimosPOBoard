@@ -4,11 +4,14 @@ import { Spinner, EmptyState } from '@/components/ui/Spinner'
 import { StatutBadge, MoscowBadge, TypeFonctionBadge, JalonBadge, PrioBadge } from '@/components/ui/Badge'
 import { useTaches, useUpdateTache } from '@/hooks/useTaches'
 import { useClosedSprints } from '@/hooks/useSprints'
+import { useAuth } from '@/contexts/AuthContext'
 import { EPIC_COLORS, JALON_LIST } from '@/constants'
 import { epicShortName, epicCode, parseCriteres, serializeCriteres } from '@/lib/utils'
 import { CriteresEditor } from '@/components/ui/CriteresEditor'
 import type { CritereItem } from '@/lib/utils'
-import { ChevronRight, ChevronDown, Lock, Search, X, SlidersHorizontal } from 'lucide-react'
+import { ChevronRight, ChevronDown, Lock, Search, X, SlidersHorizontal, List, BookOpen, Target, AlignJustify } from 'lucide-react'
+import { PageTitle } from '@/components/ui/PageTitle'
+import { ToggleGroup } from '@/components/ui/ToggleGroup'
 import { cn } from '@/lib/utils'
 import type { Tache } from '@/types'
 
@@ -42,6 +45,7 @@ export default function BacklogPage() {
   const { data:taches=[], isLoading } = useTaches()
   const { data:closedSprints=[] }     = useClosedSprints()
   const updateTache                   = useUpdateTache()
+  const { canWrite }                  = useAuth()
   const [search,setSearch]       = useState('')
   const [groupBy,setGroupBy]     = useState<GroupBy>('epic')
   const [selEpics,setSelEpics]   = useState<string[]>([])
@@ -100,10 +104,21 @@ export default function BacklogPage() {
 
   return (
     <Layout>
+      {/* ── Page topbar ── */}
+      <div className="page-topbar -mx-3 -mt-3 mb-4 px-3 md:-mx-5 md:-mt-5 md:mb-5 md:px-5 gap-y-2">
+        <PageTitle icon={<List size={15}/>} label="Backlog" />
+        <ToggleGroup value={groupBy} onChange={setGroupBy} className="shrink-0" options={[
+          { key: 'epic',  label: 'Par Epic',  icon: <BookOpen size={11}/> },
+          { key: 'jalon', label: 'Par Jalon - Incrément majeur', icon: <Target size={11}/> },
+          { key: 'none',  label: 'Aucun',     icon: <AlignJustify size={11}/> },
+        ]} />
+        <span className="text-xs text-subtle ml-auto shrink-0">{filtered.length} US · {totalEffort}j</span>
+      </div>
+
       <div className="flex gap-4 h-full">
         <div className="flex-1 min-w-0 flex flex-col gap-3">
 
-          {/* ── Topbar search + group ── */}
+          {/* ── Search + Filtres ── */}
           <div className="flex items-center gap-2">
             <div className="ds-searchbar flex-1">
               <Search size={13} className="text-subtle shrink-0"/>
@@ -116,21 +131,11 @@ export default function BacklogPage() {
               <SlidersHorizontal size={13}/>
               Filtres
               {!showFilters && hasFilters && (
-                <span className="absolute -top-1.5 -right-1.5 bg-purple text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                <span className="absolute -top-1.5 -right-1.5 bg-indigo-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
                   {activeFilterCount}
                 </span>
               )}
             </button>
-            <div className="flex gap-0.5 bg-bg border border-border rounded-lg p-0.5 shrink-0">
-              {(['epic','jalon','none'] as GroupBy[]).map(g=>(
-                <button key={g} onClick={()=>setGroupBy(g)}
-                  className={cn('px-3 py-1 rounded-md text-xs font-semibold transition-all',
-                    groupBy===g?'bg-white shadow-sm text-navy':'text-subtle hover:text-navy')}>
-                  {g==='epic'?'Par Epic':g==='jalon'?'Par Jalon':'Aucun'}
-                </button>
-              ))}
-            </div>
-            <span className="text-xs text-subtle shrink-0">{filtered.length} US · {totalEffort}j</span>
           </div>
 
           {/* ── Filtres chips ── */}
@@ -142,14 +147,14 @@ export default function BacklogPage() {
                 {epicList.map(epic=>(
                   <Chip key={epic} label={epicCode(epic)} active={selEpics.includes(epic)}
                     onClick={()=>setSelEpics(prev=>toggle(prev,epic))}
-                    activeBg={EPIC_COLORS[epic] ?? '#4A4CC8'} activeText="#fff"/>
+                    activeBg={EPIC_COLORS[epic] ?? '#6366F1'} activeText="#fff"/>
                 ))}
               </div>
             </div>
             {/* Jalon + Statut */}
             <div className="flex items-center gap-4 flex-wrap">
               <div className="flex items-center gap-2">
-                <span className="ds-label w-12 shrink-0">Jalon</span>
+                <span className="ds-label shrink-0">Jalon - Incrément majeur</span>
                 <div className="flex gap-1.5">
                   {JALON_LIST.map(j=>(
                     <Chip key={j} label={j} active={selJalons.includes(j)}
@@ -201,7 +206,7 @@ export default function BacklogPage() {
             <table className="ds-table" style={{minWidth:'860px'}}>
               <thead>
                 <tr>
-                  {['ID','Titre','Type','Sprint','MoSCoW','Statut','Effort','Jalon','Équipe'].map(h=>(
+                  {['ID','Titre','Type','Sprint','MoSCoW','Statut','Effort','Jalon - Incrément majeur','Équipe'].map(h=>(
                     <th key={h}>{h}</th>
                   ))}
                 </tr>
@@ -214,7 +219,7 @@ export default function BacklogPage() {
                         <td colSpan={9}>
                           <div className="flex items-center gap-2">
                             {groupBy==='epic'&&<div className="w-2 h-2 rounded-sm" style={{background:EPIC_COLORS[group.key]??'#4A4CC8'}}/>}
-                            {groupBy==='epic'?epicShortName(group.key):`Jalon ${group.key}`}
+                            {groupBy==='epic'?epicShortName(group.key):`Jalon - Incrément majeur ${group.key}`}
                             <span className="text-subtle font-normal text-xs ml-1">
                               {group.tasks.length} US · {group.tasks.reduce((s,t)=>s+effJ(t),0)}j
                             </span>
@@ -231,18 +236,18 @@ export default function BacklogPage() {
                       return (
                         <React.Fragment key={t.id_tache}>
                           <tr onClick={()=>setPanelTask(t)}
-                            className={cn('cursor-pointer',isClosed&&'opacity-60',panelTask?.id_tache===t.id_tache&&'!bg-purple/5')}>
-                            <td className="font-semibold text-purple whitespace-nowrap">
+                            className={cn('cursor-pointer',isClosed&&'opacity-60',panelTask?.id_tache===t.id_tache&&'!bg-indigo-50')}>
+                            <td className="font-semibold text-indigo-600 whitespace-nowrap">
                               <div className="flex items-center gap-1">
                                 {isClosed&&<Lock size={9} className="text-subtle"/>}
                                 {t.id_tache}
                                 {subs.length>0&&(
                                   <button onClick={e=>{e.stopPropagation();setExpanded(prev=>prev.includes(t.id_tache)?prev.filter(x=>x!==t.id_tache):[...prev,t.id_tache])}}
-                                    className="text-subtle hover:text-purple">
+                                    className="text-subtle hover:text-indigo-600">
                                     {isExp?<ChevronDown size={11}/>:<ChevronRight size={11}/>}
                                   </button>
                                 )}
-                                {subs.length>0&&<span className="bg-purple/10 text-purple px-1 rounded text-xs font-semibold">{subs.filter(s=>s.statut==='Fait').length}/{subs.length}</span>}
+                                {subs.length>0&&<span className="bg-indigo-100 text-indigo-600 px-1 rounded text-xs font-semibold">{subs.filter(s=>s.statut==='Fait').length}/{subs.length}</span>}
                               </div>
                             </td>
                             <td className="max-w-[200px]"><div className="truncate font-medium">{t.titre}</div></td>
@@ -250,7 +255,7 @@ export default function BacklogPage() {
                             <td className="text-subtle whitespace-nowrap">{spDisplay}</td>
                             <td>{t.moscow?<MoscowBadge value={t.moscow}/>:'—'}</td>
                             <td><StatutBadge value={t.statut}/></td>
-                            <td className="text-center text-blue font-semibold whitespace-nowrap">
+                            <td className="text-center text-slate-700 font-semibold whitespace-nowrap">
                               {subs.length > 0
                                 ? <span title="Somme des sous-tâches">∑ {effJ(t)}j</span>
                                 : <>{t.effort_j??0}j</>}
@@ -295,11 +300,11 @@ export default function BacklogPage() {
 
         {/* Panel détail */}
         {panelTask&&(
-          <div className="w-72 shrink-0 animate-in">
+          <div className="w-96 shrink-0 animate-in">
             <div className="ds-card sticky top-0 flex flex-col gap-3 max-h-[calc(100vh-100px)] overflow-y-auto">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-purple">{panelTask.id_tache}</span>
-                <button onClick={()=>setPanelTask(null)} className="p-1 rounded-lg hover:bg-bg text-subtle hover:text-navy transition-colors"><X size={13}/></button>
+                <span className="text-xs font-semibold text-indigo-600">{panelTask.id_tache}</span>
+                <button onClick={()=>setPanelTask(null)} className="p-1 rounded-lg hover:bg-slate-50 text-slate-400 hover:text-navy transition-colors"><X size={13}/></button>
               </div>
               <h3 className="text-sm font-semibold text-navy leading-snug">{panelTask.titre}</h3>
               <div className="flex flex-wrap gap-1.5">
@@ -309,11 +314,12 @@ export default function BacklogPage() {
                 {panelTask.type_fonction&&<TypeFonctionBadge value={panelTask.type_fonction}/>}
               </div>
               {panelTask.description&&<div><div className="ds-label mb-1">User Story</div><p className="text-xs text-navy leading-relaxed whitespace-pre-line">{panelTask.description}</p></div>}
-              {/* Critères d'acceptation — éditables avec checkboxes */}
+              {/* Critères d'acceptation — éditables avec checkboxes (lecteur = lecture seule) */}
               <div>
                 <div className="ds-label mb-2">Critères d'acceptation</div>
                 <CriteresEditor
                   items={parseCriteres(panelTask.criteres)}
+                  readOnly={!canWrite(panelTask.produit_id ?? -1)}
                   onChange={(items: CritereItem[]) =>
                     updateTache.mutate({
                       id_tache: panelTask.id_tache,
@@ -322,10 +328,10 @@ export default function BacklogPage() {
                   }
                 />
               </div>
-              {panelTask.lien_dod&&<div><div className="ds-label mb-1">Lien DoD</div><span className="text-xs text-blue font-medium">{panelTask.lien_dod}</span></div>}
+              {panelTask.lien_dod&&<div><div className="ds-label mb-1">Lien DoD</div><span className="text-xs text-indigo-600 font-medium">{panelTask.lien_dod}</span></div>}
               {panelTask.commentaire&&<div><div className="ds-label mb-1">Commentaire</div><p className="text-xs text-subtle italic">{panelTask.commentaire}</p></div>}
               <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-border">
-                {[['Équipe',panelTask.equipe],['Métier',panelTask.metier],['Jalon',panelTask.jalon],['Sprint',panelTask.sprint||panelTask.sprint_debut],['Effort',panelTask.effort_j?`${panelTask.effort_j}j`:null],['Itération',panelTask.iteration]].map(([k,v])=>v?(
+                {[['Équipe',panelTask.equipe],['Métier',panelTask.metier],['Jalon - Incrément majeur',panelTask.jalon],['Sprint',panelTask.sprint||panelTask.sprint_debut],['Effort',panelTask.effort_j?`${panelTask.effort_j}j`:null],['Itération',panelTask.iteration]].map(([k,v])=>v?(
                   <div key={String(k)}><div className="text-subtle">{k}</div><div className="font-semibold text-navy">{String(v)}</div></div>
                 ):null)}
               </div>

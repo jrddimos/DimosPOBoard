@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Layout } from '@/components/layout/Layout'
 import { Spinner } from '@/components/ui/Spinner'
@@ -10,11 +10,38 @@ import { useAutoMetiers } from '@/hooks/useAutoMetiers'
 import { useToast } from '@/hooks/useToast'
 import { confirm } from '@/components/ui/ConfirmModal'
 import { EPIC_LIST, JALON_LIST, MOSCOW_LIST, SPRINTS_LIST, METIERS_DEFAULT } from '@/constants'
-import { Search, Lock, Plus, Copy, Trash2, Edit2, ChevronRight, ChevronDown, X, CornerDownRight } from 'lucide-react'
+import { Search, Lock, Plus, Copy, Trash2, Edit2, ChevronRight, ChevronDown, X, CornerDownRight, FilePlus } from 'lucide-react'
+import { PageTitle } from '@/components/ui/PageTitle'
 import { cn, parseCriteres, serializeCriteres, hasPendingCriteres } from '@/lib/utils'
 import type { CritereItem } from '@/lib/utils'
 import { CriteresEditor } from '@/components/ui/CriteresEditor'
-import type { Tache, Statut } from '@/types'
+import { StatusPicker } from '@/components/ui/StatusPicker'
+import { AssignPicker } from '@/components/ui/AssignPicker'
+import { useAuth } from '@/contexts/AuthContext'
+import { useProduit } from '@/contexts/ProduitContext'
+import type { Tache, Statut, Equipe } from '@/types'
+import type { UserProfile } from '@/contexts/AuthContext'
+
+// ── PriorityPicker ────────────────────────────────────────────
+const PRIO_CONFIG: Record<string, { idle: string; active: string }> = {
+  P1: { idle: 'bg-rose-50   text-rose-500   border border-rose-200',   active: 'bg-rose-500   text-white border border-rose-500' },
+  P2: { idle: 'bg-amber-50  text-amber-600  border border-amber-200',  active: 'bg-amber-400  text-white border border-amber-400' },
+  P3: { idle: 'bg-indigo-50 text-indigo-500 border border-indigo-200', active: 'bg-indigo-500 text-white border border-indigo-500' },
+  P4: { idle: 'bg-slate-50  text-slate-400  border border-slate-200',  active: 'bg-slate-400  text-white border border-slate-400' },
+}
+function PriorityPicker({ value, onChange }: { value: string; onChange: (p: string) => void }) {
+  return (
+    <div className="flex gap-1">
+      {Object.keys(PRIO_CONFIG).map(p => (
+        <button key={p} type="button" onClick={() => onChange(p)}
+          className={cn('px-2.5 py-1 rounded-lg text-xs font-bold transition-all', value === p ? PRIO_CONFIG[p].active : PRIO_CONFIG[p].idle)}>
+          {p}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 
 type TabKey = 'add'|'edit'|'dup'|'del'
 const TABS:{key:TabKey;label:string;icon:React.ReactNode}[] = [
@@ -51,15 +78,19 @@ export default function TachesPage() {
   const deleteTache  = useDeleteTache()
   const createSub    = useCreateSousTache()
   const toast        = useToast()
+  const { canWrite }  = useAuth()
+  const { produitActif } = useProduit()
 
   if(isLoading) return <Layout><Spinner/></Layout>
   const parents = taches.filter(t=>!t.parent_id)
   const equipeNoms = equipes.filter(e=>e.actif).map(e=>e.nom)
   const membresActifs = membres.filter(m=>m.actif)
+  const canEditTasks = produitActif ? canWrite(produitActif.id) : false
 
   return (
     <Layout>
       <div className="page-topbar -mx-3 -mt-3 mb-3 px-3 md:-mx-5 md:-mt-5 md:mb-5 md:px-5">
+        <PageTitle icon={<FilePlus size={15}/>} label="Tâches" />
         <div className="flex gap-0.5 bg-bg border border-border rounded-lg p-0.5">
           {TABS.map(t=>(
             <button key={t.key} onClick={()=>setTab(t.key)}
@@ -70,16 +101,96 @@ export default function TachesPage() {
           ))}
         </div>
       </div>
-      {tab==='add' &&<AddTab  sprintActif={sprintActif?.numero} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} createTache={createTache} createSub={createSub} updateTache={updateTache} parents={parents} allTaches={taches} toast={toast} initTitre={params.get('titre')??''} initParentId={params.get('parent_id')??''}/>}
-      {tab==='edit'&&<EditTab taches={taches} parents={parents} allTaches={taches} closedSprints={closedSprints} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} updateTache={updateTache} createSub={createSub} toast={toast}/>}
-      {tab==='dup' &&<DupTab  parents={parents} closedSprints={closedSprints} createTache={createTache} taches={taches} toast={toast}/>}
-      {tab==='del' &&<DelTab  parents={parents} deleteTache={deleteTache} toast={toast}/>}
+      {!canEditTasks ? (
+        <div className="ds-card flex items-center gap-2 text-sm text-subtle">
+          <Lock size={14}/> Accès en lecture seule — vous n'avez pas les droits pour créer, modifier, dupliquer ou supprimer des tâches sur ce produit.
+        </div>
+      ) : <>
+        {tab==='add' &&<AddTab  sprintActif={sprintActif?.numero} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} createTache={createTache} createSub={createSub} updateTache={updateTache} parents={parents} allTaches={taches} toast={toast} initTitre={params.get('titre')??''} initParentId={params.get('parent_id')??''}/>}
+        {tab==='edit'&&<EditTab taches={taches} parents={parents} allTaches={taches} closedSprints={closedSprints} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} updateTache={updateTache} createSub={createSub} toast={toast}/>}
+        {tab==='dup' &&<DupTab  parents={parents} closedSprints={closedSprints} createTache={createTache} taches={taches} toast={toast}/>}
+        {tab==='del' &&<DelTab  parents={parents} deleteTache={deleteTache} toast={toast}/>}
+      </>}
     </Layout>
   )
 }
 
-import type { Equipe } from '@/types'
-import type { UserProfile } from '@/contexts/AuthContext'
+// ── SelectPicker (remplace <select> natif) ─────────────────────
+interface PickerOption { value:string; label:string }
+function SelectPicker({value,onChange,options,placeholder='--',searchable=false,className=''}:{
+  value:string;onChange:(v:string)=>void;options:PickerOption[]
+  placeholder?:string;searchable?:boolean;className?:string
+}){
+  const [open,setOpen]=useState(false)
+  const [q,setQ]=useState('')
+  const ref=useRef<HTMLDivElement>(null)
+  useEffect(()=>{
+    if(!open){setQ('');return}
+    function h(e:MouseEvent){if(ref.current&&!ref.current.contains(e.target as Node)){setOpen(false);setQ('')}}
+    document.addEventListener('mousedown',h)
+    return()=>document.removeEventListener('mousedown',h)
+  },[open])
+  const filtered=q?options.filter(o=>o.label.toLowerCase().includes(q.toLowerCase())):options
+  const label=options.find(o=>o.value===value)?.label
+  return(
+    <div className={cn('relative',className)} ref={ref}>
+      <button type="button" onClick={()=>setOpen(o=>!o)}
+        className="w-full flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-slate-200 bg-white text-xs text-left hover:border-indigo-300 transition-colors">
+        <span className={cn('flex-1 truncate',value?'text-navy font-medium':'text-slate-400')}>{label??placeholder}</span>
+        <ChevronDown size={11} className={cn('text-slate-300 shrink-0 transition-transform',open&&'rotate-180')}/>
+      </button>
+      {open&&(
+        <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden" style={{minWidth:'100%',maxWidth:'320px'}}>
+          {searchable&&(
+            <div className="px-2 pt-2 pb-1.5 border-b border-slate-100">
+              <input autoFocus value={q} onChange={e=>setQ(e.target.value)}
+                className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 outline-none focus:border-indigo-300"
+                placeholder="Rechercher…"/>
+            </div>
+          )}
+          <div className="overflow-y-auto" style={{maxHeight:'200px'}}>
+            <button type="button" onClick={()=>{onChange('');setOpen(false)}}
+              className={cn('w-full px-3 py-1.5 text-xs text-left transition-colors hover:bg-slate-50',
+                !value?'text-indigo-600 bg-indigo-50 font-medium':'text-slate-400')}>
+              {placeholder}
+            </button>
+            {filtered.map(o=>(
+              <button key={o.value} type="button" onClick={()=>{onChange(o.value);setOpen(false)}}
+                className={cn('w-full px-3 py-1.5 text-xs text-left transition-colors hover:bg-slate-50',
+                  value===o.value?'bg-indigo-50 text-indigo-600 font-semibold':'text-navy')}>
+                {o.label}
+              </button>
+            ))}
+            {filtered.length===0&&<div className="px-3 py-3 text-xs text-slate-400 text-center italic">Aucun résultat</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── MoSCoWPicker ──────────────────────────────────────────────
+const MOSCOW_MAP:{[k:string]:{idle:string;active:string;short:string}}={
+  'Must Have':  {idle:'bg-slate-100 text-navy border-slate-300',      active:'bg-navy text-white border-navy',              short:'Must'},
+  'Should Have':{idle:'bg-indigo-50 text-indigo-600 border-indigo-200',active:'bg-indigo-500 text-white border-indigo-500', short:'Should'},
+  'Could Have': {idle:'bg-slate-50 text-slate-500 border-slate-200',   active:'bg-slate-400 text-white border-slate-400',   short:'Could'},
+  "Won't Have": {idle:'bg-rose-50 text-rose-400 border-rose-200',      active:'bg-rose-400 text-white border-rose-400',     short:"Won't"},
+}
+function MoSCoWPicker({value,onChange}:{value:string;onChange:(v:string)=>void}){
+  return(
+    <div className="flex flex-wrap gap-1">
+      {MOSCOW_LIST.map(m=>{
+        const c=MOSCOW_MAP[m]??{idle:'bg-slate-50 text-slate-500 border-slate-200',active:'bg-slate-400 text-white border-slate-400',short:m}
+        return(
+          <button key={m} type="button" onClick={()=>onChange(m)}
+            className={cn('px-2.5 py-1 rounded-lg text-xs font-semibold transition-all border',value===m?c.active:c.idle)}>
+            {c.short}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
 function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,createSub,updateTache,parents,allTaches,toast,initTitre='',initParentId=''}:{
   sprintActif?:string;equipeNoms:string[];membresActifs:UserProfile[];equipes:Equipe[];parents:Tache[];allTaches:Tache[]
@@ -88,7 +199,8 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
 }) {
   const mkBlank=()=>({epic:'',jalon:'',titre:initTitre,description:'',lien_dod:'',commentaire:'',
     sprint_debut:sprintActif??'',sprint_fin:'',moscow:'Must Have',priorite:'P2',effort_j:0,
-    equipe:'',metier:'',type_fonction:'Fonction principale',type_tache:'Tâche',assigne_a:''})
+    equipe:'',metier:'',type_fonction:'Fonction principale',type_tache:'Tâche',assigne_a:'',
+    statut:'À faire' as Statut})
 
   // champs "contextuels" à conserver d'une tâche vers une autre
   function commonFields(t:Tache){return{
@@ -135,6 +247,7 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
       moscow:t.moscow??'Must Have',priorite:t.priorite??'P2',effort_j:t.effort_j??0,
       equipe:t.equipe??'',metier:t.metier??'',type_fonction:t.type_fonction??'Fonction principale',
       type_tache:t.type_tache??'Tâche',assigne_a:t.assigne_a??'',
+      statut:(t.statut??'À faire') as Statut,
     })
     window.scrollTo({top:0,behavior:'smooth'})
   }
@@ -184,7 +297,7 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
               <button onClick={()=>setConfirmNew(false)} className="text-subtle hover:text-navy p-1"><X size={14}/></button>
             </div>
             <p className="text-xs text-subtle leading-relaxed mb-5">
-              Repartir des paramètres de <span className="font-semibold text-purple">{editTask.id_tache}</span> (Epic, Sprint, Équipe…) ou démarrer avec une tâche entièrement vierge ?
+              Repartir des paramètres de <span className="font-semibold text-indigo-600">{editTask.id_tache}</span> (Epic, Sprint, Équipe…) ou démarrer avec une tâche entièrement vierge ?
             </p>
             <div className="flex gap-2 justify-end">
               <button onClick={reset} className="ds-btn ds-btn-sm">Tâche vierge</button>
@@ -199,25 +312,43 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
       )}
 
       {/* ── Formulaire ── */}
-      <div className={cn('ds-card',isEditing&&'ring-2 ring-purple/30')}>
+      <div className={cn('ds-card',isEditing&&'ring-2 ring-indigo-200')}>
         <div className="ds-card-title mb-4">
-          {isEditing ? <><span className="text-purple">{editTask.id_tache}</span> — Modifier la tâche</>
+          {isEditing ? <><span className="text-indigo-600">{editTask.id_tache}</span> — Modifier la tâche</>
             : parentId ? <>Nouvelle sous-tâche <span className="text-subtle font-normal">de {parentId}</span></>
             : 'Nouvelle US / Tâche'}
         </div>
         <form onSubmit={submit} className="flex flex-col gap-4">
+          {/* StatusPicker affiché uniquement en mode édition */}
+          {isEditing&&(
+            <div className="flex items-center gap-3 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+              <span className="ds-label shrink-0">Statut</span>
+              <div className="w-48">
+                <StatusPicker value={form.statut} onChange={s=>setForm(f=>({...f,statut:s}))} />
+              </div>
+            </div>
+          )}
           {/* Ligne 1 : tâche parente + epic + jalon + MoSCoW + priorité */}
           <div className="grid grid-cols-5 gap-4">
             <Grp label={<>Tâche parente <span className="font-normal text-subtle/60">(vide = principale)</span></>}>
-              <select value={parentId} onChange={e=>setParentId(e.target.value)} className="ds-select" disabled={isEditing}>
-                <option value="">— Principale —</option>
-                {parents.map(p=><option key={p.id_tache} value={p.id_tache}>{p.id_tache} — {p.titre}</option>)}
-              </select>
+              <SelectPicker value={parentId} onChange={setParentId}
+                options={parents.map(p=>({value:p.id_tache,label:`${p.id_tache} — ${p.titre}`}))}
+                placeholder="— Principale —" searchable className={isEditing?'opacity-50 pointer-events-none':''}/>
             </Grp>
-            <Grp label="Epic"><select value={form.epic} onChange={set('epic')} className="ds-select"><option value="">--</option>{EPIC_LIST.map(e=><option key={e} value={e}>{e}</option>)}</select></Grp>
-            <Grp label="Jalon"><select value={form.jalon} onChange={set('jalon')} className="ds-select"><option value="">--</option>{JALON_LIST.map(j=><option key={j}>{j}</option>)}</select></Grp>
-            <Grp label="MoSCoW"><select value={form.moscow} onChange={set('moscow')} className="ds-select">{MOSCOW_LIST.map(m=><option key={m}>{m}</option>)}</select></Grp>
-            <Grp label="Priorité"><select value={form.priorite} onChange={set('priorite')} className="ds-select"><option value="">--</option>{['P1','P2','P3','P4'].map(p=><option key={p}>{p}</option>)}</select></Grp>
+            <Grp label="Epic">
+              <SelectPicker value={form.epic} onChange={v=>setForm(f=>({...f,epic:v}))}
+                options={EPIC_LIST.map(e=>({value:e,label:e}))} placeholder="-- Epic --" searchable/>
+            </Grp>
+            <Grp label="Jalon - Incrément majeur">
+              <SelectPicker value={form.jalon} onChange={v=>setForm(f=>({...f,jalon:v}))}
+                options={JALON_LIST.map(j=>({value:j,label:j}))} placeholder="-- Jalon - Incrément majeur --"/>
+            </Grp>
+            <Grp label="MoSCoW">
+              <MoSCoWPicker value={form.moscow} onChange={v=>setForm(f=>({...f,moscow:v}))}/>
+            </Grp>
+            <Grp label="Priorité">
+              <PriorityPicker value={form.priorite} onChange={p=>setForm(f=>({...f,priorite:p}))} />
+            </Grp>
           </div>
           {/* Ligne 2 : titre */}
           <Grp label="Titre *"><input value={form.titre} onChange={set('titre')} className="ds-input" placeholder="Ex: Conception mécanique avaloir"/></Grp>
@@ -232,30 +363,49 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
           </div>
           {/* Ligne 4 : champs secondaires */}
           <div className="grid grid-cols-8 gap-4">
-            <Grp label="Sprint début"><select value={form.sprint_debut} onChange={set('sprint_debut')} className="ds-select"><option value="">--</option>{SPRINTS_LIST.map(s=><option key={s}>{s}</option>)}</select></Grp>
-            <Grp label="Sprint fin"><select value={form.sprint_fin} onChange={set('sprint_fin')} className="ds-select"><option value="">Même</option>{SPRINTS_LIST.map(s=><option key={s}>{s}</option>)}</select></Grp>
+            <Grp label="Sprint début">
+              <SelectPicker value={form.sprint_debut} onChange={v=>setForm(f=>({...f,sprint_debut:v}))}
+                options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
+            </Grp>
+            <Grp label="Sprint fin">
+              <SelectPicker value={form.sprint_fin} onChange={v=>setForm(f=>({...f,sprint_fin:v}))}
+                options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="Même sprint"/>
+            </Grp>
             <Grp label="Effort (j)"><input type="number" value={form.effort_j} onChange={set('effort_j')} className="ds-input" min={0} step={0.5}/></Grp>
             <Grp label="Assigné à">
-              <select value={form.assigne_a} onChange={e=>setMembre(e.target.value)} className="ds-select">
-                <option value="">-- Membre --</option>
-                {membresActifs.filter(m=>m.trigramme).map(m=><option key={m.user_id} value={m.trigramme!}>{m.trigramme} — {m.prenom??''} {m.nom??''}</option>)}
-              </select>
+              <div className="pt-1">
+                <AssignPicker value={form.assigne_a} membres={membresActifs} onAssign={setMembre} />
+              </div>
             </Grp>
-            <Grp label="Équipe"><select value={form.equipe} onChange={set('equipe')} className="ds-select"><option value="">--</option>{equipeNoms.map(e=><option key={e} value={e}>{e}</option>)}</select></Grp>
-            <Grp label="Thème"><select value={form.metier} onChange={set('metier')} className="ds-select"><option value="">--</option>{METIERS_DEFAULT.map(m=><option key={m}>{m}</option>)}</select></Grp>
-            <Grp label="Type de fonction"><select value={form.type_fonction} onChange={set('type_fonction')} className="ds-select">{['Fonction principale','Fonction secondaire','Fonction support','Fonction exclue'].map(f=><option key={f}>{f}</option>)}</select></Grp>
+            <Grp label="Équipe">
+              <SelectPicker value={form.equipe} onChange={v=>setForm(f=>({...f,equipe:v}))}
+                options={equipeNoms.map(e=>({value:e,label:e}))} placeholder="-- Équipe --"/>
+            </Grp>
+            <Grp label="Thème">
+              <SelectPicker value={form.metier} onChange={v=>setForm(f=>({...f,metier:v}))}
+                options={METIERS_DEFAULT.map(m=>({value:m,label:m}))} placeholder="-- Thème --" searchable/>
+            </Grp>
+            <Grp label="Type de fonction">
+              <SelectPicker value={form.type_fonction} onChange={v=>setForm(f=>({...f,type_fonction:v}))}
+                options={[
+                  {value:'Fonction principale',label:'Principale'},
+                  {value:'Fonction secondaire',label:'Secondaire'},
+                  {value:'Fonction support',label:'Support'},
+                  {value:'Fonction exclue',label:'Exclue'},
+                ]} placeholder="-- Type --"/>
+            </Grp>
             <Grp label="Lien DoD"><input value={form.lien_dod} onChange={set('lien_dod')} className="ds-input" placeholder="F1.1…"/></Grp>
           </div>
           {/* Ligne 5 : commentaire + boutons */}
           <div className="grid grid-cols-2 gap-4 items-end">
             <Grp label="Commentaire PO"><textarea value={form.commentaire} onChange={set('commentaire')} className="ds-textarea" rows={2}/></Grp>
             <div className="flex gap-2 pb-0.5 flex-wrap">
-              <button type="submit" className={cn('ds-btn-primary',isEditing&&'bg-purple border-purple')} disabled={isPending}>
+              <button type="submit" className={cn('ds-btn-primary',isEditing&&'bg-indigo-600 border-indigo-600')} disabled={isPending}>
                 {isEditing ? '💾 Modifier' : '✅ Créer'}
               </button>
               {isEditing&&(
                 <button type="button" onClick={()=>startSubtask(editTask)}
-                  className="ds-btn flex items-center gap-1 text-purple border-purple/40 hover:bg-purple/5">
+                  className="ds-btn flex items-center gap-1 text-indigo-600 border-indigo-300 hover:bg-indigo-50">
                   <CornerDownRight size={12}/> Sous-tâche
                 </button>
               )}
@@ -298,17 +448,17 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
                 const effJ=subs.length>0?subs.reduce((s,c)=>s+(c.effort_j??0),0):t.effort_j??0
                 return (
                   <React.Fragment key={t.id_tache}>
-                    <tr onClick={()=>selectTask(t)} className={cn('cursor-pointer',isSelected&&'!bg-purple/10 ring-1 ring-inset ring-purple/30')}>
-                      <td className="font-semibold text-purple whitespace-nowrap">
+                    <tr onClick={()=>selectTask(t)} className={cn('cursor-pointer',isSelected&&'!bg-indigo-100 ring-1 ring-inset ring-indigo-200')}>
+                      <td className="font-semibold text-indigo-600 whitespace-nowrap">
                         <div className="flex items-center gap-1">
                           {t.id_tache}
                           {subs.length>0&&(
                             <button onClick={e=>{e.stopPropagation();setExpanded(prev=>prev.includes(t.id_tache)?prev.filter(x=>x!==t.id_tache):[...prev,t.id_tache])}}
-                              className="text-subtle hover:text-purple">
+                              className="text-subtle hover:text-indigo-600">
                               {isExp?<ChevronDown size={11}/>:<ChevronRight size={11}/>}
                             </button>
                           )}
-                          {subs.length>0&&<span className="bg-purple/10 text-purple px-1 rounded text-[10px] font-semibold">{subs.filter(s=>s.statut==='Fait').length}/{subs.length}</span>}
+                          {subs.length>0&&<span className="bg-indigo-100 text-indigo-600 px-1 rounded text-[10px] font-semibold">{subs.filter(s=>s.statut==='Fait').length}/{subs.length}</span>}
                         </div>
                       </td>
                       <td className="max-w-[280px]"><div className="truncate font-medium">{t.titre}</div></td>
@@ -321,7 +471,7 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
                       </td>
                     </tr>
                     {isExp&&subs.map(s=>(
-                      <tr key={s.id_tache} className={cn('!bg-bg/50 cursor-pointer',isSelected&&'!bg-purple/5')} onClick={()=>selectTask(s)}>
+                      <tr key={s.id_tache} className={cn('!bg-bg/50 cursor-pointer',isSelected&&'!bg-indigo-50')} onClick={()=>selectTask(s)}>
                         <td className="pl-8 text-subtle">↳ {s.id_tache}</td>
                         <td className="italic text-subtle">{s.titre}</td>
                         <td colSpan={3}/>
@@ -358,7 +508,6 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
   const [expanded,setExpanded]=useState<string[]>([])
   // Bulk edit : champs à appliquer sur la sélection (vide = "ne pas toucher")
   const [bulk,setBulk]=useState<Record<string,string>>({statut:'',epic:'',jalon:'',sprint_debut:'',moscow:'',equipe:'',assigne_a:'',metier:'',priorite:''})
-  const setB=(k:string)=>(e:React.ChangeEvent<HTMLSelectElement>)=>setBulk(b=>({...b,[k]:e.target.value}))
 
   const childMap:Record<string,Tache[]>={}
   taches.filter(t=>t.parent_id).forEach(c=>{if(!childMap[c.parent_id!]) childMap[c.parent_id!]=[]; childMap[c.parent_id!].push(c)})
@@ -433,12 +582,10 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
             <Search size={13} className="text-subtle"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher…"/>
             {search&&<button onClick={()=>setSearch('')}><X size={12} className="text-subtle"/></button>}
           </div>
-          <select value={filterStat} onChange={e=>setFilterStat(e.target.value)} className="ds-select w-32 text-xs py-1.5">
-            <option value="">Tous statuts</option>{['À faire','En cours','Fait','Bloqué'].map(s=><option key={s}>{s}</option>)}
-          </select>
-          <select value={filterEpic} onChange={e=>setFilterEpic(e.target.value)} className="ds-select w-36 text-xs py-1.5">
-            <option value="">Tous Epics</option>{EPIC_LIST.map(e=><option key={e} value={e}>{e.split(' — ')[0]}</option>)}
-          </select>
+          <SelectPicker value={filterStat} onChange={setFilterStat} className="w-36"
+            options={['À faire','En cours','Fait','Bloqué'].map(s=>({value:s,label:s}))} placeholder="Tous statuts"/>
+          <SelectPicker value={filterEpic} onChange={setFilterEpic} className="w-44"
+            options={EPIC_LIST.map(e=>({value:e,label:e.split(' — ')[0]}))} placeholder="Tous Epics" searchable/>
           <button
             onClick={async()=>{
               try{
@@ -456,39 +603,31 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
           </button>
         </div>
         {selected.length>0&&(
-          <div className="bg-purple/5 border border-purple/20 rounded-xl p-3 flex flex-col gap-2">
+          <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-purple">{selected.length} US sélectionnée(s) — appliquer à toutes :</span>
+              <span className="text-xs font-bold text-indigo-600">{selected.length} US sélectionnée(s) — appliquer à toutes :</span>
               <button onClick={()=>setSelected([])} className="text-subtle hover:text-red transition-colors"><X size={13}/></button>
             </div>
             <div className="flex flex-wrap gap-2 items-center">
-              <select value={bulk.statut} onChange={setB('statut')} className="ds-select text-xs py-1 w-32">
-                <option value="">Statut…</option>{['À faire','En cours','Fait','Bloqué'].map(s=><option key={s}>{s}</option>)}
-              </select>
-              <select value={bulk.priorite} onChange={setB('priorite')} className="ds-select text-xs py-1 w-24">
-                <option value="">Priorité…</option>{['P1','P2','P3','P4'].map(p=><option key={p}>{p}</option>)}
-              </select>
-              <select value={bulk.moscow} onChange={setB('moscow')} className="ds-select text-xs py-1 w-36">
-                <option value="">MoSCoW…</option>{MOSCOW_LIST.map(m=><option key={m}>{m}</option>)}
-              </select>
-              <select value={bulk.epic} onChange={setB('epic')} className="ds-select text-xs py-1 w-40">
-                <option value="">Epic…</option>{EPIC_LIST.map(e=><option key={e} value={e}>{e.split(' — ')[0]}</option>)}
-              </select>
-              <select value={bulk.jalon} onChange={setB('jalon')} className="ds-select text-xs py-1 w-24">
-                <option value="">Jalon…</option>{JALON_LIST.map(j=><option key={j}>{j}</option>)}
-              </select>
-              <select value={bulk.sprint_debut} onChange={setB('sprint_debut')} className="ds-select text-xs py-1 w-32">
-                <option value="">Sprint…</option>{SPRINTS_LIST.map(s=><option key={s}>{s}</option>)}
-              </select>
-              <select value={bulk.assigne_a} onChange={setB('assigne_a')} className="ds-select text-xs py-1 w-44">
-                <option value="">Assigné…</option>{membresActifs.filter(m=>m.trigramme).map(m=><option key={m.user_id} value={m.trigramme!}>{m.trigramme} — {m.prenom??''} {m.nom??''}</option>)}
-              </select>
-              <select value={bulk.equipe} onChange={setB('equipe')} className="ds-select text-xs py-1 w-36">
-                <option value="">Équipe…</option>{equipeNoms.map(e=><option key={e} value={e}>{e}</option>)}
-              </select>
-              <select value={bulk.metier} onChange={setB('metier')} className="ds-select text-xs py-1 w-36">
-                <option value="">Thème…</option>{METIERS_DEFAULT.map(m=><option key={m}>{m}</option>)}
-              </select>
+              <SelectPicker value={bulk.statut} onChange={v=>setBulk(b=>({...b,statut:v}))} className="w-36"
+                options={['À faire','En cours','Fait','Bloqué'].map(s=>({value:s,label:s}))} placeholder="Statut…"/>
+              <SelectPicker value={bulk.priorite} onChange={v=>setBulk(b=>({...b,priorite:v}))} className="w-24"
+                options={['P1','P2','P3','P4'].map(p=>({value:p,label:p}))} placeholder="Priorité…"/>
+              <SelectPicker value={bulk.moscow} onChange={v=>setBulk(b=>({...b,moscow:v}))} className="w-32"
+                options={MOSCOW_LIST.map(m=>({value:m,label:m}))} placeholder="MoSCoW…"/>
+              <SelectPicker value={bulk.epic} onChange={v=>setBulk(b=>({...b,epic:v}))} className="w-44"
+                options={EPIC_LIST.map(e=>({value:e,label:e.split(' — ')[0]}))} placeholder="Epic…" searchable/>
+              <SelectPicker value={bulk.jalon} onChange={v=>setBulk(b=>({...b,jalon:v}))} className="w-52"
+                options={JALON_LIST.map(j=>({value:j,label:j}))} placeholder="Jalon - Incrément majeur…"/>
+              <SelectPicker value={bulk.sprint_debut} onChange={v=>setBulk(b=>({...b,sprint_debut:v}))} className="w-32"
+                options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="Sprint…"/>
+              <SelectPicker value={bulk.assigne_a} onChange={v=>setBulk(b=>({...b,assigne_a:v}))} className="w-44"
+                options={membresActifs.filter(m=>m.trigramme).map(m=>({value:m.trigramme!,label:`${m.trigramme} — ${m.prenom??''} ${m.nom??''}`}))}
+                placeholder="Assigné…"/>
+              <SelectPicker value={bulk.equipe} onChange={v=>setBulk(b=>({...b,equipe:v}))} className="w-36"
+                options={equipeNoms.map(e=>({value:e,label:e}))} placeholder="Équipe…"/>
+              <SelectPicker value={bulk.metier} onChange={v=>setBulk(b=>({...b,metier:v}))} className="w-36"
+                options={METIERS_DEFAULT.map(m=>({value:m,label:m}))} placeholder="Thème…" searchable/>
               <button onClick={applyBulk} disabled={updateTache.isPending}
                 className="ds-btn-primary ds-btn-sm whitespace-nowrap ml-auto">
                 ✓ Appliquer
@@ -499,7 +638,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
         <div className="bg-white border border-border rounded-xl overflow-x-auto">
           <table className="ds-table" style={{minWidth:'1400px'}}>
             <thead><tr>
-              <th className="w-8 shrink-0"><input type="checkbox" className="accent-purple"
+              <th className="w-8 shrink-0"><input type="checkbox" className="accent-indigo-500"
                 onChange={e=>setSelected(e.target.checked?filtered.map(t=>t.id_tache):[])}
                 checked={selected.length===filtered.length&&filtered.length>0}/></th>
               <th>ID</th>
@@ -508,7 +647,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
               <th>Priorité</th>
               <th>MoSCoW</th>
               <th>Epic</th>
-              <th>Jalon</th>
+              <th>Jalon - Incrément majeur</th>
               <th>Sprint</th>
               <th>Assigné</th>
               <th>Équipe</th>
@@ -524,22 +663,22 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                   ?`${t.sprint_debut}→${t.sprint_fin}`:(t.sprint_debut||t.sprint||'—')
                 return (
                   <React.Fragment key={t.id_tache}>
-                    <tr className={cn('cursor-pointer',selected.includes(t.id_tache)&&'bg-purple/5',panelId===t.id_tache&&'!bg-purple/10')}
+                    <tr className={cn('cursor-pointer',selected.includes(t.id_tache)&&'bg-indigo-50',panelId===t.id_tache&&'!bg-indigo-100')}
                       onClick={()=>openPanel(t)}>
                       <td onClick={e=>e.stopPropagation()}>
-                        <input type="checkbox" checked={selected.includes(t.id_tache)} className="accent-purple"
+                        <input type="checkbox" checked={selected.includes(t.id_tache)} className="accent-indigo-500"
                           onChange={e=>setSelected(prev=>e.target.checked?[...prev,t.id_tache]:prev.filter(x=>x!==t.id_tache))}/>
                       </td>
-                      <td className="font-semibold text-purple whitespace-nowrap">
+                      <td className="font-semibold text-indigo-600 whitespace-nowrap">
                         <div className="flex items-center gap-1">
                           {isClosed&&<Lock size={9} className="text-subtle"/>}
                           {t.id_tache}
                           {subs.length>0&&(
-                            <button onClick={e=>{e.stopPropagation();setExpanded(prev=>prev.includes(t.id_tache)?prev.filter(x=>x!==t.id_tache):[...prev,t.id_tache])}} className="text-subtle hover:text-purple">
+                            <button onClick={e=>{e.stopPropagation();setExpanded(prev=>prev.includes(t.id_tache)?prev.filter(x=>x!==t.id_tache):[...prev,t.id_tache])}} className="text-subtle hover:text-indigo-600">
                               {isExp?<ChevronDown size={11}/>:<ChevronRight size={11}/>}
                             </button>
                           )}
-                          {subs.length>0&&<span className="bg-purple/10 text-purple px-1 rounded text-xs font-semibold">{subs.filter(s=>s.statut==='Fait').length}/{subs.length}</span>}
+                          {subs.length>0&&<span className="bg-indigo-100 text-indigo-600 px-1 rounded text-xs font-semibold">{subs.filter(s=>s.statut==='Fait').length}/{subs.length}</span>}
                         </div>
                       </td>
                       <td className="max-w-[200px]"><div className="truncate font-medium">{t.titre}</div></td>
@@ -576,29 +715,41 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
       </div>
 
       {panelTask&&(
-        <div className="w-80 shrink-0 animate-in">
+        <div className="w-96 shrink-0 animate-in">
           <div className="ds-card sticky top-0 max-h-[calc(100vh-100px)] overflow-y-auto">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-purple">{panelTask.id_tache}</span>
-              <button onClick={()=>setPanelId(null)} className="p-1 rounded-lg hover:bg-bg text-subtle"><X size={13}/></button>
+            {/* Header */}
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-semibold text-indigo-600">{panelTask.id_tache}</span>
+              <button onClick={()=>setPanelId(null)} className="p-1 rounded-lg hover:bg-slate-50 text-slate-400 hover:text-navy"><X size={13}/></button>
             </div>
+            <h3 className="text-sm font-semibold text-navy leading-snug mb-3 line-clamp-2">{panelTask.titre}</h3>
+
             <div className="flex flex-col gap-3">
               <Grp label="Titre"><input value={String(editForm.titre??'')} onChange={setF('titre')} className="ds-input text-xs"/></Grp>
 
-              {/* Statut + Priorité */}
-              <div className="grid grid-cols-2 gap-2">
-                <Grp label="Statut"><select value={String(editForm.statut??'')} onChange={setF('statut')} className="ds-select text-xs">{['À faire','En cours','Fait','Bloqué'].map(s=><option key={s}>{s}</option>)}</select></Grp>
-                <Grp label="Priorité"><select value={String(editForm.priorite??'')} onChange={setF('priorite')} className="ds-select text-xs"><option value="">--</option>{['P1','P2','P3','P4'].map(p=><option key={p}>{p}</option>)}</select></Grp>
-              </div>
+              {/* Statut moderne */}
+              <Grp label="Statut">
+                <StatusPicker
+                  value={(String(editForm.statut??'À faire')) as Statut}
+                  onChange={s=>setEditForm(f=>({...f,statut:s}))}
+                />
+              </Grp>
+
+              {/* Priorité pills */}
+              <Grp label="Priorité">
+                <PriorityPicker value={String(editForm.priorite??'')} onChange={p=>setEditForm(f=>({...f,priorite:p}))} />
+              </Grp>
 
               {/* MoSCoW + Effort */}
               <div className="grid grid-cols-2 gap-2">
-                <Grp label="MoSCoW"><select value={String(editForm.moscow??'')} onChange={setF('moscow')} className="ds-select text-xs">{MOSCOW_LIST.map(m=><option key={m}>{m}</option>)}</select></Grp>
+                <Grp label="MoSCoW">
+                  <MoSCoWPicker value={String(editForm.moscow??'')} onChange={m=>setEditForm(f=>({...f,moscow:m}))}/>
+                </Grp>
                 <Grp label="Effort (j)">
                   {panelTask && (childMap[panelTask.id_tache]??[]).length > 0 ? (
-                    <div className="ds-input text-xs bg-bg text-navy font-semibold flex items-center gap-1.5 cursor-not-allowed">
+                    <div className="ds-input text-xs bg-slate-50 text-navy font-semibold flex items-center gap-1.5 cursor-not-allowed">
                       <span>∑ {(childMap[panelTask.id_tache]??[]).reduce((s,c)=>s+(c.effort_j??0),0)}j</span>
-                      <span className="text-[10px] text-subtle font-normal">{(childMap[panelTask.id_tache]??[]).length} ss</span>
+                      <span className="text-[10px] text-slate-400 font-normal">{(childMap[panelTask.id_tache]??[]).length} ss</span>
                     </div>
                   ) : (
                     <input type="number" value={Number(editForm.effort_j??0)} onChange={setF('effort_j')} className="ds-input text-xs" min={0} step={0.5}/>
@@ -606,36 +757,56 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                 </Grp>
               </div>
 
+              {/* Assigné → modern picker */}
+              <Grp label="Assigné à">
+                <AssignPicker value={String(editForm.assigne_a??'')} membres={membresActifs} onAssign={setMembre} />
+              </Grp>
+
               {/* Epic */}
-              <Grp label="Epic"><select value={String(editForm.epic??'')} onChange={setF('epic')} className="ds-select text-xs"><option value="">--</option>{EPIC_LIST.map(e=><option key={e} value={e}>{e}</option>)}</select></Grp>
+              <Grp label="Epic">
+                <SelectPicker value={String(editForm.epic??'')} onChange={v=>setEditForm(f=>({...f,epic:v}))}
+                  options={EPIC_LIST.map(e=>({value:e,label:e}))} placeholder="-- Epic --" searchable/>
+              </Grp>
 
               {/* Type de fonction + Jalon */}
               <div className="grid grid-cols-2 gap-2">
-                <Grp label="Type fonction"><select value={String(editForm.type_fonction??'')} onChange={setF('type_fonction')} className="ds-select text-xs">
-                  <option value="">--</option>
-                  {['Fonction principale','Fonction secondaire','Fonction support','Fonction exclue'].map(f=><option key={f}>{f}</option>)}
-                </select></Grp>
-                <Grp label="Jalon"><select value={String(editForm.jalon??'')} onChange={setF('jalon')} className="ds-select text-xs"><option value="">--</option>{JALON_LIST.map(j=><option key={j}>{j}</option>)}</select></Grp>
+                <Grp label="Type fonction">
+                  <SelectPicker value={String(editForm.type_fonction??'')} onChange={v=>setEditForm(f=>({...f,type_fonction:v}))}
+                    options={[
+                      {value:'Fonction principale',label:'Principale'},
+                      {value:'Fonction secondaire',label:'Secondaire'},
+                      {value:'Fonction support',label:'Support'},
+                      {value:'Fonction exclue',label:'Exclue'},
+                    ]} placeholder="-- Type --"/>
+                </Grp>
+                <Grp label="Jalon - Incrément majeur">
+                  <SelectPicker value={String(editForm.jalon??'')} onChange={v=>setEditForm(f=>({...f,jalon:v}))}
+                    options={JALON_LIST.map(j=>({value:j,label:j}))} placeholder="-- Jalon - Incrément majeur --"/>
+                </Grp>
               </div>
 
               {/* Sprint début + fin */}
               <div className="grid grid-cols-2 gap-2">
-                <Grp label="Sprint début"><select value={String(editForm.sprint_debut??'')} onChange={setF('sprint_debut')} className="ds-select text-xs"><option value="">--</option>{SPRINTS_LIST.map(s=><option key={s}>{s}</option>)}</select></Grp>
-                <Grp label="Sprint fin"><select value={String(editForm.sprint_fin??'')} onChange={setF('sprint_fin')} className="ds-select text-xs"><option value="">--</option>{SPRINTS_LIST.map(s=><option key={s}>{s}</option>)}</select></Grp>
+                <Grp label="Sprint début">
+                  <SelectPicker value={String(editForm.sprint_debut??'')} onChange={v=>setEditForm(f=>({...f,sprint_debut:v}))}
+                    options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
+                </Grp>
+                <Grp label="Sprint fin">
+                  <SelectPicker value={String(editForm.sprint_fin??'')} onChange={v=>setEditForm(f=>({...f,sprint_fin:v}))}
+                    options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
+                </Grp>
               </div>
-
-              {/* Assigné → auto-remplit Équipe */}
-              <Grp label="Assigné à">
-                <select value={String(editForm.assigne_a??'')} onChange={e=>setMembre(e.target.value)} className="ds-select text-xs">
-                  <option value="">-- Membre --</option>
-                  {membresActifs.filter(m=>m.trigramme).map(m=><option key={m.user_id} value={m.trigramme!}>{m.trigramme} — {m.prenom??''} {m.nom??''}</option>)}
-                </select>
-              </Grp>
 
               {/* Équipe + Thème */}
               <div className="grid grid-cols-2 gap-2">
-                <Grp label="Équipe"><select value={String(editForm.equipe??'')} onChange={setF('equipe')} className="ds-select text-xs"><option value="">--</option>{equipeNoms.map(e=><option key={e} value={e}>{e}</option>)}</select></Grp>
-                <Grp label="Thème"><select value={String(editForm.metier??'')} onChange={setF('metier')} className="ds-select text-xs"><option value="">--</option>{METIERS_DEFAULT.map(m=><option key={m}>{m}</option>)}</select></Grp>
+                <Grp label="Équipe">
+                  <SelectPicker value={String(editForm.equipe??'')} onChange={v=>setEditForm(f=>({...f,equipe:v}))}
+                    options={equipeNoms.map(e=>({value:e,label:e}))} placeholder="-- Équipe --"/>
+                </Grp>
+                <Grp label="Thème">
+                  <SelectPicker value={String(editForm.metier??'')} onChange={v=>setEditForm(f=>({...f,metier:v}))}
+                    options={METIERS_DEFAULT.map(m=>({value:m,label:m}))} placeholder="-- Thème --" searchable/>
+                </Grp>
               </div>
 
               {/* Textes */}
@@ -654,14 +825,14 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                 {!!editForm.lien_dod&&(
                   <div className="flex flex-wrap gap-1 mt-1">
                     {String(editForm.lien_dod).split(/[,;]/).map(s=>s.trim()).filter(Boolean).map(code=>(
-                      <span key={code} className="text-xs px-2 py-0.5 rounded-full bg-blue/10 text-blue font-medium border border-blue/20">{code}</span>
+                      <span key={code} className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-medium border border-indigo-100">{code}</span>
                     ))}
                   </div>
                 )}
               </Grp>
               <Grp label="Commentaire PO"><textarea value={String(editForm.commentaire??'')} onChange={setF('commentaire')} className="ds-textarea text-xs" rows={2}/></Grp>
             </div>
-            <div className="flex gap-2 mt-3 pt-3 border-t border-border">
+            <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100">
               <button onClick={savePanel} className="ds-btn-primary flex-1" disabled={updateTache.isPending}>✓ Sauvegarder</button>
               <button onClick={()=>setPanelId(null)} className="ds-btn">Annuler</button>
             </div>
@@ -701,12 +872,11 @@ function DupTab({parents,closedSprints,createTache,taches,toast}:{
       <div className="ds-card flex items-center gap-4 flex-wrap">
         <div className="flex items-center gap-2">
           <span className="ds-label">Vers</span>
-          <select value={targetSprint} onChange={e=>setTargetSprint(e.target.value)} className="ds-select w-40 text-xs">
-            <option value="">Backlog</option>{SPRINTS_LIST.map(s=><option key={s}>{s}</option>)}
-          </select>
+          <SelectPicker value={targetSprint} onChange={setTargetSprint}
+            options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="Backlog" className="w-40"/>
         </div>
         <label className="flex items-center gap-2 text-xs cursor-pointer">
-          <input type="checkbox" checked={withSubs} onChange={e=>setWithSubs(e.target.checked)} className="accent-purple"/>
+          <input type="checkbox" checked={withSubs} onChange={e=>setWithSubs(e.target.checked)} className="accent-indigo-500"/>
           Avec sous-tâches
         </label>
         <button onClick={doDuplicate} className="ds-btn-primary ml-auto" disabled={createTache.isPending||!selected.length}>
@@ -716,17 +886,17 @@ function DupTab({parents,closedSprints,createTache,taches,toast}:{
       <div className="ds-searchbar"><Search size={13} className="text-subtle"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher…"/></div>
       <div className="bg-white border border-border rounded-xl overflow-hidden">
         <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-bg">
-          <input type="checkbox" className="accent-purple" checked={selected.length===filtered.length&&filtered.length>0}
+          <input type="checkbox" className="accent-indigo-500" checked={selected.length===filtered.length&&filtered.length>0}
             onChange={e=>setSelected(e.target.checked?filtered.map(t=>t.id_tache):[])}/>
           <span className="text-xs font-semibold text-subtle">Tout sélectionner ({filtered.length})</span>
         </div>
         {filtered.map(t=>{
           const subs=childMap[t.id_tache]??[]
           return (
-            <label key={t.id_tache} className={cn('flex items-center gap-3 px-4 py-2.5 border-b border-border/50 cursor-pointer hover:bg-bg/50',selected.includes(t.id_tache)&&'bg-purple/5')}>
-              <input type="checkbox" checked={selected.includes(t.id_tache)} className="accent-purple"
+            <label key={t.id_tache} className={cn('flex items-center gap-3 px-4 py-2.5 border-b border-border/50 cursor-pointer hover:bg-bg/50',selected.includes(t.id_tache)&&'bg-indigo-50')}>
+              <input type="checkbox" checked={selected.includes(t.id_tache)} className="accent-indigo-500"
                 onChange={e=>setSelected(prev=>e.target.checked?[...prev,t.id_tache]:prev.filter(x=>x!==t.id_tache))}/>
-              <span className="text-xs font-semibold text-purple w-16 shrink-0">{t.id_tache}</span>
+              <span className="text-xs font-semibold text-indigo-600 w-16 shrink-0">{t.id_tache}</span>
               <span className="text-xs flex-1 truncate">{t.titre}</span>
               <StatutBadge value={t.statut}/>
               {subs.length>0&&<span className="text-xs text-subtle">{subs.length} ss</span>}
@@ -767,7 +937,7 @@ function DelTab({parents,deleteTache,toast}:{parents:Tache[];deleteTache:ReturnT
           <label key={t.id_tache} className={cn('flex items-center gap-3 px-4 py-2.5 border-b border-border/50 cursor-pointer hover:bg-bg/50',selected.includes(t.id_tache)&&'bg-red/5')}>
             <input type="checkbox" checked={selected.includes(t.id_tache)} className="accent-red"
               onChange={e=>setSelected(prev=>e.target.checked?[...prev,t.id_tache]:prev.filter(x=>x!==t.id_tache))}/>
-            <span className="text-xs font-semibold text-purple w-16 shrink-0">{t.id_tache}</span>
+            <span className="text-xs font-semibold text-indigo-600 w-16 shrink-0">{t.id_tache}</span>
             <span className="text-xs flex-1 truncate">{t.titre}</span>
             <EpicBadge value={t.epic??''}/><StatutBadge value={t.statut}/>
           </label>

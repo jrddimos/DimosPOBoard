@@ -71,6 +71,14 @@ export const STATUT_STYLE: Record<string, { bg: string; text: string }> = {
   'Bloqué':   { bg: '#FEE2E2', text: '#991B1B' },
 }
 
+// Config Tailwind pour StatusPicker (dropdown de statut éditable) — distincte de STATUT_STYLE (hex, pour badges statiques)
+export const STATUT_PICKER_CONFIG: Record<string, { dot: string; bg: string; text: string; border: string }> = {
+  'À faire':  { dot: 'bg-slate-400',   bg: 'bg-slate-50',   text: 'text-slate-600',   border: 'border-slate-200' },
+  'En cours': { dot: 'bg-amber-400',   bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200' },
+  'Fait':     { dot: 'bg-emerald-400', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
+  'Bloqué':   { dot: 'bg-rose-400',    bg: 'bg-rose-50',    text: 'text-rose-600',    border: 'border-rose-200' },
+}
+
 export const TYPE_FONCTION_STYLE: Record<string, { bg: string; text: string }> = {
   'Fonction principale':  { bg: '#EDE9FE', text: '#5B21B6' },
   'Fonction secondaire':  { bg: '#FEF3C7', text: '#92600A' },

@@ -5,10 +5,10 @@ import { Trash2, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const ACTION_STYLE = {
-  create: { bg: 'bg-green/10',  text: 'text-green',  label: 'Créé'     },
-  update: { bg: 'bg-blue/10',   text: 'text-blue',   label: 'Modifié'  },
-  delete: { bg: 'bg-red/10',    text: 'text-red',    label: 'Supprimé' },
-  status: { bg: 'bg-orange/10', text: 'text-orange', label: 'Statut'   },
+  create: { bg: 'bg-emerald-50',  text: 'text-emerald-600', label: 'Créé'     },
+  update: { bg: 'bg-indigo-50',   text: 'text-indigo-600',  label: 'Modifié'  },
+  delete: { bg: 'bg-rose-50',     text: 'text-rose-600',    label: 'Supprimé' },
+  status: { bg: 'bg-amber-50',    text: 'text-amber-600',   label: 'Statut'   },
 }
 
 export default function ActivitePage() {
@@ -26,14 +26,14 @@ export default function ActivitePage() {
     <Layout>
       <div className="page-topbar -mx-3 -mt-3 mb-3 px-3 md:-mx-5 md:-mt-5 md:mb-5 md:px-5">
         <div className="flex items-center gap-2">
-          <Clock size={16} className="text-subtle"/>
-          <h1 className="text-sm font-semibold text-navy">Historique d'activité</h1>
+          <Clock size={15} className="text-navy"/>
+          <h1 className="text-sm font-semibold text-navy">Activité</h1>
         </div>
         <div className="ml-auto flex items-center gap-3">
           <span className="text-xs text-subtle">{logs.length} événement{logs.length > 1 ? 's' : ''}</span>
           {logs.length > 0 && (
             <button onClick={() => { confirm({title:"Effacer l'historique ?",message:'Tous les événements enregistrés seront supprimés.',confirmLabel:'Effacer',variant:'danger'}).then(ok=>{ if(ok) clear() }) }}
-              className="ds-btn ds-btn-sm text-red hover:bg-red/10 flex items-center gap-1">
+              className="ds-btn ds-btn-sm text-rose-500 hover:bg-rose-50 flex items-center gap-1">
               <Trash2 size={11}/>Effacer
             </button>
           )}
@@ -63,14 +63,14 @@ export default function ActivitePage() {
                       </span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-semibold text-purple">{log.target}</span>
+                          <span className="text-xs font-semibold text-indigo-600">{log.target}</span>
                           <span className="text-xs text-navy truncate">{log.title}</span>
                         </div>
                         {log.field && (
                           <div className="text-xs text-subtle mt-0.5">
                             {log.field}
-                            {log.oldValue && <span className="line-through mx-1 text-red/70">{log.oldValue}</span>}
-                            {log.newValue && <span className="text-green font-medium">{log.newValue}</span>}
+                            {log.oldValue && <span className="line-through mx-1 text-rose-400">{log.oldValue}</span>}
+                            {log.newValue && <span className="text-emerald-600 font-medium">{log.newValue}</span>}
                           </div>
                         )}
                       </div>

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(npx eslint *)",
+      "Bash(grep -rn \"Jalon \\\\${\" src/ --include=\"*.tsx\" --include=\"*.ts\")",
+      "Bash(awk '/^CREATE POLICY/{c++} /^DROP POLICY IF EXISTS/{d++} END{print \"CREATE POLICY:\", c; print \"DROP POLICY IF EXISTS:\", d}' supabase/migrations/0001_enable_rls.sql)"
+    ]
+  }
+}

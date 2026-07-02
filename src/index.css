@@ -4,6 +4,7 @@
 
 @layer base {
   * { box-sizing: border-box; }
+  html { font-size: 14.5px; }
   body {
     @apply font-sans antialiased;
     background: #ECEEF4;
@@ -17,12 +18,26 @@
 
 @layer components {
   .page-topbar {
-    @apply flex items-center gap-2 md:gap-3 px-3 md:px-5 py-3 bg-white flex-wrap;
+    @apply flex items-center gap-2 md:gap-3 px-3 md:px-5 bg-white;
+    flex-wrap: wrap;
+    padding-top: 10px;
+    padding-bottom: 10px;
     min-height: 52px;
     border-bottom: 1px solid #D0D4DF;
     box-shadow: 0 1px 4px rgba(30,58,95,0.07);
   }
-  .page-content { @apply p-3 md:p-5 flex-1 overflow-y-auto; }
+  @media (min-width: 768px) {
+    .page-topbar {
+      flex-wrap: nowrap;
+      height: 52px;
+      padding-top: 0;
+      padding-bottom: 0;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .page-topbar::-webkit-scrollbar { display: none; }
+  }
+  .page-content { @apply p-3 md:p-5; }
 
   /* Cards */
   .ds-card { @apply bg-white border border-border rounded-xl p-4 shadow-sm; }
@@ -50,15 +65,15 @@
   /* Form */
   .ds-input {
     @apply w-full px-3 py-2 text-sm border border-border rounded-lg bg-white text-navy placeholder:text-subtle/50;
-    @apply focus:outline-none focus:ring-1 focus:ring-purple/40 focus:border-purple transition-colors;
+    @apply focus:outline-none focus:ring-1 focus:ring-indigo-300/60 focus:border-indigo-400 transition-colors;
   }
   .ds-select {
     @apply w-full px-3 py-2 text-sm border border-border rounded-lg bg-white text-navy;
-    @apply focus:outline-none focus:ring-1 focus:ring-purple/40 focus:border-purple transition-colors;
+    @apply focus:outline-none focus:ring-1 focus:ring-indigo-300/60 focus:border-indigo-400 transition-colors;
   }
   .ds-textarea {
     @apply w-full px-3 py-2 text-sm border border-border rounded-lg bg-white text-navy placeholder:text-subtle/50;
-    @apply focus:outline-none focus:ring-1 focus:ring-purple/40 focus:border-purple transition-colors;
+    @apply focus:outline-none focus:ring-1 focus:ring-indigo-300/60 focus:border-indigo-400 transition-colors;
     resize: vertical;
   }
   .ds-label { @apply text-xs font-semibold text-subtle uppercase tracking-wide; }
@@ -70,11 +85,11 @@
   .ds-btn-sm { @apply px-2.5 py-1 text-xs; }
 
   /* Kanban */
-  .kanban-col { @apply flex flex-col gap-2 p-3; background: #F0F1F7; min-height: 400px; }
+  .kanban-col { @apply flex flex-col gap-2 p-3; min-height: 400px; }
   .kanban-card { @apply bg-white border border-border rounded-xl p-3 cursor-pointer transition-all; box-shadow: 0 1px 3px rgba(30,58,95,0.06); }
   .kanban-card:hover { box-shadow: 0 3px 10px rgba(30,58,95,0.1); border-color: #C8C8DC; }
-  .kanban-card.selected { border-color: #4A4CC8; border-left-width: 3px; }
-  .kanban-select { @apply w-full text-xs px-2 py-1.5 rounded-lg border border-border bg-bg text-navy; @apply focus:outline-none focus:ring-1 focus:ring-purple/30 focus:border-purple; }
+  .kanban-card.selected { border-color: #6366F1; border-left-width: 3px; }
+  .kanban-select { @apply w-full text-xs px-2 py-1.5 rounded-lg border border-border bg-bg text-navy; @apply focus:outline-none focus:ring-1 focus:ring-indigo-200/70 focus:border-indigo-400; }
 
   /* Search */
   .ds-searchbar { @apply flex items-center gap-2 bg-white border border-border rounded-lg px-3; height: 34px; }
@@ -82,7 +97,7 @@
 
   /* Inline edit */
   .inline-edit-row { @apply flex items-center gap-2 p-2.5 rounded-lg border border-border bg-white; }
-  .inline-edit-row:hover { @apply border-purple/30 bg-purple/5; }
+  .inline-edit-row:hover { @apply border-indigo-200 bg-indigo-50/50; }
 
   /* Misc */
   .ds-sep { @apply w-px h-4 bg-border shrink-0; }

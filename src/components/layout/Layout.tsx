@@ -15,11 +15,11 @@ export function Layout({ children, title, actions }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   return (
-    <div className="flex min-h-screen" style={{background:'#E3E6EF'}}>
+    <div className="flex h-screen overflow-hidden" style={{background:'#E3E6EF'}}>
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Barre mobile — visible uniquement sur petit écran */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Barre mobile */}
         <div className="md:hidden flex items-center gap-3 px-4 py-3 bg-navy shrink-0">
           <button
             onClick={() => setSidebarOpen(true)}
@@ -28,7 +28,7 @@ export function Layout({ children, title, actions }: LayoutProps) {
             <Menu size={18} />
           </button>
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-purple rounded-md flex items-center justify-center">
+            <div className="w-6 h-6 bg-indigo-500 rounded-md flex items-center justify-center">
               <Zap size={12} className="text-white" />
             </div>
             <span className="text-white font-bold text-sm">PO Board</span>
@@ -36,13 +36,13 @@ export function Layout({ children, title, actions }: LayoutProps) {
         </div>
 
         {(title || actions) && (
-          <header className="page-topbar">
+          <header className="page-topbar shrink-0">
             {title && <h1 className="text-sm font-semibold text-navy">{title}</h1>}
             {actions && <div className="flex items-center gap-2 ml-auto">{actions}</div>}
           </header>
         )}
 
-        <main className="page-content">
+        <main className="page-content flex-1 min-h-0 overflow-y-auto">
           {children}
         </main>
       </div>

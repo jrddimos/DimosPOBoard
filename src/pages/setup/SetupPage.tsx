@@ -14,8 +14,11 @@ import { downloadCSV } from '@/lib/utils'
 import { EPIC_COLORS, JALON_LIST, JALON_COLORS, METIERS_DEFAULT, SPRINTS_LIST } from '@/constants'
 import {
   Pencil, Trash2, Plus, ChevronDown, ChevronRight, Check, X,
-  Tag, Calendar, BookOpen, Target, Download, FileDown,
+  Tag, Calendar, BookOpen, Target, Download, FileDown, Settings, Lock,
 } from 'lucide-react'
+import { PageTitle } from '@/components/ui/PageTitle'
+import { SelectPicker } from '@/components/ui/SelectPicker'
+import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
 import type { SprintStats } from '@/types'
 
@@ -27,14 +30,16 @@ const GLOBAL_TABS = [
 const PRODUCT_TABS = [
   { key: 'sprints' as SetupTab, label: 'Sprints',  icon: <Calendar size={12} /> },
   { key: 'epics'   as SetupTab, label: 'Epics',    icon: <BookOpen size={12} /> },
-  { key: 'jalons'  as SetupTab, label: 'Jalons',   icon: <Target size={12} /> },
+  { key: 'jalons'  as SetupTab, label: 'Jalons - Incréments majeurs', icon: <Target size={12} /> },
   { key: 'export'  as SetupTab, label: 'Export',   icon: <Download size={12} /> },
 ]
 
 export default function SetupPage() {
   const [params]         = useSearchParams()
   const { produitActif } = useProduit()
+  const { canEdit, isAdmin } = useAuth()
   const [tab, setTab]    = useState<SetupTab>('metiers')
+  const canEditProduct   = produitActif ? canEdit(produitActif.id) : false
 
   // Onglets visibles selon le contexte : jamais mélangés
   const isProductTab = (t: SetupTab) => PRODUCT_TABS.some(x => x.key === t)
@@ -50,7 +55,8 @@ export default function SetupPage() {
 
   return (
     <Layout>
-      <div className="page-topbar -mx-3 -mt-3 mb-3 px-3 md:-mx-5 md:-mt-5 md:mb-5 md:px-5">
+      <div className="page-topbar -mx-3 -mt-3 mb-3 px-3 md:-mx-5 md:-mt-5 md:mb-5 md:px-5 gap-y-2">
+        <PageTitle icon={<Settings size={15}/>} label="Setup" />
         <div className="flex gap-0.5 bg-bg border border-border rounded-lg p-0.5 flex-wrap">
           {tabs.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
@@ -63,11 +69,21 @@ export default function SetupPage() {
           ))}
         </div>
       </div>
-      {tab === 'sprints' && <SprintsTab />}
-      {tab === 'epics'   && <EpicsTab />}
-      {tab === 'jalons'  && <JalonsTab />}
-      {tab === 'metiers' && <MetiersTab />}
-      {tab === 'export'  && <ExportTab />}
+      {(tab === 'sprints' || tab === 'epics' || tab === 'jalons') && !canEditProduct ? (
+        <div className="ds-card flex items-center gap-2 text-sm text-subtle">
+          <Lock size={14}/> Accès en lecture seule — la gestion des sprints, epics et jalons est réservée aux PO du produit.
+        </div>
+      ) : tab === 'metiers' && !isAdmin ? (
+        <div className="ds-card flex items-center gap-2 text-sm text-subtle">
+          <Lock size={14}/> Accès en lecture seule — la gestion des thèmes globaux est réservée aux administrateurs.
+        </div>
+      ) : <>
+        {tab === 'sprints' && <SprintsTab />}
+        {tab === 'epics'   && <EpicsTab />}
+        {tab === 'jalons'  && <JalonsTab />}
+        {tab === 'metiers' && <MetiersTab />}
+        {tab === 'export'  && <ExportTab />}
+      </>}
     </Layout>
   )
 }
@@ -281,13 +297,17 @@ function SprintsTab() {
           <div className="flex flex-col gap-4">
             <div className="ds-card">
               <div className="ds-card-title">Sprint</div>
-              <select value={selected} onChange={e => selectSprint(e.target.value)} className="ds-select mb-3">
-                <option value="">-- Choisir --</option>
-                {SPRINTS_LIST.map(s => {
+              <SelectPicker
+                value={selected}
+                onChange={v => selectSprint(v)}
+                placeholder="-- Choisir --"
+                searchable
+                className="mb-3"
+                options={SPRINTS_LIST.map(s => {
                   const sp = sprints.find(x => x.numero === s)
-                  return <option key={s} value={s}>{s}{sp ? ` — ${statLabel[sp.statut] || sp.statut}` : ''}</option>
+                  return { value: s, label: `${s}${sp ? ` — ${statLabel[sp.statut] || sp.statut}` : ''}` }
                 })}
-              </select>
+              />
               {sprint && <div className="mb-3"><SprintStatutBadge value={sprint.statut} /></div>}
               <div className="grid grid-cols-2 gap-2 mb-3">
                 <button onClick={() => action('start')} disabled={!selected || sprint?.statut === 'en_cours'}
@@ -502,7 +522,7 @@ function EpicsTab() {
       <p className="text-xs text-subtle -mt-2">Cliquez sur le nom pour le renommer directement. Supprimer ne supprime pas les US mais vide leur champ Epic.</p>
       <InlineList items={epics}
         onRename={rename} onDelete={del}
-        colorFn={s => EPIC_COLORS[s] ?? '#4A4CC8'} countFn={s => counts[s] ?? 0} isSystem={() => false} />
+        colorFn={s => EPIC_COLORS[s] ?? '#6366F1'} countFn={s => counts[s] ?? 0} isSystem={() => false} />
     </div>
   )
 }
@@ -516,23 +536,23 @@ function JalonsTab() {
   async function rename(old: string, next: string) {
     if (!next || next === old) return
     const ok = await confirm({ title: 'Renommer partout ?', message: `"${old}" → "${next}" dans toutes les tâches.`, confirmLabel: 'Renommer' }); if (!ok) return
-    await supabase.from('taches').update({ jalon: next }).eq('jalon', old); toast('Jalon renommé')
+    await supabase.from('taches').update({ jalon: next }).eq('jalon', old); toast('Jalon - Incrément majeur renommé')
   }
   async function del(nom: string) {
-    const ok = await confirm({ title: 'Supprimer ce Jalon ?', message: `Les tâches perdront leur jalon.`, confirmLabel: 'Supprimer', variant: 'danger' }); if (!ok) return
-    await supabase.from('taches').update({ jalon: null }).eq('jalon', nom); toast('Jalon supprimé')
+    const ok = await confirm({ title: 'Supprimer ce Jalon - Incrément majeur ?', message: `Les tâches perdront leur jalon - incrément majeur.`, confirmLabel: 'Supprimer', variant: 'danger' }); if (!ok) return
+    await supabase.from('taches').update({ jalon: null }).eq('jalon', nom); toast('Jalon - Incrément majeur supprimé')
   }
   return (
     <div className="flex flex-col gap-4 max-w-xl">
       <div className="ds-card flex items-end gap-2">
         <div><div className="ds-label mb-1">Code</div><input value={code} onChange={e => setCode(e.target.value.toUpperCase())} className="ds-input w-20" maxLength={5} placeholder="I7" /></div>
-        <button onClick={() => { if (!code) return; toast(`Jalon "${code}" ajouté`); setCode('') }}
+        <button onClick={() => { if (!code) return; toast(`Jalon - Incrément majeur "${code}" ajouté`); setCode('') }}
           className="ds-btn-primary flex items-center gap-1"><Plus size={13} /> Ajouter</button>
       </div>
-      <p className="text-xs text-subtle -mt-2">Cliquez sur le code pour le renommer. Supprimer vide le champ Jalon des tâches concernées.</p>
+      <p className="text-xs text-subtle -mt-2">Cliquez sur le code pour le renommer. Supprimer vide le champ Jalon - Incrément majeur des tâches concernées.</p>
       <InlineList items={jalons}
         onRename={rename} onDelete={del}
-        colorFn={s => JALON_COLORS[s] ?? '#4A4CC8'} countFn={s => counts[s] ?? 0}
+        colorFn={s => JALON_COLORS[s] ?? '#6366F1'} countFn={s => counts[s] ?? 0}
         isSystem={s => JALON_LIST.includes(s as typeof JALON_LIST[number])} />
     </div>
   )
@@ -646,21 +666,15 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks }: {
               <span className="text-subtle text-xs">🔍</span>
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ID ou titre…" />
             </div>
-            <select value={fEpic} onChange={e => setFEpic(e.target.value)}
-              className="ds-input text-xs px-2 py-1 h-8 min-w-[110px]">
-              <option value="">Tous les epics</option>
-              {epics.map(e => <option key={e} value={e}>{e}</option>)}
-            </select>
-            <select value={fStatut} onChange={e => setFStatut(e.target.value)}
-              className="ds-input text-xs px-2 py-1 h-8 min-w-[110px]">
-              <option value="">Tous statuts</option>
-              {statuts.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <select value={fMoscow} onChange={e => setFMoscow(e.target.value)}
-              className="ds-input text-xs px-2 py-1 h-8 min-w-[120px]">
-              <option value="">Tous MoSCoW</option>
-              {moscows.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
+            <SelectPicker value={fEpic} onChange={setFEpic} placeholder="Tous les epics"
+              className="min-w-[130px]"
+              options={epics.map(e => ({ value: e, label: e }))} />
+            <SelectPicker value={fStatut} onChange={setFStatut} placeholder="Tous statuts"
+              className="min-w-[120px]"
+              options={statuts.map(s => ({ value: s, label: s }))} />
+            <SelectPicker value={fMoscow} onChange={setFMoscow} placeholder="Tous MoSCoW"
+              className="min-w-[130px]"
+              options={moscows.map(m => ({ value: m, label: m }))} />
           </div>
 
           <div className="flex items-center gap-2 px-3 py-1.5 bg-bg/60 border-b border-border text-xs text-subtle font-semibold">
@@ -730,9 +744,9 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks }: {
 function ExportTab() {
   const toast   = useToast()
   const exports = [
-    { label: 'Toutes les tâches', desc: 'ID, Epic, Titre, Jalon, Sprint, Statut, Effort…', table: 'taches',
+    { label: 'Toutes les tâches', desc: 'ID, Epic, Titre, Jalon - Incrément majeur, Sprint, Statut, Effort…', table: 'taches',
       cols: ['id_tache','epic','titre','type_fonction','jalon','sprint_debut','sprint_fin','statut','effort_j','moscow','priorite','equipe','metier','assigne_a','lien_dod','iteration'],
-      headers: ['ID','Epic','Titre','Type','Jalon','Sprint début','Sprint fin','Statut','Effort','MoSCoW','Priorité','Équipe','Métier','Assigné','Lien DoD','Itér.'] },
+      headers: ['ID','Epic','Titre','Type','Jalon - Incrément majeur','Sprint début','Sprint fin','Statut','Effort','MoSCoW','Priorité','Équipe','Métier','Assigné','Lien DoD','Itér.'] },
     { label: 'Sprints', desc: 'Numéro, Statut, Objectifs, Review, Dates', table: 'sprints',
       cols: ['numero','statut','objectifs','review','started_at','closed_at'], headers: ['Sprint','Statut','Objectifs','Review','Démarré','Clôturé'] },
     { label: 'Utilisateurs', desc: 'Trigramme, Prénom, Nom, Rôle, Équipe', table: 'user_profiles',

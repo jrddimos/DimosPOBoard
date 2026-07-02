@@ -8,7 +8,12 @@ import { ToastContainer } from '@/components/ui/Toast'
 import { EPIC_LIST, EPIC_COLORS, JALON_LIST, JALON_COLORS } from '@/constants'
 import { epicShortName } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { Plus, Pencil, Trash2, Check, X, ToggleLeft, ToggleRight, SlidersHorizontal } from 'lucide-react'
+import { Plus, Pencil, Trash2, Check, X, ToggleLeft, ToggleRight, SlidersHorizontal, ClipboardCheck, BookOpen, BarChart3 } from 'lucide-react'
+import { PageTitle } from '@/components/ui/PageTitle'
+import { SelectPicker } from '@/components/ui/SelectPicker'
+import { ToggleGroup } from '@/components/ui/ToggleGroup'
+import { useAuth } from '@/contexts/AuthContext'
+import { useProduit } from '@/contexts/ProduitContext'
 
 type PageTab  = 'referentiel' | 'couverture'
 type GroupBy  = 'epic' | 'jalon'
@@ -57,10 +62,13 @@ function DodForm({ initial, onSave, onCancel, loading }: {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
           <label className="ds-label mb-1 block">Catégorie</label>
-          <select value={categorie} onChange={e => setCategorie(e.target.value)} className="ds-select">
-            <option value="">— Sans catégorie —</option>
-            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <SelectPicker
+            value={categorie}
+            onChange={setCategorie}
+            placeholder="— Sans catégorie —"
+            searchable
+            options={CATEGORIES.map(c => ({ value: c, label: c }))}
+          />
         </div>
         <div>
           <label className="ds-label mb-1 block">Ordre</label>
@@ -92,6 +100,9 @@ function ReferentielTab() {
   const update = useUpdateDodItem()
   const del    = useDeleteDodItem()
   const toast  = useToast()
+  const { canEdit }      = useAuth()
+  const { produitActif } = useProduit()
+  const canEditDod = produitActif ? canEdit(produitActif.id) : false
 
   const [showAdd, setShowAdd]   = useState(false)
   const [editId, setEditId]     = useState<number | null>(null)
@@ -136,14 +147,14 @@ function ReferentielTab() {
         <div className="text-xs text-subtle">
           {items.length} critère{items.length !== 1 ? 's' : ''} · {items.filter(i => i.actif).length} actif{items.filter(i => i.actif).length !== 1 ? 's' : ''}
         </div>
-        {!showAdd && (
+        {!showAdd && canEditDod && (
           <button onClick={() => setShowAdd(true)} className="ds-btn-primary ds-btn-sm flex items-center gap-1.5">
             <Plus size={13} /> Ajouter un critère
           </button>
         )}
       </div>
 
-      {showAdd && (
+      {showAdd && canEditDod && (
         <DodForm onSave={handleCreate} onCancel={() => setShowAdd(false)} loading={create.isPending} />
       )}
 
@@ -162,7 +173,7 @@ function ReferentielTab() {
             </div>
             <div className="flex flex-col gap-2">
               {catItems.map(item => (
-                editId === item.id ? (
+                editId === item.id && canEditDod ? (
                   <DodForm key={item.id}
                     initial={item}
                     onSave={v => handleUpdate(item.id, v)}
@@ -173,11 +184,12 @@ function ReferentielTab() {
                     'flex items-start gap-3 px-3 py-2.5 rounded-xl border transition-all',
                     item.actif ? 'bg-white border-border' : 'bg-bg border-border/50 opacity-60'
                   )}>
-                    <span className="font-mono text-xs font-bold text-purple shrink-0 mt-0.5 w-16">{item.code}</span>
+                    <span className="font-mono text-xs font-bold text-indigo-600 shrink-0 mt-0.5 w-16">{item.code}</span>
                     <div className="flex-1 min-w-0">
                       <div className={cn('text-sm font-medium', !item.actif && 'line-through text-subtle')}>{item.titre}</div>
                       {item.description && <div className="text-xs text-subtle mt-0.5">{item.description}</div>}
                     </div>
+                    {canEditDod && (
                     <div className="flex items-center gap-1 shrink-0">
                       <button onClick={() => handleToggle(item)} title={item.actif ? 'Désactiver' : 'Activer'}
                         className="p-1.5 rounded-lg text-subtle hover:text-navy transition-colors">
@@ -192,6 +204,7 @@ function ReferentielTab() {
                         <Trash2 size={13} />
                       </button>
                     </div>
+                    )}
                   </div>
                 )
               ))}
@@ -226,8 +239,8 @@ function CouvertureTab() {
 
   const groups = useMemo(() => {
     if (groupBy === 'epic')
-      return EPIC_LIST.map(e => ({ key: e, tasks: filtered.filter(t => t.epic === e), color: EPIC_COLORS[e] ?? '#4A4CC8' })).filter(g => g.tasks.length)
-    return JALON_LIST.map(j => ({ key: j, tasks: filtered.filter(t => t.jalon === j), color: JALON_COLORS[j] ?? '#4A4CC8' })).filter(g => g.tasks.length)
+      return EPIC_LIST.map(e => ({ key: e, tasks: filtered.filter(t => t.epic === e), color: EPIC_COLORS[e] ?? '#6366F1' })).filter(g => g.tasks.length)
+    return JALON_LIST.map(j => ({ key: j, tasks: filtered.filter(t => t.jalon === j), color: JALON_COLORS[j] ?? '#6366F1' })).filter(g => g.tasks.length)
   }, [filtered, groupBy])
 
   return (
@@ -251,7 +264,7 @@ function CouvertureTab() {
           <SlidersHorizontal size={13} />
           Filtres
           {!showFilters && (search || filter !== 'all') && (
-            <span className="absolute -top-1.5 -right-1.5 bg-purple text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+            <span className="absolute -top-1.5 -right-1.5 bg-indigo-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
               {(search ? 1 : 0) + (filter !== 'all' ? 1 : 0)}
             </span>
           )}
@@ -261,22 +274,15 @@ function CouvertureTab() {
           <span className="text-subtle text-xs">🔍</span>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher…" />
         </div>
-        <div className="flex gap-0.5 bg-bg border border-border rounded-lg p-0.5">
-          {([['all', 'Tous'], ['avec', 'Avec DoD'], ['sans', 'Sans DoD']] as [FilterDod, string][]).map(([v, l]) => (
-            <button key={v} onClick={() => setFilter(v)}
-              className={cn('px-3 py-1 rounded-md text-xs font-semibold transition-all',
-                filter === v ? 'bg-white shadow-sm text-navy' : 'text-subtle hover:text-navy')}>{l}</button>
-          ))}
-        </div>
-        <div className="flex gap-0.5 bg-bg border border-border rounded-lg p-0.5">
-          {(['epic', 'jalon'] as GroupBy[]).map(g => (
-            <button key={g} onClick={() => setGroupBy(g)}
-              className={cn('px-3 py-1 rounded-md text-xs font-semibold transition-all',
-                groupBy === g ? 'bg-white shadow-sm text-navy' : 'text-subtle hover:text-navy')}>
-              {g === 'epic' ? 'Par Epic' : 'Par Jalon'}
-            </button>
-          ))}
-        </div>
+        <ToggleGroup value={filter} onChange={setFilter} options={[
+          { key: 'all',  label: 'Tous' },
+          { key: 'avec', label: 'Avec DoD' },
+          { key: 'sans', label: 'Sans DoD' },
+        ]} />
+        <ToggleGroup value={groupBy} onChange={setGroupBy} options={[
+          { key: 'epic',  label: 'Par Epic' },
+          { key: 'jalon', label: 'Par Jalon - Incrément majeur' },
+        ]} />
         </>}
       </div>
 
@@ -303,7 +309,7 @@ function CouvertureTab() {
                 <tbody>
                   {group.tasks.map(t => (
                     <tr key={t.id_tache}>
-                      <td className="font-semibold text-purple">{t.id_tache}</td>
+                      <td className="font-semibold text-indigo-600">{t.id_tache}</td>
                       <td className="max-w-xs"><div className="truncate">{t.titre}</div></td>
                       <td>
                         {t.lien_dod ? (
@@ -312,7 +318,7 @@ function CouvertureTab() {
                               const ref = dodItems.find(d => d.code === code)
                               return (
                                 <span key={code} title={ref?.titre ?? code}
-                                  className="text-xs px-2 py-0.5 rounded-full bg-blue/10 text-blue font-mono font-medium">
+                                  className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-mono font-medium">
                                   {code}
                                 </span>
                               )
@@ -354,19 +360,12 @@ export default function DodPage() {
 
   return (
     <Layout>
-      <div className="page-topbar -mx-3 -mt-3 mb-3 px-3 md:-mx-5 md:-mt-5 md:mb-5 md:px-5 flex-wrap gap-y-2">
-        <div className="flex gap-0.5 bg-bg border border-border rounded-lg p-0.5">
-          <button onClick={() => setTab('referentiel')}
-            className={cn('px-4 py-1.5 rounded-md text-xs font-semibold transition-all',
-              tab === 'referentiel' ? 'bg-white shadow-sm text-navy' : 'text-subtle hover:text-navy')}>
-            📋 Référentiel DoD
-          </button>
-          <button onClick={() => setTab('couverture')}
-            className={cn('px-4 py-1.5 rounded-md text-xs font-semibold transition-all',
-              tab === 'couverture' ? 'bg-white shadow-sm text-navy' : 'text-subtle hover:text-navy')}>
-            📊 Couverture
-          </button>
-        </div>
+      <div className="page-topbar -mx-3 -mt-3 mb-3 px-3 md:-mx-5 md:-mt-5 md:mb-5 md:px-5 gap-y-2">
+        <PageTitle icon={<ClipboardCheck size={15}/>} label="Definition of Done" />
+        <ToggleGroup value={tab} onChange={setTab} options={[
+          { key: 'referentiel', label: 'Référentiel', icon: <BookOpen size={12}/> },
+          { key: 'couverture',  label: 'Couverture',  icon: <BarChart3 size={12}/> },
+        ]} />
         <div className="ml-auto flex gap-1.5">
           <span className="ds-pill-stat pill-done rounded-full">{actifs} critère{actifs !== 1 ? 's' : ''} actif{actifs !== 1 ? 's' : ''}</span>
         </div>

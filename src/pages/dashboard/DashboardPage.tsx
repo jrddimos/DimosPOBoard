@@ -11,8 +11,10 @@ import { cn } from '@/lib/utils'
 import {
   ChevronRight, AlertTriangle, CheckCircle2, XCircle,
   LayoutGrid, Package, CalendarDays, ClipboardList,
-  TrendingUp, ShieldAlert, Clock
+  TrendingUp, ShieldAlert, Clock, LayoutDashboard, Globe,
 } from 'lucide-react'
+import { PageTitle } from '@/components/ui/PageTitle'
+import { ToggleGroup } from '@/components/ui/ToggleGroup'
 import { ProduitDashboardBody } from '@/pages/produit-dashboard/ProduitDashboardBody'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { computeProduitMetrics, scopedMetrics } from '@/utils/produitMetrics'
@@ -124,26 +126,17 @@ export default function DashboardPage() {
   const viewProduit = accessibles.find(p => p.id === viewProduitId) ?? null
 
   return (
-    <Layout title="Dashboard">
+    <Layout>
 
       {/* ── Topbar ──────────────────────────────────────────── */}
-      <div className="page-topbar -mx-3 -mt-3 mb-5 px-3 md:-mx-5 md:-mt-5 md:px-5 flex items-center gap-3 flex-wrap">
+      <div className="page-topbar -mx-3 -mt-3 mb-5 px-3 md:-mx-5 md:-mt-5 md:px-5 gap-y-2">
+        <PageTitle icon={<LayoutDashboard size={15}/>} label="Dashboard" />
 
         {/* Toggle mode */}
-        <div className="flex gap-0.5 bg-bg border border-border rounded-lg p-0.5">
-          <button onClick={() => setMode('multi')}
-            className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all',
-              mode === 'multi' ? 'bg-white shadow-sm text-navy' : 'text-subtle hover:text-navy')}>
-            <LayoutGrid size={13} />
-            Multi-produits
-          </button>
-          <button onClick={() => setMode('produit')}
-            className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all',
-              mode === 'produit' ? 'bg-white shadow-sm text-navy' : 'text-subtle hover:text-navy')}>
-            <Package size={13} />
-            Par produit
-          </button>
-        </div>
+        <ToggleGroup value={mode} onChange={setMode} options={[
+          { key: 'multi',   label: 'Multi-produits', icon: <LayoutGrid size={13}/> },
+          { key: 'produit', label: 'Par produit',     icon: <Package size={13}/> },
+        ]} />
 
         {/* Sélecteur produit (mode par produit) */}
         {mode === 'produit' && (
@@ -190,18 +183,10 @@ export default function DashboardPage() {
 
         {/* Toggle scope (mode multi) */}
         {mode === 'multi' && (
-          <div className="flex gap-0.5 bg-bg border border-border rounded-lg p-0.5 ml-auto">
-            <button onClick={() => setScope('global')}
-              className={cn('px-3 py-1 rounded-md text-xs font-semibold transition-all',
-                scope === 'global' ? 'bg-white shadow-sm text-navy' : 'text-subtle hover:text-navy')}>
-              Global
-            </button>
-            <button onClick={() => setScope('trim')}
-              className={cn('px-3 py-1 rounded-md text-xs font-semibold transition-all',
-                scope === 'trim' ? 'bg-white shadow-sm text-navy' : 'text-subtle hover:text-navy')}>
-              Trimestre
-            </button>
-          </div>
+          <ToggleGroup value={scope} onChange={setScope} className="ml-auto" options={[
+            { key: 'global', label: 'Global',    icon: <Globe size={11}/> },
+            { key: 'trim',   label: 'Trimestre', icon: <CalendarDays size={11}/> },
+          ]} />
         )}
       </div>
 

@@ -797,9 +797,9 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
               )}
           </Section>
 
-          <Section title={`Jalons (${jalons.length})`} className="flex-1 min-h-0" scrollable>
+          <Section title={`Jalons - Incréments majeurs (${jalons.length})`} className="flex-1 min-h-0" scrollable>
             {jalons.length === 0
-              ? <p className="text-xs text-subtle/40 italic">Aucun jalon dans les tâches</p>
+              ? <p className="text-xs text-subtle/40 italic">Aucun jalon - incrément majeur dans les tâches</p>
               : <div className="space-y-2">
                   {jalons.map(([j, stats]) => {
                     const pct = stats.total > 0 ? Math.round(stats.fait / stats.total * 100) : 0

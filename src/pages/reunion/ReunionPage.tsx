@@ -12,8 +12,9 @@ import { cn } from '@/lib/utils'
 import {
   ChevronLeft, ChevronRight, Play, Pause, SkipBack, SkipForward,
   Plus, X, Check, Save, Printer, ChevronDown, ChevronUp, AlertTriangle,
-  Target, Maximize2, Minimize2,
+  Target, Maximize2, Minimize2, CalendarClock,
 } from 'lucide-react'
+import { PageTitle } from '@/components/ui/PageTitle'
 import type { Produit, TrimObjectif } from '@/hooks/useProduits'
 import type { Sprint } from '@/types'
 import { ProduitDashboardBody } from '@/pages/produit-dashboard/ProduitDashboardBody'
@@ -618,7 +619,7 @@ export default function ReunionPage() {
       {/* Topbar */}
       <div className="page-topbar -mx-3 -mt-3 mb-5 px-3 md:-mx-5 md:-mt-5 md:px-5 print:hidden">
         <div className="flex items-center gap-3">
-          <h1 className="text-sm font-semibold text-navy">Réunion hebdo</h1>
+          <PageTitle icon={<CalendarClock size={15}/>} label="Réunion PO" />
           <div className="flex items-center gap-1">
             <button onClick={() => navigateWeek(-1)} className="p-1 rounded hover:bg-bg text-subtle hover:text-navy transition-colors">
               <ChevronLeft size={14} />
@@ -632,7 +633,8 @@ export default function ReunionPage() {
           </div>
           {!isCurrentWeek && (
             <button onClick={() => { setSemaine(initWeek.semaine); setAnnee(initWeek.annee) }}
-              className="text-[10px] text-indigo-600 hover:underline">
+              className="flex items-center gap-1.5 text-[11px] font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg transition-colors">
+              <CalendarClock size={11} />
               Cette semaine
             </button>
           )}
