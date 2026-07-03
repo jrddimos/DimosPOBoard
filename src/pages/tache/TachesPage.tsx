@@ -4,9 +4,10 @@ import { Layout } from '@/components/layout/Layout'
 import { Spinner } from '@/components/ui/Spinner'
 import { StatutBadge, EpicBadge, MoscowBadge, JalonBadge, PrioBadge } from '@/components/ui/Badge'
 import { useTaches, useCreateTache, useUpdateTache, useDeleteTache, useCreateSousTache } from '@/hooks/useTaches'
+import { useTacheDependances, useAddDependance, useRemoveDependance, isBloqueeParDependance } from '@/hooks/useTacheDependances'
+import { TacheExtras } from '@/components/tache/TacheExtras'
 import { useSprintActif, useClosedSprints } from '@/hooks/useSprints'
 import { useEquipes, useUtilisateurs } from '@/hooks/useEquipes'
-import { useAutoMetiers } from '@/hooks/useAutoMetiers'
 import { useToast } from '@/hooks/useToast'
 import { confirm } from '@/components/ui/ConfirmModal'
 import { EPIC_LIST, JALON_LIST, MOSCOW_LIST, SPRINTS_LIST, METIERS_DEFAULT } from '@/constants'
@@ -17,6 +18,7 @@ import type { CritereItem } from '@/lib/utils'
 import { CriteresEditor } from '@/components/ui/CriteresEditor'
 import { StatusPicker } from '@/components/ui/StatusPicker'
 import { AssignPicker } from '@/components/ui/AssignPicker'
+import { MentionField } from '@/components/ui/MentionField'
 import { useAuth } from '@/contexts/AuthContext'
 import { useProduit } from '@/contexts/ProduitContext'
 import type { Tache, Statut, Equipe } from '@/types'
@@ -52,10 +54,10 @@ const TABS:{key:TabKey;label:string;icon:React.ReactNode}[] = [
 ]
 
 function Label({children}:{children:React.ReactNode}) {
-  return <label className="ds-label mb-1 block">{children}</label>
+  return <label className="text-[11px] font-bold text-navy/75 uppercase tracking-wide mb-1 block">{children}</label>
 }
-function Grp({label,children,col2}:{label:React.ReactNode;children:React.ReactNode;col2?:boolean}) {
-  return <div className={col2?'col-span-2':''}>
+function Grp({label,children,col2,className}:{label:React.ReactNode;children:React.ReactNode;col2?:boolean;className?:string}) {
+  return <div className={cn(col2?'col-span-2':'',className)}>
     <Label>{label}</Label>{children}
   </div>
 }
@@ -78,8 +80,11 @@ export default function TachesPage() {
   const deleteTache  = useDeleteTache()
   const createSub    = useCreateSousTache()
   const toast        = useToast()
-  const { canWrite }  = useAuth()
+  const { canWrite, user }  = useAuth()
   const { produitActif } = useProduit()
+  const {data:dependances=[]} = useTacheDependances(produitActif?.id ?? null)
+  const addDependance = useAddDependance()
+  const removeDependance = useRemoveDependance()
 
   if(isLoading) return <Layout><Spinner/></Layout>
   const parents = taches.filter(t=>!t.parent_id)
@@ -107,7 +112,7 @@ export default function TachesPage() {
         </div>
       ) : <>
         {tab==='add' &&<AddTab  sprintActif={sprintActif?.numero} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} createTache={createTache} createSub={createSub} updateTache={updateTache} parents={parents} allTaches={taches} toast={toast} initTitre={params.get('titre')??''} initParentId={params.get('parent_id')??''}/>}
-        {tab==='edit'&&<EditTab taches={taches} parents={parents} allTaches={taches} closedSprints={closedSprints} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} updateTache={updateTache} createSub={createSub} toast={toast}/>}
+        {tab==='edit'&&<EditTab taches={taches} parents={parents} allTaches={taches} closedSprints={closedSprints} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} updateTache={updateTache} createSub={createSub} toast={toast} produitId={produitActif?.id ?? null} dependances={dependances} addDependance={addDependance} removeDependance={removeDependance} userId={user?.id ?? null} initFocusId={params.get('focus')??''}/>}
         {tab==='dup' &&<DupTab  parents={parents} closedSprints={closedSprints} createTache={createTache} taches={taches} toast={toast}/>}
         {tab==='del' &&<DelTab  parents={parents} deleteTache={deleteTache} toast={toast}/>}
       </>}
@@ -398,7 +403,10 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
           </div>
           {/* Ligne 5 : commentaire + boutons */}
           <div className="grid grid-cols-2 gap-4 items-end">
-            <Grp label="Commentaire PO"><textarea value={form.commentaire} onChange={set('commentaire')} className="ds-textarea" rows={2}/></Grp>
+            <Grp label="Commentaire PO">
+              <MentionField as="textarea" value={form.commentaire} onChange={v=>setForm(f=>({...f,commentaire:v}))}
+                membres={membresActifs} className="ds-textarea" rows={2}/>
+            </Grp>
             <div className="flex gap-2 pb-0.5 flex-wrap">
               <button type="submit" className={cn('ds-btn-primary',isEditing&&'bg-indigo-600 border-indigo-600')} disabled={isPending}>
                 {isEditing ? '💾 Modifier' : '✅ Créer'}
@@ -493,12 +501,14 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
   )
 }
 
-function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,updateTache,createSub,toast,allTaches}:{
+function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,updateTache,createSub,toast,allTaches,produitId,dependances,addDependance,removeDependance,userId,initFocusId}:{
   taches:Tache[];parents:Tache[];allTaches:Tache[];closedSprints:string[];equipeNoms:string[]
   membresActifs:UserProfile[];equipes:Equipe[]
   updateTache:ReturnType<typeof useUpdateTache>;createSub:ReturnType<typeof useCreateSousTache>;toast:ReturnType<typeof useToast>
+  produitId:number|null;dependances:import('@/hooks/useTacheDependances').TacheDependance[]
+  addDependance:ReturnType<typeof useAddDependance>;removeDependance:ReturnType<typeof useRemoveDependance>
+  userId:string|null;initFocusId?:string
 }) {
-  const autoMetiers = useAutoMetiers()
   const [search,setSearch]=useState('')
   const [filterStat,setFilterStat]=useState('')
   const [filterEpic,setFilterEpic]=useState('')
@@ -531,6 +541,17 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
     setEditForm({titre:t.titre,statut:t.statut,sprint:t.sprint??'',sprint_debut:t.sprint_debut??'',sprint_fin:t.sprint_fin??'',effort_j:effectiveEffort,priorite:t.priorite??'',moscow:t.moscow??'Must Have',assigne_a:t.assigne_a??'',equipe:t.equipe??'',metier:t.metier??'',jalon:t.jalon??'',epic:t.epic??'',type_fonction:t.type_fonction??'Fonction principale',description:t.description??'',criteres:t.criteres??'',lien_dod:t.lien_dod??'',commentaire:t.commentaire??''})
   }
   function setF(k:string){return(e:React.ChangeEvent<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>)=>setEditForm(f=>({...f,[k]:e.target.value}))}
+
+  // Ouvre automatiquement la tâche visée par une notification (?focus=ID_TACHE)
+  useEffect(()=>{
+    if(!initFocusId) return
+    const t=taches.find(x=>x.id_tache===initFocusId)
+    if(t){
+      openPanel(t)
+      if(t.parent_id) setExpanded(prev=>prev.includes(t.parent_id!)?prev:[...prev,t.parent_id!])
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[initFocusId,taches.length])
 
   function setMembre(tri:string){
     const m=membresActifs.find(x=>x.trigramme===tri)
@@ -586,21 +607,6 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
             options={['À faire','En cours','Fait','Bloqué'].map(s=>({value:s,label:s}))} placeholder="Tous statuts"/>
           <SelectPicker value={filterEpic} onChange={setFilterEpic} className="w-44"
             options={EPIC_LIST.map(e=>({value:e,label:e.split(' — ')[0]}))} placeholder="Tous Epics" searchable/>
-          <button
-            onClick={async()=>{
-              try{
-                const {updated,errors}=await autoMetiers.run(allTaches,true)
-                toast(`🤖 ${updated} US classifiées${errors.length?` · ${errors.length} erreur(s)`:''}`)
-                if(errors.length) console.warn('Auto-métiers erreurs:',errors)
-              }catch(e){toast(String(e),'error')}
-            }}
-            disabled={autoMetiers.isPending}
-            title="Classifier automatiquement le métier des US sans métier via Claude"
-            className="ds-btn ds-btn-sm flex items-center gap-1.5 whitespace-nowrap">
-            {autoMetiers.isPending
-              ? `🤖 ${autoMetiers.progress?.done??0}/${autoMetiers.progress?.total??'?'}`
-              : '🤖 Auto-métiers'}
-          </button>
         </div>
         {selected.length>0&&(
           <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 flex flex-col gap-2">
@@ -635,7 +641,39 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
             </div>
           </div>
         )}
-        <div className="bg-white border border-border rounded-xl overflow-x-auto">
+        {/* ── Vue mobile : liste de cartes ── */}
+        <div className="md:hidden flex flex-col gap-2">
+          {filtered.map(t=>{
+            const subs=childMap[t.id_tache]??[]
+            const blockers=isBloqueeParDependance(t.id_tache,dependances,allTaches)
+            return (
+              <div key={t.id_tache} onClick={()=>openPanel(t)}
+                className={cn('bg-white border rounded-xl p-3 cursor-pointer',panelId===t.id_tache?'border-indigo-300 ring-1 ring-indigo-100':'border-border')}>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-xs font-semibold text-indigo-600 shrink-0">{t.id_tache}</span>
+                  <EpicBadge value={t.epic??''} className="text-[10px]"/>
+                  {subs.length>0&&<span className="bg-indigo-100 text-indigo-600 px-1 rounded text-[10px] font-semibold shrink-0">{subs.filter(s=>s.statut==='Fait').length}/{subs.length}</span>}
+                  {blockers.length>0&&<span className="ml-auto text-[9px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full shrink-0">⛔ {blockers.length}</span>}
+                </div>
+                <p className="text-sm font-medium text-navy leading-snug mb-2">{t.titre}</p>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <StatutBadge value={t.statut}/>
+                  {t.priorite&&<PrioBadge value={t.priorite}/>}
+                  {t.moscow&&<MoscowBadge value={t.moscow}/>}
+                  {t.jalon&&<JalonBadge value={t.jalon}/>}
+                  {t.assigne_a&&<span className="text-[10px] font-semibold text-navy bg-bg px-1.5 py-0.5 rounded-full">{t.assigne_a}</span>}
+                  {(t.sprint_debut||t.sprint)&&<span className="text-[10px] text-subtle ml-auto">{t.sprint_debut||t.sprint}</span>}
+                </div>
+              </div>
+            )
+          })}
+          {!filtered.length&&(
+            <div className="flex items-center justify-center h-20 border-2 border-dashed border-border rounded-xl text-subtle text-xs">Aucune tâche</div>
+          )}
+        </div>
+
+        {/* ── Vue desktop : tableau ── */}
+        <div className="hidden md:block bg-white border border-border rounded-xl overflow-x-auto">
           <table className="ds-table" style={{minWidth:'1400px'}}>
             <thead><tr>
               <th className="w-8 shrink-0"><input type="checkbox" className="accent-indigo-500"
@@ -682,7 +720,18 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                         </div>
                       </td>
                       <td className="max-w-[200px]"><div className="truncate font-medium">{t.titre}</div></td>
-                      <td><StatutBadge value={t.statut}/></td>
+                      <td>
+                        <div className="flex items-center gap-1.5">
+                          <StatutBadge value={t.statut}/>
+                          {(()=>{const blockers=isBloqueeParDependance(t.id_tache,dependances,allTaches)
+                            return blockers.length>0 && (
+                              <span title={`Bloquée par : ${blockers.join(', ')}`}
+                                className="text-[9px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                ⛔ {blockers.length}
+                              </span>
+                            )})()}
+                        </div>
+                      </td>
                       <td className="text-center">{t.priorite?<PrioBadge value={t.priorite}/>:<span className="text-subtle">—</span>}</td>
                       <td>{t.moscow?<MoscowBadge value={t.moscow}/>:<span className="text-subtle">—</span>}</td>
                       <td><EpicBadge value={t.epic??''}/></td>
@@ -715,8 +764,10 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
       </div>
 
       {panelTask&&(
-        <div className="w-96 shrink-0 animate-in">
-          <div className="ds-card sticky top-0 max-h-[calc(100vh-100px)] overflow-y-auto">
+        <>
+          <div className="fixed inset-0 z-40 bg-navy/40" onClick={()=>setPanelId(null)}/>
+          <div className="fixed inset-x-0 bottom-0 z-50 animate-in md:inset-x-auto md:left-auto md:right-4 md:top-4 md:bottom-4 md:w-3/5 md:min-w-[380px] md:max-w-[860px]">
+          <div className="ds-card max-h-[80vh] md:max-h-full md:h-full overflow-y-auto rounded-b-none md:rounded-xl shadow-2xl">
             {/* Header */}
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-xs font-semibold text-indigo-600">{panelTask.id_tache}</span>
@@ -724,28 +775,48 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
             </div>
             <h3 className="text-sm font-semibold text-navy leading-snug mb-3 line-clamp-2">{panelTask.titre}</h3>
 
-            <div className="flex flex-col gap-3">
-              <Grp label="Titre"><input value={String(editForm.titre??'')} onChange={setF('titre')} className="ds-input text-xs"/></Grp>
+            <div className="flex flex-col">
+              {/* Identité : Titre + Statut */}
+              <div className="grid grid-cols-[1fr_170px] gap-3">
+                <Grp label="Titre"><input value={String(editForm.titre??'')} onChange={setF('titre')} className="ds-input text-xs"/></Grp>
+                <Grp label="Statut">
+                  <StatusPicker
+                    value={(String(editForm.statut??'À faire')) as Statut}
+                    onChange={s=>setEditForm(f=>({...f,statut:s}))}
+                  />
+                </Grp>
+              </div>
 
-              {/* Statut moderne */}
-              <Grp label="Statut">
-                <StatusPicker
-                  value={(String(editForm.statut??'À faire')) as Statut}
-                  onChange={s=>setEditForm(f=>({...f,statut:s}))}
-                />
-              </Grp>
+              {/* Classification : Epic, Type fonction, Jalon, Priorité */}
+              <div className="grid grid-cols-6 gap-3 mt-4 pt-3 border-t-2 border-slate-300">
+                <Grp label="Epic" className="col-span-2">
+                  <SelectPicker value={String(editForm.epic??'')} onChange={v=>setEditForm(f=>({...f,epic:v}))}
+                    options={EPIC_LIST.map(e=>({value:e,label:e}))} placeholder="-- Epic --" searchable/>
+                </Grp>
+                <Grp label="Type fonction" className="col-span-2">
+                  <SelectPicker value={String(editForm.type_fonction??'')} onChange={v=>setEditForm(f=>({...f,type_fonction:v}))}
+                    options={[
+                      {value:'Fonction principale',label:'Principale'},
+                      {value:'Fonction secondaire',label:'Secondaire'},
+                      {value:'Fonction support',label:'Support'},
+                      {value:'Fonction exclue',label:'Exclue'},
+                    ]} placeholder="-- Type --"/>
+                </Grp>
+                <Grp label="Jalon - Incrément majeur" className="col-span-2">
+                  <SelectPicker value={String(editForm.jalon??'')} onChange={v=>setEditForm(f=>({...f,jalon:v}))}
+                    options={JALON_LIST.map(j=>({value:j,label:j}))} placeholder="-- Jalon --"/>
+                </Grp>
+              </div>
 
-              {/* Priorité pills */}
-              <Grp label="Priorité">
-                <PriorityPicker value={String(editForm.priorite??'')} onChange={p=>setEditForm(f=>({...f,priorite:p}))} />
-              </Grp>
-
-              {/* MoSCoW + Effort */}
-              <div className="grid grid-cols-2 gap-2">
-                <Grp label="MoSCoW">
+              {/* Priorité, MoSCoW, Effort, Assigné */}
+              <div className="grid grid-cols-6 gap-3 mt-4 pt-3 border-t-2 border-slate-300">
+                <Grp label="Priorité" className="col-span-1">
+                  <PriorityPicker value={String(editForm.priorite??'')} onChange={p=>setEditForm(f=>({...f,priorite:p}))} />
+                </Grp>
+                <Grp label="MoSCoW" className="col-span-2">
                   <MoSCoWPicker value={String(editForm.moscow??'')} onChange={m=>setEditForm(f=>({...f,moscow:m}))}/>
                 </Grp>
-                <Grp label="Effort (j)">
+                <Grp label="Effort (j)" className="col-span-1">
                   {panelTask && (childMap[panelTask.id_tache]??[]).length > 0 ? (
                     <div className="ds-input text-xs bg-slate-50 text-navy font-semibold flex items-center gap-1.5 cursor-not-allowed">
                       <span>∑ {(childMap[panelTask.id_tache]??[]).reduce((s,c)=>s+(c.effort_j??0),0)}j</span>
@@ -755,38 +826,13 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                     <input type="number" value={Number(editForm.effort_j??0)} onChange={setF('effort_j')} className="ds-input text-xs" min={0} step={0.5}/>
                   )}
                 </Grp>
-              </div>
-
-              {/* Assigné → modern picker */}
-              <Grp label="Assigné à">
-                <AssignPicker value={String(editForm.assigne_a??'')} membres={membresActifs} onAssign={setMembre} />
-              </Grp>
-
-              {/* Epic */}
-              <Grp label="Epic">
-                <SelectPicker value={String(editForm.epic??'')} onChange={v=>setEditForm(f=>({...f,epic:v}))}
-                  options={EPIC_LIST.map(e=>({value:e,label:e}))} placeholder="-- Epic --" searchable/>
-              </Grp>
-
-              {/* Type de fonction + Jalon */}
-              <div className="grid grid-cols-2 gap-2">
-                <Grp label="Type fonction">
-                  <SelectPicker value={String(editForm.type_fonction??'')} onChange={v=>setEditForm(f=>({...f,type_fonction:v}))}
-                    options={[
-                      {value:'Fonction principale',label:'Principale'},
-                      {value:'Fonction secondaire',label:'Secondaire'},
-                      {value:'Fonction support',label:'Support'},
-                      {value:'Fonction exclue',label:'Exclue'},
-                    ]} placeholder="-- Type --"/>
-                </Grp>
-                <Grp label="Jalon - Incrément majeur">
-                  <SelectPicker value={String(editForm.jalon??'')} onChange={v=>setEditForm(f=>({...f,jalon:v}))}
-                    options={JALON_LIST.map(j=>({value:j,label:j}))} placeholder="-- Jalon - Incrément majeur --"/>
+                <Grp label="Assigné à" className="col-span-2">
+                  <AssignPicker value={String(editForm.assigne_a??'')} membres={membresActifs} onAssign={setMembre} />
                 </Grp>
               </div>
 
-              {/* Sprint début + fin */}
-              <div className="grid grid-cols-2 gap-2">
+              {/* Planning : Sprint début/fin, Équipe, Thème */}
+              <div className="grid grid-cols-4 gap-3 mt-4 pt-3 border-t-2 border-slate-300">
                 <Grp label="Sprint début">
                   <SelectPicker value={String(editForm.sprint_debut??'')} onChange={v=>setEditForm(f=>({...f,sprint_debut:v}))}
                     options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
@@ -795,10 +841,6 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                   <SelectPicker value={String(editForm.sprint_fin??'')} onChange={v=>setEditForm(f=>({...f,sprint_fin:v}))}
                     options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
                 </Grp>
-              </div>
-
-              {/* Équipe + Thème */}
-              <div className="grid grid-cols-2 gap-2">
                 <Grp label="Équipe">
                   <SelectPicker value={String(editForm.equipe??'')} onChange={v=>setEditForm(f=>({...f,equipe:v}))}
                     options={equipeNoms.map(e=>({value:e,label:e}))} placeholder="-- Équipe --"/>
@@ -809,35 +851,106 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                 </Grp>
               </div>
 
-              {/* Textes */}
-              <Grp label="User Story"><textarea value={String(editForm.description??'')} onChange={setF('description')} className="ds-textarea text-xs" rows={3}/></Grp>
-              <Grp label="Critères d'acceptation">
-                <div className="ds-input min-h-[72px] flex flex-col">
-                  <CriteresEditor
-                    items={parseCriteres(String(editForm.criteres??''))}
-                    onChange={items=>setEditForm(f=>({...f,criteres:serializeCriteres(items)}))}
-                    compact
-                  />
-                </div>
-              </Grp>
-              <Grp label="Lien DoD">
-                <input value={String(editForm.lien_dod??'')} onChange={setF('lien_dod')} className="ds-input text-xs" placeholder="F1.1, F1.2…"/>
-                {!!editForm.lien_dod&&(
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {String(editForm.lien_dod).split(/[,;]/).map(s=>s.trim()).filter(Boolean).map(code=>(
-                      <span key={code} className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-medium border border-indigo-100">{code}</span>
-                    ))}
+              {/* Contenu : User Story + Critères côte à côte */}
+              <div className="grid grid-cols-2 gap-3 mt-4 pt-3 border-t-2 border-slate-300">
+                <Grp label="User Story"><textarea value={String(editForm.description??'')} onChange={setF('description')} className="ds-textarea text-xs" rows={5}/></Grp>
+                <Grp label="Critères d'acceptation">
+                  <div className="ds-input min-h-[110px] flex flex-col">
+                    <CriteresEditor
+                      items={parseCriteres(String(editForm.criteres??''))}
+                      onChange={items=>setEditForm(f=>({...f,criteres:serializeCriteres(items)}))}
+                      compact
+                    />
                   </div>
-                )}
-              </Grp>
-              <Grp label="Commentaire PO"><textarea value={String(editForm.commentaire??'')} onChange={setF('commentaire')} className="ds-textarea text-xs" rows={2}/></Grp>
+                </Grp>
+              </div>
+
+              {/* Lien DoD + Commentaire PO */}
+              <div className="grid grid-cols-[220px_1fr] gap-3 mt-4 pt-3 border-t-2 border-slate-300">
+                <Grp label="Lien DoD">
+                  <input value={String(editForm.lien_dod??'')} onChange={setF('lien_dod')} className="ds-input text-xs" placeholder="F1.1, F1.2…"/>
+                  {!!editForm.lien_dod&&(
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {String(editForm.lien_dod).split(/[,;]/).map(s=>s.trim()).filter(Boolean).map(code=>(
+                        <span key={code} className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-medium border border-indigo-100">{code}</span>
+                      ))}
+                    </div>
+                  )}
+                </Grp>
+                <Grp label="Commentaire PO">
+                  <MentionField as="textarea" value={String(editForm.commentaire??'')} onChange={v=>setEditForm(f=>({...f,commentaire:v}))}
+                    membres={membresActifs} className="ds-textarea text-xs" rows={2}/>
+                </Grp>
+              </div>
+
+              {/* Dépendances entre tâches */}
+              {panelTask && produitId && (
+                <Grp label="Dépendances" className="mt-4 pt-3 border-t-2 border-slate-300">
+                  <div className="flex flex-col gap-2">
+                    <div>
+                      <div className="text-[10px] text-navy/70 font-bold uppercase tracking-wide mb-1">Bloquée par</div>
+                      {dependances.filter(d=>d.bloquee_id===panelTask.id_tache).length===0 ? (
+                        <p className="text-xs text-subtle italic">Aucune</p>
+                      ) : (
+                        <div className="flex flex-col gap-1">
+                          {dependances.filter(d=>d.bloquee_id===panelTask.id_tache).map(d=>{
+                            const t=allTaches.find(x=>x.id_tache===d.bloque_id)
+                            const done=t?.statut==='Fait'
+                            return (
+                              <div key={d.id} className={cn('flex items-center gap-2 text-xs px-2 py-1 rounded-lg border',
+                                done?'bg-emerald-50 border-emerald-100 text-emerald-700':'bg-rose-50 border-rose-100 text-rose-700')}>
+                                <span className="font-mono font-semibold">{d.bloque_id}</span>
+                                <span className="flex-1 truncate">{t?.titre??'—'}</span>
+                                <button onClick={()=>removeDependance.mutate({id:d.id,produit_id:produitId})} className="hover:text-red"><X size={11}/></button>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-navy/70 font-bold uppercase tracking-wide mb-1">Bloque</div>
+                      {dependances.filter(d=>d.bloque_id===panelTask.id_tache).length===0 ? (
+                        <p className="text-xs text-subtle italic">Aucune</p>
+                      ) : (
+                        <div className="flex flex-col gap-1">
+                          {dependances.filter(d=>d.bloque_id===panelTask.id_tache).map(d=>{
+                            const t=allTaches.find(x=>x.id_tache===d.bloquee_id)
+                            return (
+                              <div key={d.id} className="flex items-center gap-2 text-xs px-2 py-1 rounded-lg border bg-bg border-border text-subtle">
+                                <span className="font-mono font-semibold text-navy">{d.bloquee_id}</span>
+                                <span className="flex-1 truncate">{t?.titre??'—'}</span>
+                                <button onClick={()=>removeDependance.mutate({id:d.id,produit_id:produitId})} className="hover:text-red"><X size={11}/></button>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                    <SelectPicker value="" placeholder="+ Ajouter une tâche bloquante…" searchable
+                      onChange={v=>{
+                        if(!v||v===panelTask.id_tache) return
+                        addDependance.mutate({produit_id:produitId,bloque_id:v,bloquee_id:panelTask.id_tache})
+                      }}
+                      options={allTaches.filter(t=>t.id_tache!==panelTask.id_tache && !dependances.some(d=>d.bloque_id===t.id_tache&&d.bloquee_id===panelTask.id_tache))
+                        .map(t=>({value:t.id_tache,label:`${t.id_tache} — ${t.titre}`}))}/>
+                  </div>
+                </Grp>
+              )}
+
+              {panelTask && produitId && (
+                <div className="mt-4 pt-3 border-t-2 border-slate-300">
+                  <TacheExtras produitId={produitId} tache={panelTask} membres={membresActifs} userId={userId} toast={toast} />
+                </div>
+              )}
             </div>
-            <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100">
+            <div className="flex gap-2 mt-3 pt-3 border-t-2 border-slate-300">
               <button onClick={savePanel} className="ds-btn-primary flex-1" disabled={updateTache.isPending}>✓ Sauvegarder</button>
               <button onClick={()=>setPanelId(null)} className="ds-btn">Annuler</button>
             </div>
           </div>
-        </div>
+          </div>
+        </>
       )}
     </div>
   )

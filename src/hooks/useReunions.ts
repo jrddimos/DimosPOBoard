@@ -7,6 +7,7 @@ export interface Reunion {
   annee: number
   animateur: string | null
   notes_seance: string | null
+  phase_notes: string[]
   created_at: string
 }
 
@@ -78,6 +79,7 @@ export interface SaveReunionPayload {
   annee: number
   animateur: string | null
   notes_seance: string | null
+  phase_notes: string[]
   revues: Array<{
     produit_id: number
     statut_presente: string | null
@@ -97,7 +99,7 @@ export function useSauvegarderReunion() {
       const { data: reunion, error: rErr } = await supabase
         .from('reunions')
         .upsert(
-          { semaine: payload.semaine, annee: payload.annee, animateur: payload.animateur, notes_seance: payload.notes_seance },
+          { semaine: payload.semaine, annee: payload.annee, animateur: payload.animateur, notes_seance: payload.notes_seance, phase_notes: payload.phase_notes },
           { onConflict: 'semaine,annee' }
         )
         .select()
@@ -105,11 +107,20 @@ export function useSauvegarderReunion() {
       if (rErr) throw rErr
       const reunionId = (reunion as Reunion).id
 
-      await supabase.from('reunion_revues').delete().eq('reunion_id', reunionId)
+      // Upsert (au lieu de delete+reinsert) pour que le trigger de mention
+      // puisse comparer ancien/nouveau texte et ne notifier que les
+      // mentions nouvellement ajoutées.
+      const currentProduitIds = payload.revues.map(r => r.produit_id)
+      if (currentProduitIds.length > 0) {
+        await supabase.from('reunion_revues').delete().eq('reunion_id', reunionId)
+          .not('produit_id', 'in', `(${currentProduitIds.join(',')})`)
+      } else {
+        await supabase.from('reunion_revues').delete().eq('reunion_id', reunionId)
+      }
       if (payload.revues.length > 0) {
         const { error: rvErr } = await supabase
           .from('reunion_revues')
-          .insert(payload.revues.map(r => ({ ...r, reunion_id: reunionId })))
+          .upsert(payload.revues.map(r => ({ ...r, reunion_id: reunionId })), { onConflict: 'reunion_id,produit_id' })
         if (rvErr) throw rvErr
       }
 

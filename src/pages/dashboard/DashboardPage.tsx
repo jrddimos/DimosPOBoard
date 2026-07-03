@@ -1,22 +1,28 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Layout } from '@/components/layout/Layout'
 import { Spinner } from '@/components/ui/Spinner'
 import { useAllTaches } from '@/hooks/useTaches'
-import { useProduits } from '@/hooks/useProduits'
+import { useSprintsByProduit } from '@/hooks/useSprints'
+import { useProduits, useRequestProduitAccess } from '@/hooks/useProduits'
 import { useFinanceConfig } from '@/hooks/useFinanceConfig'
 import { useAuth } from '@/contexts/AuthContext'
 import { useProduit } from '@/contexts/ProduitContext'
+import { useToast } from '@/hooks/useToast'
 import { cn } from '@/lib/utils'
 import {
   ChevronRight, AlertTriangle, CheckCircle2, XCircle,
   LayoutGrid, Package, CalendarDays, ClipboardList,
-  TrendingUp, ShieldAlert, Clock, LayoutDashboard, Globe,
+  TrendingUp, ShieldAlert, Clock, LayoutDashboard, Globe, BarChart3, Rows3,
 } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
 import { ToggleGroup } from '@/components/ui/ToggleGroup'
 import { ProduitDashboardBody } from '@/pages/produit-dashboard/ProduitDashboardBody'
 import { Tooltip } from '@/components/ui/Tooltip'
+
+// Recharts + SVAR Gantt ne pèsent que si on ouvre l'onglet Graphiques
+const PortfolioCharts    = lazy(() => import('@/pages/dashboard/DashboardCharts').then(m => ({ default: m.PortfolioCharts })))
+const ProduitTrendCharts = lazy(() => import('@/pages/dashboard/DashboardCharts').then(m => ({ default: m.ProduitTrendCharts })))
 import { computeProduitMetrics, scopedMetrics } from '@/utils/produitMetrics'
 import type { Rag, MultiScope, ProduitMetrics } from '@/utils/produitMetrics'
 import type { Produit } from '@/hooks/useProduits'
@@ -51,6 +57,7 @@ function RagPill({ rag, tooltip }: { rag: Rag; tooltip?: string }) {
 }
 
 type DashMode = 'multi' | 'produit'
+type DashView = 'cartes' | 'graphiques'
 
 export default function DashboardPage() {
   const { data: produits = [], isLoading: loadProd } = useProduits()
@@ -61,6 +68,7 @@ export default function DashboardPage() {
   const navigate                                     = useNavigate()
 
   const [mode, setMode]               = useState<DashMode>('multi')
+  const [view, setView]               = useState<DashView>('cartes')
   const [scope, setScope]             = useState<MultiScope>('trim')
   const [viewProduitId, setViewProduitId] = useState<number | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number> | null>(null)
@@ -116,14 +124,23 @@ export default function DashboardPage() {
     navigate('/sprint')
   }
 
-  function zoomProduit(p: Produit) {
-    setViewProduitId(p.id)
-    setMode('produit')
+  function goToProductDashboard(p: Produit) {
+    setProduitActif({ id: p.id, nom: p.nom, couleur: p.couleur })
+    navigate('/produit-dashboard')
   }
+
+  const viewProduit = accessibles.find(p => p.id === viewProduitId) ?? null
+  const { data: viewSprints = [] } = useSprintsByProduit(viewProduit?.id ?? null)
 
   if (loadProd || loadTach) return <Layout><Spinner /></Layout>
 
-  const viewProduit = accessibles.find(p => p.id === viewProduitId) ?? null
+  if (accessibles.length === 0) {
+    return (
+      <Layout>
+        <NoAccessScreen produits={produits.filter(p => p.actif && !p.is_template)} />
+      </Layout>
+    )
+  }
 
   return (
     <Layout>
@@ -136,6 +153,12 @@ export default function DashboardPage() {
         <ToggleGroup value={mode} onChange={setMode} options={[
           { key: 'multi',   label: 'Multi-produits', icon: <LayoutGrid size={13}/> },
           { key: 'produit', label: 'Par produit',     icon: <Package size={13}/> },
+        ]} />
+
+        {/* Toggle vue */}
+        <ToggleGroup value={view} onChange={setView} options={[
+          { key: 'cartes',     label: 'Cartes',     icon: <Rows3 size={13}/> },
+          { key: 'graphiques', label: 'Graphiques', icon: <BarChart3 size={13}/> },
         ]} />
 
         {/* Sélecteur produit (mode par produit) */}
@@ -198,6 +221,15 @@ export default function DashboardPage() {
               <Package size={32} className="opacity-20" />
               <p className="text-sm font-medium">Aucun produit accessible</p>
             </div>
+          ) : view === 'graphiques' ? (
+            <Suspense fallback={<div className="flex justify-center py-16"><Spinner /></div>}>
+              <PortfolioCharts
+                produits={accessibles.filter(p => selectedIds === null || selectedIds.has(p.id))}
+                metricsMap={metricsMap}
+                scope={scope}
+                allTaches={allParents}
+              />
+            </Suspense>
           ) : (
             <>
               <SyntheseTable
@@ -221,7 +253,7 @@ export default function DashboardPage() {
                     isInScope={selectedIds === null || selectedIds.has(p.id)}
                     role={roleLabel(p.id)}
                     fmtDate={fmtDate}
-                    onZoom={() => zoomProduit(p)}
+                    onZoom={() => goToProductDashboard(p)}
                     onEnter={() => enter(p)}
                   />
                 ))}
@@ -234,7 +266,13 @@ export default function DashboardPage() {
       {/* ══ MODE PAR PRODUIT ════════════════════════════════════ */}
       {mode === 'produit' && (
         viewProduit
-          ? <ProduitDashboardBody produit={viewProduit} />
+          ? view === 'graphiques'
+            ? (
+              <Suspense fallback={<div className="flex justify-center py-16"><Spinner /></div>}>
+                <ProduitTrendCharts produit={viewProduit} taches={allParents.filter(t => t.produit_id === viewProduit.id)} sprints={viewSprints} />
+              </Suspense>
+            )
+            : <ProduitDashboardBody produit={viewProduit} />
           : <div className="bg-white border border-border rounded-2xl flex flex-col items-center py-16 text-subtle gap-3 shadow-sm">
               <Package size={32} className="opacity-20" />
               <p className="text-sm font-medium">Sélectionner un produit ci-dessus</p>
@@ -451,6 +489,64 @@ function ProduitCard({ p, metrics: m, scope, isActif, isInScope, role, fmtDate, 
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── Écran d'accueil : compte sans accès produit ──────────────────
+function NoAccessScreen({ produits }: { produits: Produit[] }) {
+  const requestAccess = useRequestProduitAccess()
+  const toast = useToast()
+  const [sent, setSent] = useState<Set<number>>(new Set())
+
+  async function ask(p: Produit) {
+    try {
+      await requestAccess.mutateAsync({ produitId: p.id })
+      setSent(prev => new Set(prev).add(p.id))
+      toast(`Demande envoyée pour ${p.nom}`)
+    } catch {
+      toast("Impossible d'envoyer la demande", 'error')
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-center py-16 px-4 gap-6 max-w-lg mx-auto text-center">
+      <div className="w-14 h-14 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center">
+        <Package size={24} className="text-indigo-400" />
+      </div>
+      <div>
+        <h1 className="text-lg font-bold text-navy mb-1.5">Bienvenue sur PO Board</h1>
+        <p className="text-sm text-subtle leading-relaxed">
+          Votre compte n'a pour l'instant accès à aucun produit. Choisissez un produit ci-dessous
+          pour demander l'accès à son·sa PO — vous recevrez une notification une fois le rôle attribué.
+        </p>
+      </div>
+      {produits.length === 0 ? (
+        <p className="text-sm text-subtle italic">Aucun produit actif pour le moment.</p>
+      ) : (
+        <div className="w-full flex flex-col gap-2">
+          {produits.map(p => {
+            const isSent = sent.has(p.id)
+            return (
+              <div key={p.id} className="flex items-center gap-3 bg-white border border-border rounded-xl px-4 py-3 shadow-sm">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.couleur ?? '#4A4CC8' }} />
+                <span className="text-sm font-semibold text-navy flex-1 text-left truncate">{p.nom}</span>
+                <button
+                  onClick={() => ask(p)}
+                  disabled={isSent || requestAccess.isPending}
+                  className={cn(
+                    'text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors shrink-0',
+                    isSent
+                      ? 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                      : 'bg-indigo-500 text-white hover:bg-indigo-600'
+                  )}>
+                  {isSent ? '✓ Demande envoyée' : "Demander l'accès"}
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

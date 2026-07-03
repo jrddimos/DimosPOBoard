@@ -10,7 +10,10 @@
       "Bash(npm run *)",
       "Bash(ls supabase/)",
       "Bash(find supabase *)",
-      "Bash(grep -rn \"update_pending_profile_data\" supabase src)"
+      "Bash(grep -rn \"update_pending_profile_data\" supabase src)",
+      "Skill(dataviz)",
+      "Skill(dataviz:*)",
+      "Bash(node \"C:\\\\Users\\\\JRABAL~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\bundled-skills\\\\2.1.198\\\\a7b070409d20570bfc161c98a412f18c\\\\dataviz\\\\scripts\\\\validate_palette.js\" \"#94A3B8,#F59E0B,#10B981,#F43F5E\" --mode light)"
     ]
   }
 }

@@ -1,6 +1,9 @@
 import { confirm } from '@/components/ui/ConfirmModal'
 import { Layout } from '@/components/layout/Layout'
-import { useActivityStore } from '@/hooks/useActivity'
+import { Spinner } from '@/components/ui/Spinner'
+import { useActivityLog, useClearActivityLog } from '@/hooks/useActivityLog'
+import { useProduit } from '@/contexts/ProduitContext'
+import { useAuth } from '@/contexts/AuthContext'
 import { Trash2, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -12,12 +15,15 @@ const ACTION_STYLE = {
 }
 
 export default function ActivitePage() {
-  const { logs, clear } = useActivityStore()
+  const { produitActif } = useProduit()
+  const { isAdmin } = useAuth()
+  const { data: logs = [], isLoading } = useActivityLog(produitActif?.id ?? null)
+  const clearLog = useClearActivityLog()
 
   // Grouper par jour
   const grouped: Record<string, typeof logs> = {}
   logs.forEach(log => {
-    const day = log.timestamp.slice(0, 10)
+    const day = log.created_at.slice(0, 10)
     if (!grouped[day]) grouped[day] = []
     grouped[day].push(log)
   })
@@ -31,8 +37,8 @@ export default function ActivitePage() {
         </div>
         <div className="ml-auto flex items-center gap-3">
           <span className="text-xs text-subtle">{logs.length} événement{logs.length > 1 ? 's' : ''}</span>
-          {logs.length > 0 && (
-            <button onClick={() => { confirm({title:"Effacer l'historique ?",message:'Tous les événements enregistrés seront supprimés.',confirmLabel:'Effacer',variant:'danger'}).then(ok=>{ if(ok) clear() }) }}
+          {logs.length > 0 && isAdmin && produitActif && (
+            <button onClick={() => { confirm({title:"Effacer l'historique ?",message:"Tous les événements enregistrés pour ce produit seront supprimés, pour toute l'équipe.",confirmLabel:'Effacer',variant:'danger'}).then(ok=>{ if(ok) clearLog.mutate(produitActif.id) }) }}
               className="ds-btn ds-btn-sm text-rose-500 hover:bg-rose-50 flex items-center gap-1">
               <Trash2 size={11}/>Effacer
             </button>
@@ -40,11 +46,13 @@ export default function ActivitePage() {
         </div>
       </div>
 
-      {!logs.length ? (
+      {isLoading ? (
+        <div className="flex justify-center py-20"><Spinner /></div>
+      ) : !logs.length ? (
         <div className="ds-card flex flex-col items-center py-20 text-subtle gap-3">
           <Clock size={48} className="opacity-20"/>
           <p className="text-sm font-medium">Aucune activité</p>
-          <p className="text-xs">Les modifications apparaîtront ici</p>
+          <p className="text-xs">Les modifications de l'équipe sur ce produit apparaîtront ici</p>
         </div>
       ) : (
         <div className="flex flex-col gap-4">
@@ -69,13 +77,13 @@ export default function ActivitePage() {
                         {log.field && (
                           <div className="text-xs text-subtle mt-0.5">
                             {log.field}
-                            {log.oldValue && <span className="line-through mx-1 text-rose-400">{log.oldValue}</span>}
-                            {log.newValue && <span className="text-emerald-600 font-medium">{log.newValue}</span>}
+                            {log.old_value && <span className="line-through mx-1 text-rose-400">{log.old_value}</span>}
+                            {log.new_value && <span className="text-emerald-600 font-medium">{log.new_value}</span>}
                           </div>
                         )}
                       </div>
                       <span className="text-xs text-subtle shrink-0">
-                        {new Date(log.timestamp).toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'})}
+                        {new Date(log.created_at).toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'})}
                       </span>
                     </div>
                   )

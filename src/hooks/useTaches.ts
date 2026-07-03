@@ -1,4 +1,4 @@
-import { useActivityStore } from '@/hooks/useActivity'
+import { logActivity } from '@/hooks/useActivityLog'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useProduit } from '@/contexts/ProduitContext'
@@ -81,8 +81,8 @@ export function useCreateTache() {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['taches', produitActif?.id ?? null] })
-      if (data) {
-        useActivityStore.getState().add({ action: 'create', target: data.id_tache, title: data.titre })
+      if (data && produitActif) {
+        logActivity({ produit_id: produitActif.id, action: 'create', target: data.id_tache, title: data.titre })
       }
     },
   })
@@ -90,22 +90,27 @@ export function useCreateTache() {
 
 // ── Update ─────────────────────────────────────────────────────
 export function useUpdateTache() {
-  const qc  = useQueryClient()
-  const log = useActivityStore.getState().add
+  const qc = useQueryClient()
   const { produitActif } = useProduit()
 
   return useMutation({
     mutationFn: async ({ id_tache, updates }: { id_tache: string; updates: Partial<Tache> }) => {
       const produitId = produitActif?.id ?? null
       const current = qc.getQueryData<Tache[]>(['taches', produitId])?.find(t => t.id_tache === id_tache)
-      const { error } = await supabase.from('taches').update(updates).eq('id_tache', id_tache)
+      let query = supabase.from('taches').update(updates).eq('id_tache', id_tache)
+      // id_tache n'est pas garanti unique entre produits (duplication historique) —
+      // on scope systématiquement par produit actif pour ne jamais toucher une
+      // tâche homonyme d'un autre produit (et éviter un 403 RLS sur du multi-lignes).
+      if (produitId) query = query.eq('produit_id', produitId)
+      const { error } = await query
       if (error) throw error
+      if (!produitId) return
       if (updates.statut && current?.statut !== updates.statut) {
-        log({ action: 'status', target: id_tache, title: current?.titre ?? '', field: 'statut', oldValue: current?.statut, newValue: updates.statut })
+        logActivity({ produit_id: produitId, action: 'status', target: id_tache, title: current?.titre ?? '', field: 'statut', old_value: current?.statut, new_value: updates.statut })
       } else {
         const fields = Object.keys(updates).filter(k => k !== 'statut')
         if (fields.length > 0) {
-          log({ action: 'update', target: id_tache, title: current?.titre ?? '', field: fields.join(', ') })
+          logActivity({ produit_id: produitId, action: 'update', target: id_tache, title: current?.titre ?? '', field: fields.join(', ') })
         }
       }
     },
@@ -120,8 +125,13 @@ export function useDeleteTache() {
 
   return useMutation({
     mutationFn: async (id_tache: string) => {
-      const { error } = await supabase.from('taches').delete().eq('id_tache', id_tache)
+      const produitId = produitActif?.id ?? null
+      const current = qc.getQueryData<Tache[]>(['taches', produitId])?.find(t => t.id_tache === id_tache)
+      let query = supabase.from('taches').delete().eq('id_tache', id_tache)
+      if (produitId) query = query.eq('produit_id', produitId)
+      const { error } = await query
       if (error) throw error
+      if (produitId) logActivity({ produit_id: produitId, action: 'delete', target: id_tache, title: current?.titre ?? '' })
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['taches', produitActif?.id ?? null] }),
   })

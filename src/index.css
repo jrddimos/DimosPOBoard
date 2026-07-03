@@ -10,10 +10,16 @@
     background: #ECEEF4;
     color: #1E3A5F;
     font-feature-settings: 'cv11', 'ss01';
+    transition: background-color .15s ease;
   }
+  .dark body { background: #0B1120; color: #E2E8F0; }
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { @apply bg-border rounded-full; }
+}
+
+@media print {
+  html, body { height: auto !important; overflow: visible !important; background: white !important; }
 }
 
 @layer components {

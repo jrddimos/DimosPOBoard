@@ -9,8 +9,9 @@ import { useTaches, useUpdateTache } from '@/hooks/useTaches'
 import { useToast } from '@/hooks/useToast'
 import { confirm } from '@/components/ui/ConfirmModal'
 import { supabase } from '@/lib/supabase'
-import { exportSprintReviewHTML } from '@/lib/exportPdf'
 import { downloadCSV } from '@/lib/utils'
+// @react-pdf/renderer et exceljs sont lourds (~800 Ko à eux deux) : chargés
+// à la demande au clic sur export, pas au chargement de la page.
 import { EPIC_COLORS, JALON_LIST, JALON_COLORS, METIERS_DEFAULT, SPRINTS_LIST } from '@/constants'
 import {
   Pencil, Trash2, Plus, ChevronDown, ChevronRight, Check, X,
@@ -133,6 +134,8 @@ function SprintsTab() {
   const [openChecklist,  setOpenChecklist]  = useState(true)
   const [closeModal,     setCloseModal]     = useState(false)
   const [tacheDest,      setTacheDest]      = useState<Record<string, 'next' | 'backlog'>>({})
+  const [plannedStart,   setPlannedStart]   = useState('')
+  const [plannedWeeks,   setPlannedWeeks]   = useState(2)
 
   const sprint     = sprints.find(s => s.numero === selected)
   const spTaches   = taches.filter(t => !t.parent_id && (t.sprint === selected || t.sprint_debut === selected))
@@ -164,11 +167,24 @@ function SprintsTab() {
   }
 
   useEffect(() => {
-    if (sprintActif?.numero && !selected) { setSelected(sprintActif.numero); parseSprint(sprintActif) }
+    if (sprintActif?.numero && !selected) {
+      setSelected(sprintActif.numero); parseSprint(sprintActif)
+      setPlannedStart(sprintActif.started_at ? sprintActif.started_at.slice(0, 10) : '')
+    }
   }, [sprintActif])
 
   function selectSprint(num: string) {
-    setSelected(num); parseSprint(sprints.find(x => x.numero === num)); setShowTasks(true)
+    const sp = sprints.find(x => x.numero === num)
+    setSelected(num); parseSprint(sp); setShowTasks(true)
+    setPlannedStart(sp?.started_at ? sp.started_at.slice(0, 10) : '')
+  }
+
+  async function savePlannedDates() {
+    if (!selected || !plannedStart) { toast('Choisis une date de début', 'error'); return }
+    const start = new Date(plannedStart + 'T00:00:00')
+    const end   = new Date(start.getTime() + plannedWeeks * 7 * 86400000)
+    await upsertSprint.mutateAsync({ numero: selected, started_at: start.toISOString(), closed_at: end.toISOString() } as Parameters<typeof upsertSprint.mutateAsync>[0])
+    toast(`Dates de ${selected} enregistrées (${plannedWeeks} semaine${plannedWeeks > 1 ? 's' : ''})`)
   }
 
   async function action(type: 'start' | 'pause' | 'close' | 'unlock') {
@@ -309,6 +325,31 @@ function SprintsTab() {
                 })}
               />
               {sprint && <div className="mb-3"><SprintStatutBadge value={sprint.statut} /></div>}
+
+              {selected && (
+                <div className="mb-3 p-2.5 rounded-xl bg-bg border border-border">
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <Calendar size={11} className="text-subtle" />
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-subtle">Dates planifiées</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <input type="date" value={plannedStart} onChange={e => setPlannedStart(e.target.value)}
+                      className="ds-input text-xs flex-1" />
+                    <select value={plannedWeeks} onChange={e => setPlannedWeeks(Number(e.target.value))}
+                      className="ds-select text-xs w-24">
+                      {[1, 2, 3, 4].map(w => <option key={w} value={w}>{w} sem.</option>)}
+                    </select>
+                  </div>
+                  <button onClick={savePlannedDates} disabled={!plannedStart || upsertSprint.isPending}
+                    className="ds-btn ds-btn-sm w-full mt-1.5 disabled:opacity-40">✓ Enregistrer les dates</button>
+                  {sprint?.started_at && (
+                    <p className="text-[10px] text-subtle mt-1.5">
+                      {new Date(sprint.started_at).toLocaleDateString('fr-FR')} → {sprint.closed_at ? new Date(sprint.closed_at).toLocaleDateString('fr-FR') : '—'}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-2 mb-3">
                 <button onClick={() => action('start')} disabled={!selected || sprint?.statut === 'en_cours'}
                   className="ds-btn text-xs py-1.5 bg-emerald-500 text-white border-emerald-500 hover:bg-emerald-600 disabled:opacity-40">
@@ -337,8 +378,8 @@ function SprintsTab() {
                 }}><Trash2 size={11} /> Supprimer</button>
                 {sprint && (
                   <button className="ds-btn ds-btn-sm flex items-center gap-1"
-                    onClick={() => exportSprintReviewHTML(sprint, spTaches)}>
-                    <FileDown size={11} /> Export Review
+                    onClick={async () => { const { exportSprintReviewPDF } = await import('@/lib/exportPdf'); exportSprintReviewPDF(sprint, spTaches) }}>
+                    <FileDown size={11} /> Export Review PDF
                   </button>
                 )}
               </div>
@@ -754,14 +795,26 @@ function ExportTab() {
     { label: 'Équipes', desc: 'Nom, Description, Couleur', table: 'equipes',
       cols: ['nom','description','couleur','actif'], headers: ['Nom','Description','Couleur','Actif'] },
   ]
-  async function doExport(item: typeof exports[0]) {
+  async function fetchRows(item: typeof exports[0]) {
     const { data, error } = await supabase.from(item.table).select('*')
-    if (error || !data) { toast('Erreur export', 'error'); return }
-    downloadCSV(data as Record<string, unknown>[], `Dimos_D3X_${item.table}`, item.headers, item.cols)
+    if (error || !data) { toast('Erreur export', 'error'); return null }
+    return data as Record<string, unknown>[]
+  }
+  async function doExportCSV(item: typeof exports[0]) {
+    const data = await fetchRows(item)
+    if (!data) return
+    downloadCSV(data, `Dimos_D3X_${item.table}`, item.headers, item.cols)
+    toast(`${data.length} lignes exportées`)
+  }
+  async function doExportXLSX(item: typeof exports[0]) {
+    const data = await fetchRows(item)
+    if (!data) return
+    const { exportExcel } = await import('@/lib/exportExcel')
+    await exportExcel(data, `Dimos_D3X_${item.table}`, item.headers, item.cols)
     toast(`${data.length} lignes exportées`)
   }
   async function doExportAll() {
-    for (const item of exports) { await doExport(item); await new Promise(r => setTimeout(r, 600)) }
+    for (const item of exports) { await doExportCSV(item); await new Promise(r => setTimeout(r, 600)) }
     toast('4 fichiers téléchargés')
   }
   return (
@@ -772,9 +825,14 @@ function ExportTab() {
             <div className="font-semibold text-navy text-sm">{item.label}</div>
             <div className="text-xs text-subtle mt-0.5">{item.desc}</div>
           </div>
-          <button onClick={() => doExport(item)} className="ds-btn ds-btn-sm flex items-center gap-1.5">
-            <Download size={12} /> CSV
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button onClick={() => doExportCSV(item)} className="ds-btn ds-btn-sm flex items-center gap-1.5">
+              <Download size={12} /> CSV
+            </button>
+            <button onClick={() => doExportXLSX(item)} className="ds-btn ds-btn-sm flex items-center gap-1.5">
+              <Download size={12} /> Excel
+            </button>
+          </div>
         </div>
       ))}
       <div className="flex items-center justify-between p-4 bg-indigo-50 rounded-xl border border-indigo-200">

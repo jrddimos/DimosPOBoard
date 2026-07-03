@@ -1,13 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Layout } from '@/components/layout/Layout'
 import { useProduits, useUpdateProduit, trimAvancement } from '@/hooks/useProduits'
 import { useAuth } from '@/contexts/AuthContext'
+import { useUtilisateurs } from '@/hooks/useEquipes'
 import { supabase } from '@/lib/supabase'
 import {
   useReunionSemaine, useRevuesByReunion, useSujetsByReunion, useSauvegarderReunion,
 } from '@/hooks/useReunions'
 import { useToast } from '@/hooks/useToast'
+import { MentionField } from '@/components/ui/MentionField'
 import { cn } from '@/lib/utils'
 import {
   ChevronLeft, ChevronRight, Play, Pause, SkipBack, SkipForward,
@@ -16,6 +19,7 @@ import {
 } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
 import type { Produit, TrimObjectif } from '@/hooks/useProduits'
+import type { UserProfile } from '@/contexts/AuthContext'
 import type { Sprint } from '@/types'
 import { ProduitDashboardBody } from '@/pages/produit-dashboard/ProduitDashboardBody'
 import { ProduitBandeauRow }    from '@/pages/produit-dashboard/ProduitBandeauRow'
@@ -180,12 +184,13 @@ function parseSprint(s: Sprint | null | undefined) {
 
 // ── Carte produit dans la réunion ─────────────────────────────────
 function ProduitRevueCard({
-  p, revue, onChange, onToggleObjectif,
+  p, revue, onChange, onToggleObjectif, membres,
 }: {
   p: Produit
   revue: RevueLocale
   onChange: (field: keyof RevueLocale, value: string | number | boolean) => void
   onToggleObjectif: (trimId: string, itemId: string, checked: boolean) => void
+  membres: UserProfile[]
 }) {
   const trims = Array.isArray(p.objectifs_trimestriels) ? p.objectifs_trimestriels : []
 
@@ -244,51 +249,62 @@ function ProduitRevueCard({
         {revue.expanded ? <ChevronUp size={14} className="text-subtle shrink-0" /> : <ChevronDown size={14} className="text-subtle shrink-0" />}
       </button>
 
-      {/* Bandeau RAG — miroir exact du dashboard */}
-      <div className="border-t border-border/40">
-        <ProduitBandeauRow
-          produit={p}
-          scope={scope}
-          forceSprintNum={selectedSprintNum}
-          extraLeft={
-            <div className="flex items-center gap-2 shrink-0">
-              {/* Scope toggle — Sprint en premier */}
-              <div className="flex rounded border border-border overflow-hidden text-[9px]">
-                {(['sprint', 'trim', 'global'] as BandeauScope[]).map(v => (
-                  <button key={v} onClick={e => { e.stopPropagation(); setScope(v) }}
-                    className={cn('px-2.5 py-1 font-semibold transition-colors',
-                      scope === v ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50')}>
-                    {v === 'sprint' ? 'Sprint' : v === 'trim' ? 'Trim' : 'Global'}
-                  </button>
-                ))}
-              </div>
-              {/* Sélecteur sprint (scope sprint seulement) */}
-              {scope === 'sprint' && sortedSprints.length > 0 && (
-                <select
-                  value={selectedSprintNum ?? ''}
-                  onChange={e => { e.stopPropagation(); setSelectedSprintNum(e.target.value || null) }}
-                  onClick={e => e.stopPropagation()}
-                  className="text-[9px] border border-slate-200 rounded px-1.5 py-0.5 text-slate-700 font-semibold bg-white cursor-pointer focus:outline-none focus:border-indigo-300"
-                >
-                  <option value="">Actif / Dernier</option>
-                  {[...sortedSprints].reverse().map(s => (
-                    <option key={s.numero} value={s.numero}>
-                      S{s.numero} — {s.statut === 'en_cours' ? 'En cours' : s.statut === 'cloture' ? 'Clôturé' : s.statut === 'planifie' ? 'Planifié' : s.statut}
-                    </option>
+      {/* Bandeau RAG — masqué en zoom (le dashboard complet a son propre bandeau, pour éviter le doublon) */}
+      {!zoomed && (
+        <div className="border-t border-border/40">
+          <ProduitBandeauRow
+            produit={p}
+            scope={scope}
+            forceSprintNum={selectedSprintNum}
+            extraLeft={
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Scope toggle — Sprint en premier */}
+                <div className="flex rounded border border-border overflow-hidden text-[9px]">
+                  {(['sprint', 'trim', 'global'] as BandeauScope[]).map(v => (
+                    <button key={v} onClick={e => { e.stopPropagation(); setScope(v) }}
+                      className={cn('px-2.5 py-1 font-semibold transition-colors',
+                        scope === v ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50')}>
+                      {v === 'sprint' ? 'Sprint' : v === 'trim' ? 'Trim' : 'Global'}
+                    </button>
                   ))}
-                </select>
-              )}
-            </div>
-          }
-          extraRight={
-            <button onClick={e => { e.stopPropagation(); setZoomed(v => !v) }}
-              className="flex items-center gap-1.5 px-4 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 transition-colors shrink-0">
-              {zoomed ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-              {zoomed ? 'Réduire' : 'Zoom'}
-            </button>
-          }
-        />
-      </div>
+                </div>
+                {/* Sélecteur sprint (scope sprint seulement) */}
+                {scope === 'sprint' && sortedSprints.length > 0 && (
+                  <select
+                    value={selectedSprintNum ?? ''}
+                    onChange={e => { e.stopPropagation(); setSelectedSprintNum(e.target.value || null) }}
+                    onClick={e => e.stopPropagation()}
+                    className="text-[9px] border border-slate-200 rounded px-1.5 py-0.5 text-slate-700 font-semibold bg-white cursor-pointer focus:outline-none focus:border-indigo-300"
+                  >
+                    <option value="">Actif / Dernier</option>
+                    {[...sortedSprints].reverse().map(s => (
+                      <option key={s.numero} value={s.numero}>
+                        S{s.numero} — {s.statut === 'en_cours' ? 'En cours' : s.statut === 'cloture' ? 'Clôturé' : s.statut === 'planifie' ? 'Planifié' : s.statut}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            }
+            extraRight={
+              <button onClick={e => { e.stopPropagation(); setZoomed(v => !v) }}
+                className="flex items-center gap-1.5 px-4 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 transition-colors shrink-0">
+                <Maximize2 size={13} /> Zoom
+              </button>
+            }
+          />
+        </div>
+      )}
+
+      {/* En zoom : juste le bouton pour revenir, le dashboard complet a déjà tout le reste */}
+      {zoomed && (
+        <div className="border-t border-border/40 px-4 py-1.5 flex justify-end">
+          <button onClick={() => setZoomed(false)}
+            className="flex items-center gap-1.5 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 transition-colors">
+            <Minimize2 size={13} /> Réduire
+          </button>
+        </div>
+      )}
 
       {/* Carte Objectifs & Review — même style que TrimBlock */}
       {!zoomed && ((scope === 'sprint' && !!effectiveSprintObj) || trims.length > 0) && (
@@ -447,9 +463,9 @@ function ProduitRevueCard({
           </div>
           <div>
             <label className="ds-label mb-1 block">Notes de revue</label>
-            <textarea value={revue.notes} onChange={e => onChange('notes', e.target.value)}
-              className="ds-textarea text-xs" rows={3}
-              placeholder="Points importants, décisions, actions…" />
+            <MentionField as="textarea" value={revue.notes} onChange={v => onChange('notes', v)}
+              membres={membres} className="ds-textarea text-xs" rows={3}
+              placeholder="Points importants, décisions, actions… @trg pour mentionner" />
           </div>
         </div>
       )}
@@ -460,15 +476,20 @@ function ProduitRevueCard({
 // ── Page principale ───────────────────────────────────────────────
 export default function ReunionPage() {
   const { data: produits = [] } = useProduits()
+  const { data: membres = [] } = useUtilisateurs()
   const { profile } = useAuth()
   const toast = useToast()
   const sauvegarder  = useSauvegarderReunion()
   const updateProduit = useUpdateProduit()
+  const [urlParams] = useSearchParams()
 
   const today    = new Date()
   const initWeek = getISOWeek(today)
-  const [semaine, setSemaine] = useState(initWeek.semaine)
-  const [annee,   setAnnee]   = useState(initWeek.annee)
+  const urlSemaine = Number(urlParams.get('semaine'))
+  const urlAnnee    = Number(urlParams.get('annee'))
+  const hasUrlWeek  = !!urlSemaine && !!urlAnnee
+  const [semaine, setSemaine] = useState(hasUrlWeek ? urlSemaine : initWeek.semaine)
+  const [annee,   setAnnee]   = useState(hasUrlWeek ? urlAnnee : initWeek.annee)
 
   const { data: reunion }  = useReunionSemaine(semaine, annee)
   const { data: dbRevues } = useRevuesByReunion(reunion?.id ?? null)
@@ -518,9 +539,14 @@ export default function ReunionPage() {
     if (reunion) {
       setAnimateur(reunion.animateur ?? profile?.display_name ?? '')
       setNotesSeance(reunion.notes_seance ?? '')
+      setPhaseNotes(prev => {
+        const loaded = reunion.phase_notes
+        return Array.isArray(loaded) && loaded.length === 4 ? loaded : prev
+      })
     } else {
       setAnimateur(profile?.display_name ?? '')
       setNotesSeance('')
+      setPhaseNotes(['', '', '', ''])
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reunion?.id])
@@ -593,6 +619,7 @@ export default function ReunionPage() {
       semaine, annee,
       animateur: animateur || null,
       notes_seance: notesSeance || null,
+      phase_notes: phaseNotes,
       revues: activeProducts
         .map(p => ({
           produit_id: p.id,
@@ -662,6 +689,67 @@ export default function ReunionPage() {
         {animateur && <p className="text-sm text-gray-600">Animateur : {animateur}</p>}
       </div>
 
+      {/* Bloc d'impression — récapitule les 4 phases + revues + sujets transverses,
+          indépendamment de la phase actuellement affichée à l'écran */}
+      <div className="hidden print:block space-y-4 mb-6">
+        <div>
+          <h2 className="text-sm font-bold text-navy mb-2">{PHASES[0].label}</h2>
+          {activeProducts.length === 0 ? (
+            <p className="text-xs text-gray-500">Aucun produit actif</p>
+          ) : (
+            <div className="space-y-3">
+              {activeProducts.map(p => {
+                const r = revues[p.id]
+                return (
+                  <div key={p.id} className="border border-gray-200 rounded-lg overflow-hidden" style={{ breakInside: 'avoid' }}>
+                    <ProduitBandeauRow produit={p} scope="sprint" />
+                    {r && (r.statut_presente || r.blocages > 0 || r.notes) && (
+                      <div className="text-xs px-3 py-2 border-t border-gray-200">
+                        {r.statut_presente && <span className="font-semibold text-navy mr-2">{r.statut_presente}</span>}
+                        {r.blocages > 0 && <span className="text-rose-600 mr-2">{r.blocages} blocage{r.blocages > 1 ? 's' : ''}</span>}
+                        {r.notes && <p className="text-gray-600 mt-0.5 whitespace-pre-wrap">{r.notes}</p>}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {PHASES.slice(1).map((ph, i) => {
+          const text = phaseNotes[i + 1]
+          if (!text?.trim()) return null
+          return (
+            <div key={ph.label}>
+              <h2 className="text-sm font-bold text-navy mb-2">{ph.label}</h2>
+              <p className="text-xs text-gray-700 whitespace-pre-wrap">{text}</p>
+            </div>
+          )
+        })}
+
+        {notesSeance.trim() && (
+          <div>
+            <h2 className="text-sm font-bold text-navy mb-2">Notes de séance</h2>
+            <p className="text-xs text-gray-700 whitespace-pre-wrap">{notesSeance}</p>
+          </div>
+        )}
+
+        {sujets.filter(s => s.titre.trim()).length > 0 && (
+          <div>
+            <h2 className="text-sm font-bold text-navy mb-2">Sujets transverses</h2>
+            <div className="space-y-1">
+              {sujets.filter(s => s.titre.trim()).map(s => (
+                <div key={s.id} className="text-xs text-gray-700">
+                  {s.type_tag && <span className="font-semibold text-navy mr-1.5">[{s.type_tag}]</span>}
+                  {s.titre}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="flex gap-5 items-start">
         {/* ── Contenu principal ──────────────────────────────────── */}
         <div className="flex-1 min-w-0 space-y-5">
@@ -692,7 +780,8 @@ export default function ReunionPage() {
             </div>
           </div>
 
-          {/* Contenu de la phase */}
+          {/* Contenu de la phase — écran seulement, le PDF affiche les 4 phases via le bloc d'impression ci-dessus */}
+          <div className="print:hidden space-y-5">
           {currentPhase === 0 ? (
             <div>
               <div className="flex items-center justify-between mb-3">
@@ -727,6 +816,7 @@ export default function ReunionPage() {
                         p={p}
                         revue={revues[p.id] ?? { statut_presente: '', blocages: 0, notes: '', expanded: false }}
                         onChange={(f, v) => updateRevue(p.id, f, v)}
+                        membres={membres}
                         onToggleObjectif={(trimId, itemId, checked) =>
                           handleToggleObjectif(p.id, trimId, itemId, checked)
                         }
@@ -739,15 +829,16 @@ export default function ReunionPage() {
           ) : (
             <div className="bg-white rounded-2xl border border-border p-5">
               <h2 className="text-sm font-bold text-navy mb-3">{phase.label}</h2>
-              <textarea
+              <MentionField as="textarea"
                 value={phaseNotes[currentPhase]}
-                onChange={e => updatePhaseNote(currentPhase, e.target.value)}
+                onChange={v => updatePhaseNote(currentPhase, v)}
+                membres={membres}
                 className="ds-textarea text-sm w-full"
                 rows={12}
                 placeholder={
-                  currentPhase === 1 ? 'Points de synchronisation, dépendances inter-équipes, décisions…'
+                  (currentPhase === 1 ? 'Points de synchronisation, dépendances inter-équipes, décisions…'
                   : currentPhase === 2 ? 'Processus, rituels agile, amélioration continue, rétrospective…'
-                  : 'Récap des décisions, actions à suivre, prochaine réunion…'
+                  : 'Récap des décisions, actions à suivre, prochaine réunion…') + ' @trg pour mentionner'
                 }
               />
             </div>
@@ -756,13 +847,15 @@ export default function ReunionPage() {
           {/* Notes de séance */}
           <div className="bg-white rounded-2xl border border-border p-5">
             <h2 className="text-sm font-bold text-navy mb-3">Notes de séance</h2>
-            <textarea
+            <MentionField as="textarea"
               value={notesSeance}
-              onChange={e => setNotesSeance(e.target.value)}
+              onChange={setNotesSeance}
+              membres={membres}
               className="ds-textarea text-sm w-full"
               rows={4}
-              placeholder="Résumé global, décisions clés, actions de suivi…"
+              placeholder="Résumé global, décisions clés, actions de suivi… @trg pour mentionner"
             />
+          </div>
           </div>
         </div>
 

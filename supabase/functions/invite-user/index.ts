@@ -13,6 +13,43 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Client admin (service_role)
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
+
+    // Vérifie que l'appelant est authentifié ET admin avant toute action
+    // privilégiée (sans ce contrôle, n'importe quel JWT valide pouvait
+    // inviter/lister tous les utilisateurs via cette fonction).
+    const authHeader = req.headers.get('Authorization') ?? ''
+    const token = authHeader.replace(/^Bearer\s+/i, '')
+    if (!token) {
+      return new Response(JSON.stringify({ error: 'Authentification requise' }), {
+        status: 401, headers: { ...CORS, 'Content-Type': 'application/json' },
+      })
+    }
+
+    const { data: callerData, error: callerErr } = await supabaseAdmin.auth.getUser(token)
+    if (callerErr || !callerData.user) {
+      return new Response(JSON.stringify({ error: 'Authentification invalide' }), {
+        status: 401, headers: { ...CORS, 'Content-Type': 'application/json' },
+      })
+    }
+
+    const { data: callerProfile } = await supabaseAdmin
+      .from('user_profiles')
+      .select('role_global')
+      .eq('user_id', callerData.user.id)
+      .single()
+
+    if (callerProfile?.role_global !== 'admin') {
+      return new Response(JSON.stringify({ error: 'Accès réservé aux administrateurs' }), {
+        status: 403, headers: { ...CORS, 'Content-Type': 'application/json' },
+      })
+    }
+
     const { email, display_name } = await req.json()
 
     if (!email) {
@@ -20,13 +57,6 @@ Deno.serve(async (req) => {
         status: 400, headers: { ...CORS, 'Content-Type': 'application/json' },
       })
     }
-
-    // Client admin (service_role)
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-      { auth: { autoRefreshToken: false, persistSession: false } }
-    )
 
     let userId: string | null = null
 

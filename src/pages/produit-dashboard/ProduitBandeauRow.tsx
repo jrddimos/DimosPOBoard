@@ -51,7 +51,7 @@ function RagCell({ label, rag, sub, tooltip }: { label: string; rag: Rag; sub?: 
   return (
     <Tooltip content={tooltip}>
       <div className={cn(
-        'flex flex-col rounded-xl border overflow-hidden min-w-[80px] flex-1 cursor-help',
+        'flex flex-col h-full rounded-xl border overflow-hidden min-w-[80px] flex-1 cursor-help',
         cfg ? cn(cfg.bg, cfg.border) : 'bg-slate-50 border-slate-200'
       )}>
         <div className={cn('text-[9px] font-bold uppercase tracking-wider px-2 py-1.5 text-center border-b',
@@ -63,12 +63,10 @@ function RagCell({ label, rag, sub, tooltip }: { label: string; rag: Rag; sub?: 
             ? <span className={cfg.text}><RagIcon rag={rag} size={18} /></span>
             : <span className="text-slate-300 text-sm">—</span>}
         </div>
-        {sub && (
-          <div className={cn('text-[8px] text-center px-1 py-0.5 border-t leading-tight font-medium',
-            cfg ? cn(cfg.text, cfg.border, 'opacity-70') : 'text-slate-400 border-slate-200')}>
-            {sub}
-          </div>
-        )}
+        <div className={cn('flex-1 flex items-center justify-center text-[8px] text-center px-1.5 py-0.5 border-t leading-tight font-medium line-clamp-2',
+          cfg ? cn(cfg.text, cfg.border, 'opacity-70') : 'text-slate-400 border-slate-200')}>
+          {sub ?? ' '}
+        </div>
       </div>
     </Tooltip>
   )
@@ -301,7 +299,7 @@ export function ProduitBandeauRow({
       </div>
 
       {/* RAG cells */}
-      <div className="flex items-center gap-2 px-5 py-3 border-r border-border">
+      <div className="flex items-stretch gap-2 px-5 py-3 border-r border-border">
         <RagCell label="Avancement" rag={ragA}  sub={subAvancement} tooltip={tipA}  />
         <RagCell label="Budget"     rag={ragB}  sub={subBudget}     tooltip={tipB}  />
         <RagCell label="Délai"      rag={ragD}  sub={subDelai}      tooltip={tipD}  />

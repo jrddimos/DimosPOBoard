@@ -3,19 +3,31 @@ import { cn } from '@/lib/utils'
 import { useSprintActif } from '@/hooks/useSprints'
 import { useAuth } from '@/contexts/AuthContext'
 import { useProduit } from '@/contexts/ProduitContext'
-import { useProduits, useUpdateProduit } from '@/hooks/useProduits'
+import { useProduits, useUploadDiscussionBg, useUpdateDiscussionBgOpacity } from '@/hooks/useProduits'
 import type { ActionLop } from '@/hooks/useProduits'
 import { useUploadAvatar, useUpdateProfile } from '@/hooks/useUserManagement'
 import { useQuickNotes, useCreateQuickNote, useToggleQuickNote, useDeleteQuickNote, useMigrateLegacyQuickNotes } from '@/hooks/useQuickNotes'
+import { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead, useDeleteNotification } from '@/hooks/useNotifications'
+import { useProduitMessages, useAddProduitMessage, useDeleteProduitMessage } from '@/hooks/useProduitMessages'
+import { useUtilisateurs } from '@/hooks/useEquipes'
+import { MentionField } from '@/components/ui/MentionField'
+import { useDarkModeStore } from '@/hooks/useDarkMode'
+import { useTimerStore, elapsedMinutes, formatElapsed } from '@/hooks/useTimer'
+import { useAddTemps } from '@/hooks/useTacheTemps'
+import type { AppNotification } from '@/hooks/useNotifications'
+import { useToast } from '@/hooks/useToast'
+import { supabase } from '@/lib/supabase'
 import { BRAND_COLORS } from '@/constants'
 import {
   LayoutDashboard, List, Kanban, FilePlus, Settings,
   ChevronDown, LogOut, ClipboardCheck, User, Clock, X,
   Users, Package, Briefcase, CalendarClock, BarChart3, Euro, Camera, TrendingUp,
-  StickyNote, Plus, Check, ArrowRight, ChevronRight, ChevronLeft, Sun, Moon, Layers,
+  StickyNote, Plus, Check, ArrowRight, ChevronRight, ChevronLeft, Sun, Moon, Layers, Bell, Search, Square, Timer,
+  SlidersHorizontal, MessageCircle, Send,
 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { useNavigate } from 'react-router-dom'
 
 // ── Thèmes ────────────────────────────────────────────────────
 type ThemeKey = 'nuit' | 'ardoise' | 'clair'
@@ -152,9 +164,9 @@ function QuickNotesPanel({ userId, userName, onClose, leftOffset }: {
   userId: string; userName: string; onClose: () => void; leftOffset: string
 }) {
   const { data: produits = [] } = useProduits()
-  const updateProduit           = useUpdateProduit()
-  const { isAdmin, getRoleForProduit } = useAuth()
-  const inputRef                = useRef<HTMLInputElement>(null)
+  const { isAdmin, canWrite } = useAuth()
+  const toast                 = useToast()
+  const inputRef               = useRef<HTMLInputElement>(null)
 
   const { data: notes = [] } = useQuickNotes(userId)
   const createNote = useCreateQuickNote()
@@ -163,6 +175,7 @@ function QuickNotesPanel({ userId, userName, onClose, leftOffset }: {
 
   const [input, setInput]       = useState('')
   const [sendingId, setSendingId] = useState<string | null>(null)
+  const [sendingLop, setSendingLop] = useState(false)
 
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 80) }, [])
 
@@ -176,8 +189,6 @@ function QuickNotesPanel({ userId, userName, onClose, leftOffset }: {
   function remove(id: string) { deleteNote.mutate({ id, user_id: userId }) }
 
   async function sendToLop(note: { id: string; text: string }, produitId: number) {
-    const produit = produits.find(p => p.id === produitId)
-    if (!produit) return
     const action: ActionLop = {
       id: Date.now().toString(), titre: note.text,
       created_at: new Date().toISOString(),
@@ -185,14 +196,18 @@ function QuickNotesPanel({ userId, userName, onClose, leftOffset }: {
       assigne_id: userId, assigne_nom: userName,
       cloture: false, cloture_at: null,
     }
-    await updateProduit.mutateAsync({ id: produitId, updates: { actions_lop: [...(produit.actions_lop ?? []), action] } })
+    setSendingLop(true)
+    const { error } = await supabase.rpc('add_action_lop', { p_produit_id: produitId, p_action: action })
+    setSendingLop(false)
+    if (error) { toast("Échec de l'envoi vers la LOP (droits insuffisants ?)", 'error'); return }
     setSendingId(null)
     remove(note.id)
+    toast('Envoyé vers la LOP produit')
   }
 
   const openNotes = notes.filter(n => !n.done)
   const doneNotes = notes.filter(n => n.done)
-  const produitsActifs = produits.filter(p => p.actif && (isAdmin || getRoleForProduit(p.id) !== null))
+  const produitsActifs = produits.filter(p => p.actif && (isAdmin || canWrite(p.id)))
 
   return createPortal((
     <>
@@ -229,7 +244,7 @@ function QuickNotesPanel({ userId, userName, onClose, leftOffset }: {
                   <div className="mt-2 ml-6 flex flex-wrap gap-1.5">
                     <span className="text-[10px] text-subtle/60 w-full mb-0.5">Choisir le produit :</span>
                     {produitsActifs.map(p => (
-                      <button key={p.id} onClick={() => sendToLop(note, p.id)} disabled={updateProduit.isPending}
+                      <button key={p.id} onClick={() => sendToLop(note, p.id)} disabled={sendingLop}
                         className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full text-white hover:opacity-80 transition-opacity disabled:opacity-50"
                         style={{ background: p.couleur ?? '#4A4CC8' }}>{p.nom}</button>
                     ))}
@@ -279,10 +294,284 @@ function QuickNotesPanel({ userId, userName, onClose, leftOffset }: {
   ), document.body)
 }
 
-// ── Nav data ──────────────────────────────────────────────────
-interface NavItem { id: string; label: string; href: string; icon: React.ReactNode; adminOnly?: boolean }
+// ── Notifications ─────────────────────────────────────────────
+const NOTIF_TYPE_CFG: Record<AppNotification['type'], { icon: string; href: string }> = {
+  assignation:     { icon: '📌', href: '/taches' },
+  sprint_cloture:  { icon: '🏁', href: '/sprint' },
+  tache_bloquee:   { icon: '⛔', href: '/taches' },
+  mention:         { icon: '💬', href: '/taches' },
+  acces_demande:   { icon: '🔑', href: '/admin/equipes' },
+  mention_reunion: { icon: '💬', href: '/reunion' },
+  mention_discussion: { icon: '💬', href: '' },
+}
 
-const GLOBAL_NAV: NavItem[] = [
+function NotificationsPanel({ userId, onClose, leftOffset }: {
+  userId: string; onClose: () => void; leftOffset: string
+}) {
+  const navigate = useNavigate()
+  const { data: notifications = [] } = useNotifications(userId)
+  const { data: produits = [] } = useProduits()
+  const { setProduitActif } = useProduit()
+  const markRead    = useMarkNotificationRead()
+  const markAllRead = useMarkAllNotificationsRead()
+  const deleteNotif  = useDeleteNotification()
+
+  const unread = notifications.filter(n => !n.lu)
+
+  function open(n: AppNotification) {
+    if (!n.lu) markRead.mutate({ id: n.id, user_id: userId })
+    if (n.produit_id) {
+      const p = produits.find(p => p.id === n.produit_id)
+      if (p) setProduitActif({ id: p.id, nom: p.nom, couleur: p.couleur })
+    }
+    if (n.type === 'mention_discussion') {
+      window.dispatchEvent(new Event('open-discussion'))
+      onClose()
+      return
+    }
+    const base = NOTIF_TYPE_CFG[n.type]?.href ?? '/'
+    const opensTask = n.type === 'assignation' || n.type === 'mention' || n.type === 'tache_bloquee'
+    let href = base
+    if (opensTask && n.target) {
+      href = `${base}?tab=edit&focus=${encodeURIComponent(n.target)}`
+    } else if (n.type === 'mention_reunion' && n.target) {
+      const [semaine, annee] = n.target.split('-')
+      href = `${base}?semaine=${semaine}&annee=${annee}`
+    }
+    navigate(href)
+    onClose()
+  }
+
+  return createPortal((
+    <>
+      <div className="fixed inset-0 z-[10049]" onClick={onClose} />
+      <div className="fixed bottom-4 z-[10050] w-[360px] max-h-[70vh] bg-white shadow-2xl flex flex-col rounded-2xl border border-border overflow-hidden"
+        style={{ left: leftOffset }}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+          <div className="flex items-center gap-2.5">
+            <Bell size={15} className="text-indigo-400" />
+            <div>
+              <h2 className="text-sm font-bold text-navy">Notifications</h2>
+              <p className="text-[10px] text-subtle">{unread.length} non lue{unread.length !== 1 ? 's' : ''}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            {unread.length > 0 && (
+              <button onClick={() => markAllRead.mutate(userId)}
+                className="text-[10px] font-semibold text-indigo-500 hover:text-indigo-700 px-2 py-1 rounded-lg hover:bg-indigo-50 transition-colors">
+                Tout marquer lu
+              </button>
+            )}
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-bg text-subtle hover:text-navy transition-colors"><X size={15} /></button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {notifications.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-subtle/30">
+              <Bell size={36} className="mb-3" />
+              <p className="text-xs italic">Aucune notification</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border/30">
+              {notifications.map(n => (
+                <div key={n.id} onClick={() => open(n)}
+                  className={cn('px-4 py-3 group/row cursor-pointer transition-colors flex items-start gap-2.5',
+                    n.lu ? 'hover:bg-bg/40' : 'bg-indigo-50/40 hover:bg-indigo-50/70')}>
+                  <span className="text-base leading-none mt-0.5">{NOTIF_TYPE_CFG[n.type]?.icon ?? '🔔'}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      {!n.lu && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" />}
+                      <p className={cn('text-sm leading-snug', n.lu ? 'text-navy/70' : 'text-navy font-semibold')}>{n.title}</p>
+                    </div>
+                    {n.body && <p className="text-xs text-subtle mt-0.5 truncate">{n.body}</p>}
+                    <p className="text-[10px] text-subtle/50 mt-1">{new Date(n.created_at).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+                  </div>
+                  <button onClick={e => { e.stopPropagation(); deleteNotif.mutate({ id: n.id, user_id: userId }) }}
+                    className="opacity-0 group-hover/row:opacity-100 p-1 rounded hover:bg-rose-50 text-subtle hover:text-rose-600 transition-all shrink-0 mt-0.5">
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  ), document.body)
+}
+
+// ── Discussion produit ──────────────────────────────────────────
+function fmtDiscussionDay(iso: string) {
+  const d = new Date(iso)
+  const today = new Date()
+  if (d.toDateString() === today.toDateString()) return "Aujourd'hui"
+  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1)
+  if (d.toDateString() === yesterday.toDateString()) return 'Hier'
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long' })
+}
+
+function DiscussionPanel({ produitId, produitNom, userId, isAdmin, onClose, leftOffset }: {
+  produitId: number; produitNom: string; userId: string; isAdmin: boolean; onClose: () => void; leftOffset: string
+}) {
+  const { data: membres = [] } = useUtilisateurs()
+  const { data: produits = [] } = useProduits()
+  const { data: messages = [], isLoading } = useProduitMessages(produitId)
+  const addMessage = useAddProduitMessage()
+  const deleteMessage = useDeleteProduitMessage()
+  const uploadBg = useUploadDiscussionBg()
+  const updateBgOpacity = useUpdateDiscussionBgOpacity()
+  const [draft, setDraft] = useState('')
+  const [showBgEditor, setShowBgEditor] = useState(false)
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const bgFileRef = useRef<HTMLInputElement>(null)
+
+  const produit = produits.find(p => p.id === produitId)
+  const bgUrl = produit?.discussion_bg_url ?? null
+  const bgOpacity = produit?.discussion_bg_opacity ?? 0.15
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ block: 'end' }) }, [messages.length])
+
+  function submit() {
+    if (!draft.trim()) return
+    addMessage.mutate({ produit_id: produitId, user_id: userId, texte: draft.trim() })
+    setDraft('')
+  }
+
+  const groups: { day: string; items: typeof messages }[] = []
+  for (const m of messages) {
+    const day = fmtDiscussionDay(m.created_at)
+    const last = groups[groups.length - 1]
+    if (last && last.day === day) last.items.push(m)
+    else groups.push({ day, items: [m] })
+  }
+
+  return createPortal((
+    <>
+      <div className="fixed inset-0 z-[10049]" onClick={onClose} />
+      <div className="fixed top-12 z-[10050] w-[520px] max-w-[calc(100vw-2rem)] h-[62vh] bg-white shadow-2xl flex flex-col rounded-2xl border border-border overflow-hidden"
+        style={{ left: leftOffset }}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+          <div className="flex items-center gap-2.5">
+            <MessageCircle size={15} className="text-indigo-400" />
+            <div>
+              <h2 className="text-sm font-bold text-navy">Discussion</h2>
+              <p className="text-[10px] text-subtle">{produitNom}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            {isAdmin && (
+              <button onClick={() => setShowBgEditor(v => !v)} title="Personnaliser le fond"
+                className={cn('p-1.5 rounded-lg transition-colors', showBgEditor ? 'bg-indigo-50 text-indigo-600' : 'hover:bg-bg text-subtle hover:text-navy')}>
+                <Camera size={14} />
+              </button>
+            )}
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-bg text-subtle hover:text-navy transition-colors"><X size={15} /></button>
+          </div>
+        </div>
+
+        {showBgEditor && isAdmin && (
+          <div className="px-5 py-3 border-b border-border bg-bg/50 shrink-0 flex flex-col gap-2.5">
+            <div className="flex items-center gap-2">
+              <input ref={bgFileRef} type="file" accept="image/*" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) uploadBg.mutate({ produitId, file: f }); e.target.value = '' }} />
+              <button onClick={() => bgFileRef.current?.click()} disabled={uploadBg.isPending}
+                className="ds-btn ds-btn-sm flex items-center gap-1.5">
+                <Camera size={11} /> {uploadBg.isPending ? 'Envoi…' : bgUrl ? 'Changer le fond' : 'Ajouter un fond'}
+              </button>
+              {bgUrl && (
+                <button onClick={() => uploadBg.mutate({ produitId, file: null })}
+                  className="ds-btn ds-btn-sm text-rose-500 hover:bg-rose-50">Retirer</button>
+              )}
+            </div>
+            {bgUrl && (
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-subtle font-semibold uppercase tracking-wide shrink-0">Opacité</span>
+                <input type="range" min={0} max={1} step={0.05} defaultValue={bgOpacity}
+                  onChange={e => updateBgOpacity.mutate({ produitId, opacity: Number(e.target.value) })}
+                  className="flex-1 accent-indigo-500" />
+                <span className="text-[10px] text-subtle tabular-nums w-8 text-right">{Math.round(bgOpacity * 100)}%</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto px-4 py-3 relative">
+          {bgUrl && (
+            <img src={bgUrl} alt="" className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+              style={{ opacity: bgOpacity }} />
+          )}
+          <div className="relative">
+          {isLoading ? (
+            <div className="flex justify-center py-10 text-subtle/40 text-xs">Chargement…</div>
+          ) : messages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-subtle/30 gap-2">
+              <MessageCircle size={32} />
+              <p className="text-xs italic">Aucun message pour l'instant</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {groups.map(g => (
+                <div key={g.day} className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-px bg-border" />
+                    <span className="text-[9px] font-semibold text-subtle uppercase tracking-wide">{g.day}</span>
+                    <div className="flex-1 h-px bg-border" />
+                  </div>
+                  {g.items.map(m => {
+                    const auteur = membres.find(u => u.user_id === m.user_id)
+                    const mine = m.user_id === userId
+                    return (
+                      <div key={m.id} className="flex items-start gap-2 group/msg bg-white/75 backdrop-blur-[2px] rounded-xl px-2.5 py-2">
+                        <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 flex items-center justify-center text-white text-[9px] font-bold"
+                          style={{ background: auteur?.couleur ?? '#4A4CC8' }}>
+                          {auteur?.avatar_url
+                            ? <img src={auteur.avatar_url} alt="" className="w-full h-full object-cover" />
+                            : (auteur?.trigramme ?? auteur?.display_name?.slice(0, 2) ?? '?')}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-semibold text-navy">{auteur?.display_name ?? auteur?.trigramme ?? 'Utilisateur'}</span>
+                            <span className="text-[9px] text-subtle/60">{new Date(m.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                            {mine && (
+                              <button onClick={() => deleteMessage.mutate({ id: m.id, produit_id: produitId })}
+                                className="ml-auto opacity-0 group-hover/msg:opacity-100 text-subtle hover:text-red transition-all"><X size={10} /></button>
+                            )}
+                          </div>
+                          <p className="text-xs text-navy/85 whitespace-pre-wrap break-words leading-snug">{m.texte}</p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+              <div ref={bottomRef} />
+            </div>
+          )}
+          </div>
+        </div>
+
+        <div className="px-3 py-3 border-t border-border bg-bg/50 shrink-0">
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <MentionField as="textarea" value={draft} onChange={setDraft} membres={membres}
+                onEnter={submit} dropDirection="up"
+                placeholder="Écrire à l'équipe… @trg"
+                className="ds-input text-xs w-full resize-none bg-white" rows={2} />
+            </div>
+            <button onClick={submit} disabled={!draft.trim() || addMessage.isPending}
+              className="ds-btn-primary shrink-0 h-8 w-8 !p-0 flex items-center justify-center"><Send size={13} /></button>
+          </div>
+        </div>
+      </div>
+    </>
+  ), document.body)
+}
+
+// ── Nav data ──────────────────────────────────────────────────
+export interface NavItem { id: string; label: string; href: string; icon: React.ReactNode; adminOnly?: boolean; writeOnly?: boolean }
+
+export const GLOBAL_NAV: NavItem[] = [
   { id: 'dashboard',    label: 'Dashboard',              href: '/',                  icon: <LayoutDashboard size={15} /> },
   { id: 'reunion',      label: 'Réunion PO',             href: '/reunion',           icon: <CalendarClock size={15} />   },
   { id: 'plan-charges', label: 'Plan de charges',        href: '/plan-charges',      icon: <TrendingUp size={15} />      },
@@ -292,14 +581,14 @@ const GLOBAL_NAV: NavItem[] = [
   { id: 'finance',      label: 'Finance',                href: '/admin/finance',     icon: <Euro size={15} />,  adminOnly: true },
 ]
 
-const PRODUCT_NAV: NavItem[] = [
+export const PRODUCT_NAV: NavItem[] = [
   { id: 'produit-dashboard', label: 'Dashboard',    href: '/produit-dashboard',  icon: <BarChart3 size={15} />      },
   { id: 'sprint',            label: 'Sprint Board', href: '/sprint',             icon: <Kanban size={15} />         },
   { id: 'taches',            label: 'Tâches',       href: '/taches',             icon: <FilePlus size={15} />       },
   { id: 'backlog',           label: 'Backlog',       href: '/backlog',            icon: <List size={15} />           },
   { id: 'dod',               label: 'DoD',          href: '/dod',                icon: <ClipboardCheck size={15} /> },
   { id: 'activite',          label: 'Activité',     href: '/activite',           icon: <Clock size={15} />          },
-  { id: 'setup',             label: 'Setup',        href: '/setup?tab=sprints',  icon: <Settings size={15} />       },
+  { id: 'produit-config',    label: 'Configuration', href: '/produit-config',    icon: <SlidersHorizontal size={15} />, writeOnly: true },
 ]
 
 function isActive(href: string, pathname: string, search: string) {
@@ -404,7 +693,7 @@ function NavRow({ item, active, t, collapsed }: { item: NavItem; active: boolean
 // ── Section label ─────────────────────────────────────────────
 function SectionLabel({ children, t }: { children: React.ReactNode; t: SidebarTheme }) {
   return (
-    <div className="px-2.5 pt-4 pb-1">
+    <div className="px-2.5 pt-2 pb-1">
       <span className={cn('text-[10px] font-semibold uppercase tracking-[0.08em] select-none', t.sectionLabel)}>
         {children}
       </span>
@@ -419,10 +708,25 @@ function ProfileFooter({ t, onThemeChange, collapsed }: { t: SidebarTheme; onThe
   const updateProfile = useUpdateProfile()
   const fileRef       = useRef<HTMLInputElement>(null)
   const panelRef      = useRef<HTMLDivElement>(null)
-  const [open,      setOpen]      = useState(false)
-  const [showNotes, setShowNotes] = useState(false)
-  const { data: quickNotes = [] } = useQuickNotes(user?.id)
-  const migrateLegacyNotes        = useMigrateLegacyQuickNotes()
+  const [open,       setOpen]       = useState(false)
+  const [showNotes,  setShowNotes]  = useState(false)
+  const [showNotifs, setShowNotifs] = useState(false)
+  const { data: quickNotes = [] }     = useQuickNotes(user?.id)
+  const { data: notifications = [] }  = useNotifications(user?.id)
+  const migrateLegacyNotes            = useMigrateLegacyQuickNotes()
+  const unreadNotifCount = notifications.filter(n => !n.lu).length
+  const darkMode = useDarkModeStore(s => s.dark)
+  const toggleDark = useDarkModeStore(s => s.toggle)
+  const running = useTimerStore(s => s.running)
+  const stopTimer = useTimerStore(s => s.stop)
+  const addTemps = useAddTemps()
+  const [, setTick] = useState(0)
+
+  useEffect(() => {
+    if (!running) return
+    const id = setInterval(() => setTick(v => v + 1), 1000)
+    return () => clearInterval(id)
+  }, [running])
 
   // Migration ponctuelle des anciennes notes localStorage → Supabase
   useEffect(() => {
@@ -502,6 +806,19 @@ function ProfileFooter({ t, onThemeChange, collapsed }: { t: SidebarTheme; onThe
             ))}
           </div>
 
+          {/* Apparence globale de l'app */}
+          <div className={cn('text-[10px] uppercase tracking-widest mb-2', t.sectionLabel)}>Apparence</div>
+          <button onClick={toggleDark}
+            className={cn('w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold mb-4 transition-colors', t.notesBtn)}>
+            <span className="flex items-center gap-2">
+              {darkMode ? <Moon size={13} /> : <Sun size={13} />}
+              {darkMode ? 'Mode sombre' : 'Mode clair'}
+            </span>
+            <span className={cn('relative w-8 h-4.5 rounded-full transition-colors', darkMode ? 'bg-indigo-500' : 'bg-slate-300')} style={{ height: 18 }}>
+              <span className={cn('absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white transition-transform', darkMode ? 'translate-x-4' : 'translate-x-0.5')} />
+            </span>
+          </button>
+
           {/* Thème sidebar */}
           <div className={cn('text-[10px] uppercase tracking-widest mb-2', t.sectionLabel)}>Thème du menu</div>
           <div className="flex gap-2">
@@ -532,62 +849,92 @@ function ProfileFooter({ t, onThemeChange, collapsed }: { t: SidebarTheme; onThe
         </div>
       )}
 
-      {/* Notes rapides */}
+      {/* Chrono en cours (persiste tant qu'on n'a pas cliqué "Arrêter") */}
+      {user && running && (
+        <div className={cn('flex items-center gap-2 rounded-lg mb-0.5 px-2.5 py-[7px] bg-emerald-500/10 border border-emerald-500/20', collapsed && 'justify-center px-2')}>
+          <Timer size={13} className="text-emerald-500 shrink-0" />
+          {!collapsed && (
+            <span className="flex-1 min-w-0 text-[11px] font-semibold text-emerald-600 truncate" title={running.titre}>
+              {running.id_tache} · {formatElapsed(running.started_at)}
+            </span>
+          )}
+          <button onClick={async () => {
+              const minutes = elapsedMinutes(running.started_at)
+              stopTimer()
+              if (minutes < 1) { return }
+              await addTemps.mutateAsync({ produit_id: running.produit_id, id_tache: running.id_tache, user_id: user.id, date: new Date().toISOString().slice(0, 10), minutes, note: 'Chrono' })
+            }}
+            title="Arrêter le chrono" className="text-emerald-600 hover:text-emerald-700 shrink-0">
+            <Square size={13} />
+          </button>
+        </div>
+      )}
+
+      {/* Notifications + Points à traiter — une seule rangée */}
       {user && (
-        <>
-          <button onClick={() => setShowNotes(true)} title={collapsed ? 'Points à traiter' : undefined}
-            className={cn('relative w-full flex items-center rounded-lg text-[12px] font-medium transition-colors mb-0.5',
-              collapsed ? 'justify-center px-2 py-[8px]' : 'gap-2.5 px-2.5 py-[7px]', t.notesBtn)}>
+        <div className="flex items-stretch gap-1 mb-0.5">
+          <button onClick={() => setShowNotifs(true)} title="Notifications"
+            className={cn('relative flex-1 min-w-0 flex items-center justify-center rounded-lg text-[12px] font-medium transition-colors py-[7px]',
+              collapsed ? 'px-1.5' : 'gap-1.5 px-2', t.notesBtn)}>
+            <Bell size={14} className="shrink-0" />
+            {!collapsed && <span className="truncate">Notifs</span>}
+            {(() => {
+              const n = unreadNotifCount
+              if (n === 0) return null
+              return <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-rose-500" />
+            })()}
+          </button>
+          <button onClick={() => setShowNotes(true)} title="Points à traiter"
+            className={cn('relative flex-1 min-w-0 flex items-center justify-center rounded-lg text-[12px] font-medium transition-colors py-[7px]',
+              collapsed ? 'px-1.5' : 'gap-1.5 px-2', t.notesBtn)}>
             <StickyNote size={14} className="shrink-0" />
-            {!collapsed && <span className="flex-1 text-left">Points à traiter</span>}
+            {!collapsed && <span className="truncate">À traiter</span>}
             {(() => {
               const n = quickNotes.filter(x => !x.done).length
               if (n === 0) return null
-              return collapsed
-                ? <span className="absolute top-0.5 right-1 w-2 h-2 rounded-full bg-amber-500" />
-                : <span className="text-[9px] font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded-full">{n}</span>
+              return <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500" />
             })()}
           </button>
+          {showNotifs && (
+            <NotificationsPanel userId={user.id} onClose={() => setShowNotifs(false)} leftOffset={collapsed ? '4.5rem' : '14.5rem'} />
+          )}
           {showNotes && (
             <QuickNotesPanel userId={user.id} userName={profile?.display_name ?? user.email ?? ''}
               onClose={() => setShowNotes(false)} leftOffset={collapsed ? '4.5rem' : '14.5rem'} />
           )}
-        </>
+        </div>
       )}
 
-      {/* Bouton profil */}
-      <button onClick={() => setOpen(v => !v)} title={collapsed ? displayName : undefined}
-        className={cn('w-full flex items-center rounded-lg transition-colors',
-          collapsed ? 'justify-center px-2 py-[7px]' : 'gap-2.5 px-2.5 py-[7px]', open ? t.navActive : cn(t.navHoverBg))}>
-        <div className="w-6 h-6 rounded-full overflow-hidden shrink-0">
-          {profile?.avatar_url ? (
-            <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-white text-[9px] font-bold" style={{ background: profile?.couleur ?? '#4A4CC8' }}>
-              {initiale}
-            </div>
-          )}
-        </div>
-        {!collapsed && (
-          <>
-            <div className="flex-1 min-w-0">
+      {/* Profil + Déconnexion — une seule rangée */}
+      <div className="flex items-stretch gap-1">
+        <button onClick={() => setOpen(v => !v)} title={collapsed ? displayName : undefined}
+          className={cn('flex-1 min-w-0 flex items-center rounded-lg transition-colors',
+            collapsed ? 'justify-center px-2 py-[7px]' : 'gap-2 px-2.5 py-[7px]', open ? t.navActive : cn(t.navHoverBg))}>
+          <div className="w-6 h-6 rounded-full overflow-hidden shrink-0">
+            {profile?.avatar_url ? (
+              <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-white text-[9px] font-bold" style={{ background: profile?.couleur ?? '#4A4CC8' }}>
+                {initiale}
+              </div>
+            )}
+          </div>
+          {!collapsed && (
+            <div className="flex-1 min-w-0 text-left">
               <div className={cn('text-[12px] font-medium truncate leading-tight', t.profileText)}>{displayName}</div>
               {isAdmin && <div className={cn('text-[10px] leading-tight', t.profileSub)}>Admin</div>}
             </div>
-            <Camera size={11} className={cn('shrink-0 opacity-30')} />
-          </>
-        )}
-      </button>
+          )}
+        </button>
 
-      {/* Déconnexion */}
-      <button onClick={async () => {
-        const { supabase } = await import('@/lib/supabase')
-        await supabase.auth.signOut()
-      }} title={collapsed ? 'Se déconnecter' : undefined}
-        className={cn('w-full flex items-center rounded-lg text-[12px] font-medium transition-colors mt-0.5',
-          collapsed ? 'justify-center px-2 py-[7px]' : 'gap-2.5 px-2.5 py-[7px]', t.logoutBtn)}>
-        <LogOut size={13} className="shrink-0" /> {!collapsed && 'Se déconnecter'}
-      </button>
+        <button onClick={async () => {
+          const { supabase } = await import('@/lib/supabase')
+          await supabase.auth.signOut()
+        }} title="Se déconnecter"
+          className={cn('shrink-0 flex items-center justify-center rounded-lg transition-colors px-2.5', t.logoutBtn)}>
+          <LogOut size={13} />
+        </button>
+      </div>
     </div>
   )
 }
@@ -601,9 +948,17 @@ function getCollapsed(): boolean {
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const { data: sprintActif } = useSprintActif()
-  const { isAdmin }           = useAuth()
+  const { user, isAdmin, canWrite } = useAuth()
   const { produitActif }      = useProduit()
   const location              = useLocation()
+  const navigate              = useNavigate()
+  const [showDiscussion, setShowDiscussion] = useState(false)
+
+  useEffect(() => {
+    function onOpenRequest() { setShowDiscussion(true) }
+    window.addEventListener('open-discussion', onOpenRequest)
+    return () => window.removeEventListener('open-discussion', onOpenRequest)
+  }, [])
 
   const [themeKey, setThemeKey] = useState<ThemeKey>(getTheme)
   const t = THEMES[themeKey]
@@ -624,6 +979,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const allItems = [...GLOBAL_NAV, ...PRODUCT_NAV]
   const activeId = getActiveId(allItems, location.pathname, location.search)
   const globalItems = GLOBAL_NAV.filter(i => !i.adminOnly || isAdmin)
+  const productItems = PRODUCT_NAV.filter(i => !i.writeOnly || isAdmin || (produitActif && canWrite(produitActif.id)))
 
   useEffect(() => { onClose() }, [location.pathname, location.search])
 
@@ -670,15 +1026,29 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         {/* Sélecteur produit */}
         <ProductSelector t={t} onClose={onClose} collapsed={collapsed} />
 
+        {/* Recherche transverse */}
+        <div className={cn('px-3 pt-2', collapsed && 'px-2')}>
+          <button onClick={() => window.dispatchEvent(new Event('open-global-search'))}
+            title={collapsed ? 'Rechercher (Ctrl+K)' : undefined}
+            className={cn('w-full flex items-center rounded-lg text-[12px] font-medium transition-colors border',
+              collapsed ? 'justify-center px-2 py-[7px]' : 'gap-2 px-2.5 py-[7px]', t.selectorBtn, t.divider)}>
+            <Search size={13} className="shrink-0 opacity-60" />
+            {!collapsed && <>
+              <span className="flex-1 text-left opacity-60">Rechercher…</span>
+              <kbd className="text-[9px] font-mono opacity-40">Ctrl K</kbd>
+            </>}
+          </button>
+        </div>
+
         {/* Nav */}
         <nav className="flex-1 px-3 pb-2 overflow-y-auto overflow-x-hidden">
 
           {/* Mon Travail — item épinglé, séparé */}
-          <div className="pt-6 pb-2">
+          <div className="pt-3 pb-1.5">
             <NavRow item={{ id: 'montravail', label: 'Mon Travail', href: '/montravail', icon: <User size={15} /> }}
               active={activeId === 'montravail'} t={t} collapsed={collapsed} />
           </div>
-          <div className={cn('mx-2.5 mb-2 h-px', t.divider)} />
+          <div className={cn('mx-2.5 mb-1.5 h-px', t.divider)} />
 
           {/* Section Global */}
           {!collapsed && <SectionLabel t={t}>Global</SectionLabel>}
@@ -698,10 +1068,18 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     {produitActif.nom}
                   </span>
                   {sprintActif && (
-                    <span className={cn('ml-auto text-[10px] font-bold', t.sprintBadge)}>
+                    <span className={cn('text-[10px] font-bold shrink-0', t.sprintBadge)}>
                       {sprintActif.numero}
                     </span>
                   )}
+                  <button onClick={() => navigate('/setup?tab=sprints')} title="Setup produit"
+                    className={cn('ml-auto p-1 rounded-md transition-colors shrink-0', t.notesBtn)}>
+                    <Settings size={13} />
+                  </button>
+                  <button onClick={() => setShowDiscussion(true)} title="Discussion produit"
+                    className={cn('p-1 rounded-md transition-colors shrink-0', t.notesBtn)}>
+                    <MessageCircle size={13} />
+                  </button>
                 </div>
               )}
               {collapsed && (
@@ -711,7 +1089,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               )}
 
               <div className="flex flex-col gap-0.5">
-                {PRODUCT_NAV.map(item => <NavRow key={item.id} item={item} active={activeId === item.id} t={t} collapsed={collapsed} />)}
+                {productItems.map(item => <NavRow key={item.id} item={item} active={activeId === item.id} t={t} collapsed={collapsed} />)}
               </div>
             </>
           )}
@@ -719,6 +1097,17 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
         <ProfileFooter t={t} onThemeChange={handleThemeChange} collapsed={collapsed} />
       </aside>
+
+      {showDiscussion && produitActif && user && (
+        <DiscussionPanel
+          produitId={produitActif.id}
+          produitNom={produitActif.nom}
+          userId={user.id}
+          isAdmin={isAdmin}
+          onClose={() => setShowDiscussion(false)}
+          leftOffset={collapsed ? '4.5rem' : '14.5rem'}
+        />
+      )}
     </>
   )
 }

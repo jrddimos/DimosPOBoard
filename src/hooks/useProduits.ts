@@ -28,6 +28,8 @@ export interface Produit {
   risques:                RisqueItem[]   | null
   actions_lop:            ActionLop[]    | null
   rag_config:             import('@/types').RagConfig | null
+  discussion_bg_url:      string | null
+  discussion_bg_opacity:  number
 }
 
 export interface ActionLop {
@@ -264,6 +266,54 @@ export function useDuplicateProduit() {
       }
 
       return newProduit as Produit
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['produits'] }),
+  })
+}
+
+// ── Demande d'accès (écran d'accueil sans accès) ─────────────────
+export function useRequestProduitAccess() {
+  return useMutation({
+    mutationFn: async ({ produitId, message }: { produitId: number; message?: string }) => {
+      const { error } = await supabase.rpc('request_produit_access', {
+        p_produit_id: produitId,
+        p_message: message ?? null,
+      })
+      if (error) throw error
+    },
+  })
+}
+
+// ── Fond du canal de discussion (réservé admin côté UI) ──────────
+export function useUploadDiscussionBg() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ produitId, file }: { produitId: number; file: File | null }) => {
+      if (file === null) {
+        const { error } = await supabase.from('produits').update({ discussion_bg_url: null }).eq('id', produitId)
+        if (error) throw error
+        return null
+      }
+      const ext  = file.name.split('.').pop() ?? 'jpg'
+      const path = `${produitId}.${ext}`
+      const { error: upErr } = await supabase.storage.from('discussion-backgrounds').upload(path, file, { upsert: true, contentType: file.type })
+      if (upErr) throw upErr
+      const { data } = supabase.storage.from('discussion-backgrounds').getPublicUrl(path)
+      const url = `${data.publicUrl}?t=${Date.now()}`
+      const { error } = await supabase.from('produits').update({ discussion_bg_url: url }).eq('id', produitId)
+      if (error) throw error
+      return url
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['produits'] }),
+  })
+}
+
+export function useUpdateDiscussionBgOpacity() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ produitId, opacity }: { produitId: number; opacity: number }) => {
+      const { error } = await supabase.from('produits').update({ discussion_bg_opacity: opacity }).eq('id', produitId)
+      if (error) throw error
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['produits'] }),
   })

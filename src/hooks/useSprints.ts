@@ -21,6 +21,23 @@ export function useSprints() {
   })
 }
 
+// ── useSprintsByProduit — sprints d'un produit précis, indépendant
+//    du produit actif du contexte (utile pour comparer/zoomer sur
+//    un autre produit que celui sélectionné, ex: Dashboard) ────
+export function useSprintsByProduit(produitId: number | null) {
+  return useQuery({
+    queryKey: ['sprints', produitId],
+    queryFn: async () => {
+      if (!produitId) return []
+      const { data, error } = await supabase.from('sprints').select('*').eq('produit_id', produitId).order('numero')
+      if (error) throw error
+      return (data ?? []) as Sprint[]
+    },
+    enabled: !!produitId,
+    staleTime: 30_000,
+  })
+}
+
 // ── useSprintActif ─────────────────────────────────────────────
 export function useSprintActif() {
   const { produitActif } = useProduit()

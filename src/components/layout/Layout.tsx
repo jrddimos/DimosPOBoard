@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Sidebar } from './Sidebar'
+import { GlobalSearch } from './GlobalSearch'
 import { ToastContainer } from '@/components/ui/Toast'
 import { ConfirmProvider } from '@/components/ui/ConfirmModal'
+import { useDarkModeStore } from '@/hooks/useDarkMode'
 import { Menu } from 'lucide-react'
 import { Zap } from 'lucide-react'
 
@@ -13,14 +15,21 @@ interface LayoutProps {
 
 export function Layout({ children, title, actions }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const dark = useDarkModeStore(s => s.dark)
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark)
+  }, [dark])
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{background:'#E3E6EF'}}>
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+    <div className="flex h-screen overflow-hidden bg-[#E3E6EF] dark:bg-[#0B1120] transition-colors print:h-auto print:overflow-visible print:block">
+      <div className="contents print:hidden">
+        <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      </div>
 
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden print:overflow-visible print:block">
         {/* Barre mobile */}
-        <div className="md:hidden flex items-center gap-3 px-4 py-3 bg-navy shrink-0">
+        <div className="md:hidden print:hidden flex items-center gap-3 px-4 py-3 bg-navy shrink-0">
           <button
             onClick={() => setSidebarOpen(true)}
             className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors"
@@ -36,19 +45,20 @@ export function Layout({ children, title, actions }: LayoutProps) {
         </div>
 
         {(title || actions) && (
-          <header className="page-topbar shrink-0">
+          <header className="page-topbar shrink-0 print:hidden">
             {title && <h1 className="text-sm font-semibold text-navy">{title}</h1>}
             {actions && <div className="flex items-center gap-2 ml-auto">{actions}</div>}
           </header>
         )}
 
-        <main className="page-content flex-1 min-h-0 overflow-y-auto">
+        <main className="page-content flex-1 min-h-0 overflow-y-auto print:overflow-visible print:h-auto print:min-h-0 print:block">
           {children}
         </main>
       </div>
 
       <ToastContainer />
       <ConfirmProvider />
+      <GlobalSearch />
     </div>
   )
 }

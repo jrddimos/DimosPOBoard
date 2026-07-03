@@ -13,6 +13,7 @@ import type { CritereItem } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { confirm } from '@/components/ui/ConfirmModal'
 import { CriteresEditor } from '@/components/ui/CriteresEditor'
+import { TacheExtras } from '@/components/tache/TacheExtras'
 import {
   ChevronDown, X, Plus, Zap, CalendarDays, AlertTriangle,
   GripVertical, CornerDownRight, Kanban,
@@ -481,6 +482,7 @@ export default function SprintBoardPage() {
   const [effortInput,  setEffortInput]  = useState('')
   const [activeId,     setActiveId]     = useState<string | null>(null)
   const [sousTacheFor, setSousTacheFor] = useState<Tache | null>(null)
+  const [mobileCol,    setMobileCol]    = useState<Statut>('À faire')
 
   const { data: taches = [],      isLoading } = useTaches()
   const { data: sprintActif }                 = useSprintActif()
@@ -491,7 +493,7 @@ export default function SprintBoardPage() {
   const updateTache = useUpdateTache()
   const createSub   = useCreateSousTache()
   const toast       = useToast()
-  const { canWrite }     = useAuth()
+  const { canWrite, user } = useAuth()
   const { produitActif } = useProduit()
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
@@ -657,44 +659,88 @@ export default function SprintBoardPage() {
 
       <div className="flex gap-3">
         {/* Kanban */}
-        <div className="flex-1 min-w-0 overflow-x-auto">
+        <div className="flex-1 min-w-0">
           <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '14px', minWidth: '760px' }}>
-              {COLS.map(col => {
-                const colTaches = boardTaches.filter(t => t.statut === col.key)
-                return (
-                  <DroppableColumn key={col.key} col={col}>
-                    <div className={cn('flex items-center justify-between pb-2 border-b border-slate-200/70 -mx-3 px-3 -mt-3 pt-3 mb-3', col.headerBg)}>
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-2 h-2 rounded-full" style={{ background: col.dot }} />
-                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{col.label}</span>
+
+            {/* ── Vue mobile : un seul statut à la fois, cartes empilées ── */}
+            <div className="md:hidden">
+              <div className="flex gap-1.5 overflow-x-auto pb-2 mb-1 -mx-1 px-1">
+                {COLS.map(col => {
+                  const n = boardTaches.filter(t => t.statut === col.key).length
+                  const active = mobileCol === col.key
+                  return (
+                    <button key={col.key} onClick={() => setMobileCol(col.key)}
+                      className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap border transition-all shrink-0',
+                        active ? 'text-white border-transparent' : 'bg-white text-subtle border-slate-200')}
+                      style={active ? { background: col.dot } : {}}>
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: active ? '#fff' : col.dot }} />
+                      {col.label} <span className="opacity-70">{n}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="flex flex-col gap-2.5">
+                {boardTaches.filter(t => t.statut === mobileCol).map(t => (
+                  <KanbanCard key={t.id_tache}
+                    t={t} col={COLS.find(c => c.key === mobileCol)!}
+                    subs={getSubsForSprint(t.id_tache)}
+                    membres={membres}
+                    isReadOnly={isReadOnly}
+                    isSelected={panel?.id_tache === t.id_tache}
+                    isExpanded={expandedSubs.has(t.id_tache)}
+                    onSelect={() => setPanel(p => p?.id_tache === t.id_tache ? null : t)}
+                    onToggleExpand={() => toggleExpand(t.id_tache)}
+                    onChangeStatut={changeStatut}
+                    onAssign={assignTo}
+                    onToggleSub={toggleSub}
+                    onAddSub={setSousTacheFor}
+                  />
+                ))}
+                {!boardTaches.filter(t => t.statut === mobileCol).length && (
+                  <div className="flex items-center justify-center h-16 border-2 border-dashed border-slate-200 rounded-xl text-slate-300 text-xs">Vide</div>
+                )}
+              </div>
+            </div>
+
+            {/* ── Vue desktop : 4 colonnes ── */}
+            <div className="hidden md:block overflow-x-auto">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '14px', minWidth: '760px' }}>
+                {COLS.map(col => {
+                  const colTaches = boardTaches.filter(t => t.statut === col.key)
+                  return (
+                    <DroppableColumn key={col.key} col={col}>
+                      <div className={cn('flex items-center justify-between pb-2 border-b border-slate-200/70 -mx-3 px-3 -mt-3 pt-3 mb-3', col.headerBg)}>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-2 h-2 rounded-full" style={{ background: col.dot }} />
+                          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{col.label}</span>
+                        </div>
+                        <span className="text-xs font-medium text-slate-400 bg-white border border-slate-200 px-2 py-0.5 rounded-full">{colTaches.length}</span>
                       </div>
-                      <span className="text-xs font-medium text-slate-400 bg-white border border-slate-200 px-2 py-0.5 rounded-full">{colTaches.length}</span>
-                    </div>
 
-                    {colTaches.map(t => (
-                      <KanbanCard key={t.id_tache}
-                        t={t} col={col}
-                        subs={getSubsForSprint(t.id_tache)}
-                        membres={membres}
-                        isReadOnly={isReadOnly}
-                        isSelected={panel?.id_tache === t.id_tache}
-                        isExpanded={expandedSubs.has(t.id_tache)}
-                        onSelect={() => setPanel(p => p?.id_tache === t.id_tache ? null : t)}
-                        onToggleExpand={() => toggleExpand(t.id_tache)}
-                        onChangeStatut={changeStatut}
-                        onAssign={assignTo}
-                        onToggleSub={toggleSub}
-                        onAddSub={setSousTacheFor}
-                      />
-                    ))}
+                      {colTaches.map(t => (
+                        <KanbanCard key={t.id_tache}
+                          t={t} col={col}
+                          subs={getSubsForSprint(t.id_tache)}
+                          membres={membres}
+                          isReadOnly={isReadOnly}
+                          isSelected={panel?.id_tache === t.id_tache}
+                          isExpanded={expandedSubs.has(t.id_tache)}
+                          onSelect={() => setPanel(p => p?.id_tache === t.id_tache ? null : t)}
+                          onToggleExpand={() => toggleExpand(t.id_tache)}
+                          onChangeStatut={changeStatut}
+                          onAssign={assignTo}
+                          onToggleSub={toggleSub}
+                          onAddSub={setSousTacheFor}
+                        />
+                      ))}
 
-                    {!colTaches.length && (
-                      <div className="flex items-center justify-center h-16 border-2 border-dashed border-slate-200 rounded-xl text-slate-300 text-xs">Vide</div>
-                    )}
-                  </DroppableColumn>
-                )
-              })}
+                      {!colTaches.length && (
+                        <div className="flex items-center justify-center h-16 border-2 border-dashed border-slate-200 rounded-xl text-slate-300 text-xs">Vide</div>
+                      )}
+                    </DroppableColumn>
+                  )
+                })}
+              </div>
             </div>
 
             <DragOverlay>
@@ -703,11 +749,16 @@ export default function SprintBoardPage() {
           </DndContext>
         </div>
 
-        {/* Panel détail */}
+        {/* Panel détail — barre du bas sur mobile, colonne latérale sur desktop */}
         {panel && (
-          <div className="w-96 shrink-0 animate-in">
-            <div className="ds-card sticky top-0 flex flex-col gap-3 max-h-[calc(100vh-120px)] overflow-y-auto">
-              <div className="flex items-center justify-between">
+          <>
+            <div className="fixed inset-0 z-40 bg-navy/40" onClick={() => setPanel(null)} />
+            <div className={cn(
+              'fixed inset-x-0 bottom-0 z-50 animate-in',
+              'md:inset-x-auto md:left-auto md:right-4 md:top-4 md:bottom-4 md:w-3/5 md:min-w-[380px] md:max-w-[860px]',
+            )}>
+              <div className="ds-card flex flex-col gap-3 max-h-[80vh] md:max-h-full md:h-full overflow-y-auto rounded-b-none md:rounded-xl shadow-2xl">
+                <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-indigo-600">{panel.id_tache}</span>
                 <button onClick={() => setPanel(null)} className="p-1 rounded-lg hover:bg-slate-50 text-slate-400 hover:text-navy"><X size={13} /></button>
               </div>
@@ -726,21 +777,6 @@ export default function SprintBoardPage() {
                   }}
                 />
               )}
-              {panel.lien_dod && <div><div className="ds-label mb-1">Lien DoD</div><span className="text-xs text-indigo-600 font-medium">{panel.lien_dod}</span></div>}
-              {panel.commentaire && <div><div className="ds-label mb-1">Commentaire</div><p className="text-xs text-slate-400 italic">{panel.commentaire}</p></div>}
-              <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-100">
-                {([
-                  ['Epic',    panel.epic?.split(' — ')[0]],
-                  ['Jalon - Incrément majeur', panel.jalon],
-                  ['Sprint',  panel.sprint || panel.sprint_debut],
-                  ['Effort',  panel.effort_j ? `${panel.effort_j}j` : null],
-                  ['Équipe',  panel.equipe],
-                  ['Assigné', panel.assigne_a],
-                ] as [string, string | null | undefined][]).map(([k, v]) => v ? (
-                  <div key={k}><div className="text-slate-400">{k}</div><div className="font-semibold text-navy">{v}</div></div>
-                ) : null)}
-              </div>
-
               {!isReadOnly && (
                 <button onClick={() => setSousTacheFor(panel)}
                   className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-700 font-medium">
@@ -748,43 +784,77 @@ export default function SprintBoardPage() {
                 </button>
               )}
 
-              {panel.statut !== 'Fait' && (
-              <div className="pt-2 border-t border-slate-100">
-                <div className="ds-label mb-1.5">Déplacer vers sprint</div>
-                <div className="flex gap-2">
-                  <select defaultValue={panel.sprint || panel.sprint_debut || ''}
-                    className="ds-select text-xs flex-1" id={`sprint-move-${panel.id_tache}`}>
-                    <option value="">Backlog</option>
-                    {SPRINTS_LIST.map(s => <option key={s}>{s}</option>)}
-                  </select>
-                  <button onClick={async () => {
-                    const sel = document.getElementById(`sprint-move-${panel.id_tache}`) as HTMLSelectElement
-                    const val = sel?.value ?? ''
-                    await updateTache.mutateAsync({ id_tache: panel.id_tache, updates: { sprint: val, sprint_debut: val || null } })
-                    toast(`${panel.id_tache} → ${val || 'Backlog'}`)
-                  }} className="ds-btn ds-btn-sm">✓</button>
-                </div>
-              </div>
-              )}
+              {/* Détails secondaires — repliés par défaut pour ne pas noyer le panneau */}
+              <details className="pt-3 mt-1 border-t-2 border-slate-300 group/details">
+                <summary className="ds-label cursor-pointer select-none list-none flex items-center gap-1.5">
+                  <ChevronDown size={11} className="transition-transform -rotate-90 group-open/details:rotate-0" />
+                  Détails
+                </summary>
+                <div className="flex flex-col gap-3 mt-2">
+                  {/* Même ordre que le panneau Tâches : Assigné → Epic → Type/Jalon → Sprint → Équipe/Thème */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    {([
+                      ['Assigné',        panel.assigne_a],
+                      ['Epic',           panel.epic?.split(' — ')[0]],
+                      ['Type fonction',  panel.type_fonction],
+                      ['Jalon - Incrément majeur', panel.jalon],
+                      ['Sprint',         panel.sprint || panel.sprint_debut],
+                      ['Effort',         panel.effort_j ? `${panel.effort_j}j` : null],
+                      ['Équipe',         panel.equipe],
+                      ['Thème',          panel.metier],
+                    ] as [string, string | null | undefined][]).map(([k, v]) => v ? (
+                      <div key={k}><div className="text-slate-400">{k}</div><div className="font-semibold text-navy">{v}</div></div>
+                    ) : null)}
+                  </div>
+                  {panel.lien_dod && <div><div className="ds-label mb-1">Lien DoD</div><span className="text-xs text-indigo-600 font-medium">{panel.lien_dod}</span></div>}
+                  {panel.commentaire && <div><div className="ds-label mb-1">Commentaire PO</div><p className="text-xs text-slate-400 italic">{panel.commentaire}</p></div>}
 
-              {(childMap[panel.id_tache] ?? []).length > 0 && (
-                <div className="pt-2 border-t border-slate-100">
-                  <div className="ds-label mb-2">Toutes les sous-tâches</div>
-                  {(childMap[panel.id_tache] ?? []).map(s => (
-                    <div key={s.id_tache} className="flex items-center gap-2 py-1">
-                      <div className={cn('w-2 h-2 rounded-full shrink-0',
-                        s.statut === 'Fait'     ? 'bg-emerald-400' :
-                        s.statut === 'En cours' ? 'bg-amber-400' :
-                        s.statut === 'Bloqué'   ? 'bg-rose-400' : 'bg-slate-300')} />
-                      <span className={cn('text-xs flex-1', s.statut === 'Fait' && 'line-through text-slate-400')}>{s.titre}</span>
-                      {s.assigne_a && <span className="text-xs bg-indigo-50 text-indigo-700 px-1.5 rounded-full">{s.assigne_a}</span>}
-                      <StatutBadge value={s.statut} />
+                  {panel.statut !== 'Fait' && (
+                    <div>
+                      <div className="ds-label mb-1.5">Déplacer vers sprint</div>
+                      <div className="flex gap-2">
+                        <select defaultValue={panel.sprint || panel.sprint_debut || ''}
+                          className="ds-select text-xs flex-1" id={`sprint-move-${panel.id_tache}`}>
+                          <option value="">Backlog</option>
+                          {SPRINTS_LIST.map(s => <option key={s}>{s}</option>)}
+                        </select>
+                        <button onClick={async () => {
+                          const sel = document.getElementById(`sprint-move-${panel.id_tache}`) as HTMLSelectElement
+                          const val = sel?.value ?? ''
+                          await updateTache.mutateAsync({ id_tache: panel.id_tache, updates: { sprint: val, sprint_debut: val || null } })
+                          toast(`${panel.id_tache} → ${val || 'Backlog'}`)
+                        }} className="ds-btn ds-btn-sm">✓</button>
+                      </div>
                     </div>
-                  ))}
+                  )}
+
+                  {(childMap[panel.id_tache] ?? []).length > 0 && (
+                    <div>
+                      <div className="ds-label mb-2">Toutes les sous-tâches</div>
+                      {(childMap[panel.id_tache] ?? []).map(s => (
+                        <div key={s.id_tache} className="flex items-center gap-2 py-1">
+                          <div className={cn('w-2 h-2 rounded-full shrink-0',
+                            s.statut === 'Fait'     ? 'bg-emerald-400' :
+                            s.statut === 'En cours' ? 'bg-amber-400' :
+                            s.statut === 'Bloqué'   ? 'bg-rose-400' : 'bg-slate-300')} />
+                          <span className={cn('text-xs flex-1', s.statut === 'Fait' && 'line-through text-slate-400')}>{s.titre}</span>
+                          {s.assigne_a && <span className="text-xs bg-indigo-50 text-indigo-700 px-1.5 rounded-full">{s.assigne_a}</span>}
+                          <StatutBadge value={s.statut} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </details>
+
+              {produitActif && (
+                <div className="pt-3 mt-1 border-t-2 border-slate-300">
+                  <TacheExtras produitId={produitActif.id} tache={panel} membres={membres} userId={user?.id ?? null} toast={toast} />
                 </div>
               )}
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
 
