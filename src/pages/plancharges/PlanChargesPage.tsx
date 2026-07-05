@@ -6,11 +6,12 @@ import type { Produit } from '@/hooks/useProduits'
 import { usePlanCharges, useUpsertPlanCharge, useRealiseFromTasks } from '@/hooks/usePlanCharges'
 import { useAllProfiles, useAllRoles } from '@/hooks/useUserManagement'
 import { usePeriodesFermeture } from '@/hooks/usePeriodesFermeture'
+import { useAbsences } from '@/hooks/useAbsences'
+import { getISOWeek } from '@/lib/utils'
 import { usePendingProfiles } from '@/hooks/useUserManagement'
 import { getJoursFeries, joursOuvresSemaine } from '@/utils/joursFeries'
 import { PlanChargesSettings } from './PlanChargesSettings'
 import type { UserProfile } from '@/contexts/AuthContext'
-import { Users } from 'lucide-react'
 import {
   getWeeksForYear, getTrimForQ,
   DEFAULT_JOURS_TRIM, COL_PRODUIT, COL_Q, COL_Q_ALLOC, COL_Q_RESTE, COL_WK, Q_RANGE,
@@ -99,6 +100,32 @@ export default function PlanChargesPage() {
 
   function getMaxJours(semaine: number): number {
     return joursOuvresMap.get(semaine) ?? 5
+  }
+
+  // ── Absences individuelles : jours d'absence ouvrés par (trigramme, semaine) ──
+  const { data: absences = [] } = useAbsences(annee)
+  const absWkMap = useMemo(() => {
+    const m = new Map<string, number>()
+    absences.forEach(a => {
+      const d = new Date(a.date_debut + 'T00:00:00')
+      const end = new Date(a.date_fin + 'T00:00:00')
+      while (d <= end) {
+        const dow = d.getDay()
+        const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+        if (dow !== 0 && dow !== 6 && !feriesSet.has(iso) && !fermeturesDayMap.has(iso)) {
+          const k = `${a.trigramme}|${getISOWeek(d).semaine}`
+          m.set(k, (m.get(k) ?? 0) + 1)
+        }
+        d.setDate(d.getDate() + 1)
+      }
+    })
+    return m
+  }, [absences, feriesSet, fermeturesDayMap])
+
+  // Capacité individuelle : jours ouvrés de la semaine − absences du membre
+  function memberMaxJours(tri: string, semaine: number): number {
+    if (!tri) return getMaxJours(semaine)
+    return Math.max(0, getMaxJours(semaine) - (absWkMap.get(`${tri}|${semaine}`) ?? 0))
   }
 
   const quarters = useMemo(() => [1,2,3,4].map(q => ({
@@ -229,6 +256,51 @@ export default function PlanChargesPage() {
     return m
   }, [quarters, activeProduits, membersByProduit, planMap, annee])
 
+  // ── KPIs de synthèse (bandeau) ────────────────────────────────
+  const kpis = useMemo(() => {
+    const activeIds = new Set(activeProduits.map(p => p.id))
+    const membres = profiles.filter(pr => pr.actif !== false && pr.trigramme
+      && allRoles.some(r => r.user_id === pr.user_id && activeIds.has(r.produit_id)))
+    const tris = membres.map(m => m.trigramme!)
+
+    const allocTri = (tri: string, semaine: number) =>
+      activeProduits.reduce((s, p) => s + (planMap.get(`${p.id}|${semaine}|${tri}`) ?? 0), 0)
+
+    // Surcharges : 4 prochaines semaines (année courante) ou toute l'année sinon
+    const isCur = annee === curYear
+    const scanWeeks = isCur
+      ? allWeeks.filter(w => w.semaine >= currentISOWeek && w.semaine < currentISOWeek + 4)
+      : allWeeks
+    const overTris = new Set<string>()
+    let overCount = 0
+    tris.forEach(tri => scanWeeks.forEach(w => {
+      const capa = memberMaxJours(tri, w.semaine)
+      if (allocTri(tri, w.semaine) > capa) { overCount++; overTris.add(tri) }
+    }))
+
+    // Capacité libre : semaines restantes du trimestre courant (ou année complète)
+    const qCur = quarters.find(qt => qt.weeks.some(w => w.semaine === currentISOWeek))
+    const libreWeeks = isCur
+      ? (qCur?.weeks.filter(w => w.semaine >= currentISOWeek) ?? [])
+      : allWeeks
+    let libre = 0
+    tris.forEach(tri => libreWeeks.forEach(w => {
+      libre += Math.max(0, memberMaxJours(tri, w.semaine) - allocTri(tri, w.semaine))
+    }))
+
+    // Réalisé vs prévisionnel sur les semaines écoulées
+    let prevPast = 0, realPast = 0
+    const pastMax = isCur ? currentISOWeek : 54
+    planMap.forEach((v, k) => { if (Number(k.split('|')[1]) < pastMax) prevPast += v })
+    planMapR.forEach((v, k) => { if (Number(k.split('|')[1]) < pastMax) realPast += v })
+    const tauxRealise = prevPast > 0 ? Math.round(realPast / prevPast * 100) : null
+
+    // Budget du trimestre courant
+    const qBudget = qCur ? headerTotalsByQuarter.get(qCur.q) : undefined
+
+    return { isCur, overCount, overTris: [...overTris], libre: Math.round(libre * 10) / 10, qCurLabel: qCur?.label ?? '', tauxRealise, prevPast: Math.round(prevPast), realPast: Math.round(realPast), qBudget }
+  }, [activeProduits, profiles, allRoles, planMap, planMapR, allWeeks, quarters, annee, curYear, currentISOWeek, absWkMap, headerTotalsByQuarter])
+
   // Edit cell state
   const [editCell, setEditCell] = useState<{ produit_id: number; semaine: number; assigne_a: string } | null>(null)
 
@@ -284,15 +356,35 @@ export default function PlanChargesPage() {
     return () => window.removeEventListener('mouseup', onGlobalMouseUp)
   }, [dragRange])
 
+  // Annulation temporaire après un remplissage multiple
+  const [undoFill, setUndoFill] = useState<{ produit_id: number; assigne_a: string; prev: { semaine: number; jours: number }[] } | null>(null)
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   function applyFill() {
     if (!fillModal) return
     const jours = parseFloat(fillVal.replace(',', '.'))
     if (!isNaN(jours) && jours >= 0) {
+      // Capture des valeurs actuelles pour pouvoir annuler
+      const prev = fillModal.semaines.map(semaine => ({
+        semaine, jours: cellVal(fillModal.produit_id, semaine, fillModal.assigne_a),
+      }))
       fillModal.semaines.forEach(semaine =>
         upsert.mutate({ produit_id: fillModal.produit_id, epic: '', assigne_a: fillModal.assigne_a, semaine, annee, jours })
       )
+      setUndoFill({ produit_id: fillModal.produit_id, assigne_a: fillModal.assigne_a, prev })
+      if (undoTimer.current) clearTimeout(undoTimer.current)
+      undoTimer.current = setTimeout(() => setUndoFill(null), 10_000)
     }
     setFillModal(null)
+  }
+
+  function undoLastFill() {
+    if (!undoFill) return
+    undoFill.prev.forEach(e =>
+      upsert.mutate({ produit_id: undoFill.produit_id, epic: '', assigne_a: undoFill.assigne_a, semaine: e.semaine, annee, jours: e.jours })
+    )
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    setUndoFill(null)
   }
 
   function toggleProduit(id: number) {
@@ -315,6 +407,55 @@ export default function PlanChargesPage() {
         showTip={showTip} setShowTip={setShowTip}
       />
 
+      {/* ── Bandeau KPI ─────────────────────────────────────── */}
+      {activeProduits.length > 0 && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+          <div className="bg-card border border-border rounded-2xl px-4 py-3 shadow-sm">
+            <div className="text-[11px] font-semibold text-subtle uppercase tracking-wide mb-1">
+              Surcharges {kpis.isCur ? '· 4 prochaines sem.' : `· ${annee}`}
+            </div>
+            {kpis.overCount === 0 ? (
+              <span className="text-xl font-extrabold text-emerald-600">0 <span className="text-xs font-semibold">tout va bien</span></span>
+            ) : (
+              <div className="flex items-baseline gap-2 min-w-0">
+                <span className="text-xl font-extrabold text-rose-600 tabular-nums">{kpis.overCount}</span>
+                <span className="text-xs text-subtle truncate">sem. × membre · {kpis.overTris.slice(0, 4).join(', ')}{kpis.overTris.length > 4 ? '…' : ''}</span>
+              </div>
+            )}
+          </div>
+          <div className="bg-card border border-border rounded-2xl px-4 py-3 shadow-sm">
+            <div className="text-[11px] font-semibold text-subtle uppercase tracking-wide mb-1">
+              Capacité libre {kpis.isCur && kpis.qCurLabel ? `· reste ${kpis.qCurLabel}` : `· ${annee}`}
+            </div>
+            <span className="text-xl font-extrabold text-navy tabular-nums">{kpis.libre}<span className="text-xs font-semibold text-subtle"> jours</span></span>
+          </div>
+          <div className="bg-card border border-border rounded-2xl px-4 py-3 shadow-sm">
+            <div className="text-[11px] font-semibold text-subtle uppercase tracking-wide mb-1">Réalisé vs prévu · sem. écoulées</div>
+            {kpis.tauxRealise === null ? (
+              <span className="text-xs text-subtle italic">Rien de planifié</span>
+            ) : (
+              <div className="flex items-baseline gap-2">
+                <span className={`text-xl font-extrabold tabular-nums ${kpis.tauxRealise > 115 ? 'text-rose-600' : kpis.tauxRealise < 70 ? 'text-amber-600' : 'text-emerald-600'}`}>{kpis.tauxRealise}%</span>
+                <span className="text-xs text-subtle tabular-nums">{kpis.realPast}j / {kpis.prevPast}j</span>
+              </div>
+            )}
+          </div>
+          <div className="bg-card border border-border rounded-2xl px-4 py-3 shadow-sm">
+            <div className="text-[11px] font-semibold text-subtle uppercase tracking-wide mb-1">Budget {kpis.qCurLabel && kpis.isCur ? `· ${kpis.qCurLabel}` : ''}</div>
+            {kpis.qBudget && kpis.qBudget.totBudget > 0 ? (
+              <div className="flex items-baseline gap-2">
+                <span className={`text-xl font-extrabold tabular-nums ${kpis.qBudget.totAlloc > kpis.qBudget.totBudget ? 'text-rose-600' : 'text-navy'}`}>
+                  {Math.round(kpis.qBudget.totAlloc)}j
+                </span>
+                <span className="text-xs text-subtle tabular-nums">/ {Math.round(kpis.qBudget.totBudget)}j alloués</span>
+              </div>
+            ) : (
+              <span className="text-xs text-subtle italic">Pas de budget trimestriel</span>
+            )}
+          </div>
+        </div>
+      )}
+
       {activeProduits.length === 0 ? (
         <div className="text-center py-16 text-subtle text-sm">Aucun produit actif.</div>
       ) : viewMode === 'membre' ? (
@@ -330,6 +471,7 @@ export default function PlanChargesPage() {
           planMap={planMap}
           planMapR={planMapR}
           joursOuvresMap={joursOuvresMap}
+          memberMaxJours={memberMaxJours}
           currentISOWeek={currentISOWeek}
           feriesMap={feriesMap}
           fermeturesDayMap={fermeturesDayMap}
@@ -341,7 +483,7 @@ export default function PlanChargesPage() {
           quarters={quarters} activeProduits={activeProduits}
           expandedProduit={expandedProduit} toggleProduit={toggleProduit}
           membersByProduit={membersByProduit} headerTotalsByQuarter={headerTotalsByQuarter}
-          getMaxJours={getMaxJours} feriesMap={feriesMap} fermeturesDayMap={fermeturesDayMap}
+          getMaxJours={getMaxJours} memberMaxJours={memberMaxJours} feriesMap={feriesMap} fermeturesDayMap={fermeturesDayMap}
           cellVal={cellVal} cellValR={cellValR} produitWkTotal={produitWkTotal} produitWkTotalR={produitWkTotalR}
           allocForWeeks={allocForWeeks} realiseForWeeks={realiseForWeeks} budgetQ={budgetQ}
           editCell={editCell} setEditCell={setEditCell} dragRange={dragRange} setDragRange={setDragRange}
@@ -351,20 +493,18 @@ export default function PlanChargesPage() {
         />
       )}
 
-      <div className="flex items-center flex-wrap gap-4 mt-3 text-[11px] text-subtle">
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-2.5 h-3 rounded-t-sm bg-indigo-500" />
-          hauteur de barre = % de charge de la semaine
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-2.5 h-3 rounded-t-sm bg-rose-500" />
-          dépassement de capacité
-        </span>
-        <span className="mx-1 h-3 w-px bg-border" />
-        <span>Cliquez pour éditer · <strong>cliquez-glissez</strong> pour remplir plusieurs semaines</span>
-        <span className="mx-1 h-3 w-px bg-border" />
-        <span><Users size={10} className="inline" /> N = membres — cliquez pour déplier</span>
-      </div>
+      {/* ── Bouton Annuler après remplissage multiple ─────────── */}
+      {undoFill && (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[10055] flex items-center gap-3 bg-brand text-white rounded-full pl-4 pr-2 py-2 shadow-modal animate-in">
+          <span className="text-xs font-medium">
+            {undoFill.prev.length} semaine{undoFill.prev.length > 1 ? 's' : ''} remplie{undoFill.prev.length > 1 ? 's' : ''} pour {undoFill.assigne_a || 'le produit'}
+          </span>
+          <button onClick={undoLastFill}
+            className="text-xs font-bold bg-white/15 hover:bg-white/25 rounded-full px-3 py-1 transition-colors">
+            Annuler
+          </button>
+        </div>
+      )}
 
       {/* ── Panneau Paramètres ───────────────────────────────── */}
       {showSettings && (

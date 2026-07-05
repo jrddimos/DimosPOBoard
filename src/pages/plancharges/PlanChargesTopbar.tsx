@@ -1,9 +1,67 @@
+import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
-import { ChevronRight, ChevronLeft, Users, Settings, CalendarClock, TrendingUp, Package, BarChart2, CheckSquare, ArrowLeftRight, Info, X, Search } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { ChevronRight, ChevronLeft, Users, Settings, CalendarClock, TrendingUp, Package, BarChart2, CheckSquare, ArrowLeftRight, Info, X, Search, HelpCircle, CalendarOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageTitle } from '@/components/ui/PageTitle'
 import { ToggleGroup } from '@/components/ui/ToggleGroup'
 import type { PlanMode } from './utils'
+
+// Popover d'aide (portal : la topbar a un overflow-x qui rognerait un absolute)
+function HelpPopover() {
+  const [open, setOpen] = useState(false)
+  const [pos, setPos]   = useState<{ top: number; left: number } | null>(null)
+  const btnRef   = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    if (!open || !btnRef.current) return
+    const r = btnRef.current.getBoundingClientRect()
+    const width = 320
+    setPos({ top: r.bottom + 6, left: Math.min(r.left, window.innerWidth - width - 12) })
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    function handle(e: MouseEvent) {
+      const t = e.target as Node
+      if (panelRef.current?.contains(t) || btnRef.current?.contains(t)) return
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [open])
+
+  return (
+    <>
+      <button ref={btnRef} onClick={() => setOpen(o => !o)} title="Légende et raccourcis"
+        className={cn('p-1.5 rounded-lg transition-colors', open ? 'bg-indigo-50 text-indigo-600' : 'text-subtle hover:text-navy hover:bg-bg')}>
+        <HelpCircle size={14} />
+      </button>
+      {open && pos && createPortal(
+        <div ref={panelRef} className="fixed z-[10050] w-[320px] bg-card border border-border rounded-xl shadow-modal p-4 animate-in"
+          style={{ top: pos.top, left: pos.left }}>
+          <div className="text-xs font-bold text-navy uppercase tracking-wide mb-2.5">Légende</div>
+          <div className="flex flex-col gap-2 text-xs text-subtle">
+            <span className="flex items-center gap-2"><span className="inline-block w-2.5 h-3 rounded-t-sm bg-indigo-500 shrink-0" /> hauteur de barre = % de charge de la semaine</span>
+            <span className="flex items-center gap-2"><span className="inline-block w-2.5 h-3 rounded-t-sm bg-rose-500 shrink-0" /> dépassement de capacité</span>
+            <span className="flex items-center gap-2"><span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0" /> absence du membre (capacité réduite)</span>
+            <span className="flex items-center gap-2"><Users size={11} className="shrink-0" /> N = membres — cliquez pour déplier</span>
+            <span className="flex items-center gap-2"><CalendarOff size={11} className="shrink-0 text-amber-500" /> gérer les absences (vue membre)</span>
+          </div>
+          <div className="text-xs font-bold text-navy uppercase tracking-wide mt-3.5 mb-2.5">Saisie clavier</div>
+          <div className="flex flex-col gap-1.5 text-xs text-subtle">
+            <span><kbd className="px-1 py-0.5 rounded border border-border bg-bg font-mono text-[10px]">Entrée</kbd> / <kbd className="px-1 py-0.5 rounded border border-border bg-bg font-mono text-[10px]">→</kbd> valider et passer à la semaine suivante</span>
+            <span><kbd className="px-1 py-0.5 rounded border border-border bg-bg font-mono text-[10px]">Maj+Entrée</kbd> / <kbd className="px-1 py-0.5 rounded border border-border bg-bg font-mono text-[10px]">←</kbd> semaine précédente</span>
+            <span><kbd className="px-1 py-0.5 rounded border border-border bg-bg font-mono text-[10px]">↑</kbd> <kbd className="px-1 py-0.5 rounded border border-border bg-bg font-mono text-[10px]">↓</kbd> membre précédent / suivant</span>
+            <span><kbd className="px-1 py-0.5 rounded border border-border bg-bg font-mono text-[10px]">Échap</kbd> annuler · cliquer-glisser = remplissage groupé</span>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  )
+}
 
 export function PlanChargesTopbar({
   annee, setAnnee, curYear, scrollToToday,
@@ -88,6 +146,7 @@ export function PlanChargesTopbar({
           </div>
 
           <div className="flex gap-2 ml-auto text-xs text-subtle items-center">
+            <HelpPopover />
             <button onClick={() => setShowSettings(true)}
               className="flex items-center gap-1.5 hover:text-navy transition-colors font-medium">
               <Settings size={13} aria-hidden="true" />

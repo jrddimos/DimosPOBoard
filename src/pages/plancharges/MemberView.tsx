@@ -1,6 +1,8 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { labelsFermes } from '@/utils/joursFeries'
+import { useAbsences, useCreateAbsence, useDeleteAbsence } from '@/hooks/useAbsences'
+import { CalendarOff, Plus, X } from 'lucide-react'
 import type { Produit } from '@/hooks/useProduits'
 import type { UserProfile } from '@/contexts/AuthContext'
 import { COL_PRODUIT, COL_Q, COL_Q_ALLOC, COL_Q_RESTE, COL_WK, fmtDayMonth, fmtJ } from './utils'
@@ -14,13 +16,16 @@ interface MemberViewProps {
   activeProduits: Produit[]
   planMap: Map<string, number>; planMapR: Map<string, number>
   joursOuvresMap: Map<number, number>; currentISOWeek: number
+  memberMaxJours: (tri: string, semaine: number) => number
   feriesMap: Map<string, string>; fermeturesDayMap: Map<string, string>
   search: string
 }
 
 export function MemberView({ annee, curYear, mode, quarters,
   profiles, allRoles, activeProduits, planMap, planMapR,
-  joursOuvresMap, currentISOWeek, feriesMap, fermeturesDayMap, search }: MemberViewProps) {
+  joursOuvresMap, memberMaxJours, currentISOWeek, feriesMap, fermeturesDayMap, search }: MemberViewProps) {
+
+  const [absencesFor, setAbsencesFor] = useState<UserProfile | null>(null)
 
   const activeProduitIds = useMemo(() => new Set(activeProduits.map(p => p.id)), [activeProduits])
 
@@ -56,6 +61,7 @@ export function MemberView({ annee, curYear, mode, quarters,
   )
 
   return (
+    <>
     <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
       <div className="overflow-x-auto">
         <table className="text-xs" style={{ minWidth: totalWidth, borderCollapse: 'separate', borderSpacing: 0 }}>
@@ -131,9 +137,15 @@ export function MemberView({ annee, curYear, mode, quarters,
                           ))}
                         </div>
                       </div>
-                      {totAnnee > 0 && (
-                        <span className="ml-auto text-[11px] text-subtle tabular-nums shrink-0">{fmtJ(totAnnee)}j</span>
-                      )}
+                      <div className="ml-auto flex items-center gap-1 shrink-0">
+                        {totAnnee > 0 && (
+                          <span className="text-[11px] text-subtle tabular-nums">{fmtJ(totAnnee)}j</span>
+                        )}
+                        <button onClick={() => setAbsencesFor(member)} title="Gérer les absences"
+                          className="p-1 rounded hover:bg-amber-50 text-subtle/50 hover:text-amber-600 transition-colors">
+                          <CalendarOff size={12} />
+                        </button>
+                      </div>
                     </div>
                   </td>
 
@@ -142,7 +154,7 @@ export function MemberView({ annee, curYear, mode, quarters,
                     const allocQ = qt.weeks.reduce((s, w) => s + wkVal(tri, w.semaine), 0)
                     const realQ  = qt.weeks.reduce((s, w) => s + wkValR(tri, w.semaine), 0)
                     const dispQ  = mode === 'realise' ? realQ : allocQ
-                    const maxQJ  = qt.weeks.reduce((s, w) => s + getJO(w.semaine), 0)
+                    const maxQJ  = qt.weeks.reduce((s, w) => s + memberMaxJours(tri, w.semaine), 0)
                     const ratioQ = maxQJ > 0 ? Math.min(1, dispQ / maxQJ) : 0
 
                     return [
@@ -150,14 +162,17 @@ export function MemberView({ annee, curYear, mode, quarters,
                           const v    = mode === 'realise' ? wkValR(tri, w.semaine) : wkVal(tri, w.semaine)
                           const vP   = wkVal(tri, w.semaine)
                           const vR   = wkValR(tri, w.semaine)
-                          const jo   = getJO(w.semaine)
+                          const jo   = memberMaxJours(tri, w.semaine)
+                          const joGlobal = getJO(w.semaine)
+                          const absJ = joGlobal - jo
                           const isToday = w.semaine === currentISOWeek && annee === curYear
                           const ratio = jo > 0 ? Math.min(1, v / jo) : 0
                           const breakdown = wkByProduit(tri, w.semaine)
 
-                          const tooltipText = breakdown.length > 0
-                            ? breakdown.map(x => `${x.p.nom}: ${fmtJ(x.v)}`).join('\n')
-                            : undefined
+                          const tooltipText = [
+                            ...(breakdown.length > 0 ? breakdown.map(x => `${x.p.nom}: ${fmtJ(x.v)}`) : []),
+                            ...(absJ > 0 ? [`Absence : ${absJ}j`] : []),
+                          ].join('\n') || undefined
 
                           if (mode === 'comparaison') {
                             let bg = 'transparent'; let textCol = '#94a3b8'
@@ -184,8 +199,9 @@ export function MemberView({ annee, curYear, mode, quarters,
 
                           const isGreen = mode === 'realise'
                           const over = v > jo
+                          const fullAbs = jo === 0 && joGlobal > 0
                           const barColor = over ? '#f43f5e' : isGreen ? '#34d399' : '#6366f1'
-                          const trackBg  = isGreen ? '#f0fdf4' : '#eef2ff'
+                          const trackBg  = fullAbs ? '#fef3c7' : isGreen ? '#f0fdf4' : '#eef2ff'
                           const barHeightPct = v > 0 ? Math.max(14, Math.round(ratio * 100)) : 0
                           const txtC = v > 0 ? (over ? '#e11d48' : isGreen ? '#047857' : '#4338ca') : 'transparent'
 
@@ -195,6 +211,12 @@ export function MemberView({ annee, curYear, mode, quarters,
                               className={cn('border-r border-b border-border select-none p-0',
                                 isToday && 'ring-1 ring-inset ring-yellow/50')}>
                               <div className="relative h-9 flex flex-col items-center justify-end px-1 pb-0.5" style={{ background: trackBg }}>
+                                {absJ > 0 && (
+                                  <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-amber-400" title={`Absence : ${absJ}j`} />
+                                )}
+                                {fullAbs && v === 0 && (
+                                  <span className="absolute inset-0 flex items-center justify-center text-[10px] text-amber-600 font-bold">abs</span>
+                                )}
                                 <span className="text-[10px] font-bold tabular-nums leading-none mb-0.5" style={{ color: txtC }}>
                                   {v > 0 ? fmtJ(v) : ''}
                                 </span>
@@ -252,6 +274,92 @@ export function MemberView({ annee, curYear, mode, quarters,
             })}
           </tbody>
         </table>
+      </div>
+    </div>
+
+    {absencesFor && (
+      <AbsencesModal member={absencesFor} annee={annee} onClose={() => setAbsencesFor(null)} />
+    )}
+    </>
+  )
+}
+
+// ── Modale de gestion des absences d'un membre ────────────────────
+function AbsencesModal({ member, annee, onClose }: { member: UserProfile; annee: number; onClose: () => void }) {
+  const tri = member.trigramme ?? ''
+  const { data: absences = [] } = useAbsences(annee)
+  const createAbs = useCreateAbsence()
+  const deleteAbs = useDeleteAbsence()
+
+  const [label, setLabel] = useState('Congés')
+  const [debut, setDebut] = useState('')
+  const [fin, setFin]     = useState('')
+
+  const mine = absences.filter(a => a.trigramme === tri)
+  const fmtD = (iso: string) => new Date(iso + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
+
+  async function add() {
+    if (!debut) return
+    const f = !fin || fin < debut ? debut : fin
+    await createAbs.mutateAsync({ trigramme: tri, annee, label: label.trim() || 'Congés', date_debut: debut, date_fin: f })
+    setDebut(''); setFin('')
+  }
+
+  return (
+    <div className="fixed inset-0 z-[10060] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-card rounded-2xl shadow-modal w-full max-w-md p-5 animate-in" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2.5 mb-4">
+          <span className="inline-flex items-center justify-center w-8 h-8 rounded-full text-white text-xs font-bold shrink-0"
+            style={{ background: member.couleur ?? '#4A4CC8' }}>
+            {tri.slice(0, 2).toUpperCase()}
+          </span>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-sm font-bold text-navy truncate">Absences — {member.display_name}</h3>
+            <p className="text-[11px] text-subtle">{annee} · décomptées de la capacité hebdo</p>
+          </div>
+          <button onClick={onClose} className="text-subtle hover:text-navy p-1"><X size={14} /></button>
+        </div>
+
+        <div className="flex flex-col gap-1.5 mb-4 max-h-52 overflow-y-auto">
+          {mine.length === 0 && (
+            <p className="text-xs text-subtle/50 italic py-3 text-center">Aucune absence enregistrée en {annee}</p>
+          )}
+          {mine.map(a => (
+            <div key={a.id} className="flex items-center gap-2.5 px-3 py-2 rounded-xl border border-border bg-bg/40 group/abs">
+              <CalendarOff size={12} className="text-amber-500 shrink-0" />
+              <span className="text-xs font-semibold text-navy flex-1 truncate">{a.label}</span>
+              <span className="text-xs text-subtle tabular-nums shrink-0">
+                {fmtD(a.date_debut)}{a.date_fin !== a.date_debut && ` → ${fmtD(a.date_fin)}`}
+              </span>
+              <button onClick={() => deleteAbs.mutate({ id: a.id, annee })}
+                className="max-md:opacity-100 opacity-0 group-hover/abs:opacity-100 text-subtle hover:text-rose-600 transition-all shrink-0">
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="border-t border-border pt-3">
+          <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-end">
+            <div>
+              <span className="ds-label mb-1 block">Motif</span>
+              <input value={label} onChange={e => setLabel(e.target.value)} className="ds-input text-xs" placeholder="Congés" />
+            </div>
+            <div>
+              <span className="ds-label mb-1 block">Du</span>
+              <input type="date" value={debut} onChange={e => setDebut(e.target.value)} className="ds-input text-xs" />
+            </div>
+            <div>
+              <span className="ds-label mb-1 block">Au</span>
+              <input type="date" value={fin} onChange={e => setFin(e.target.value)} min={debut || undefined} className="ds-input text-xs" />
+            </div>
+          </div>
+          <button onClick={add} disabled={!debut || createAbs.isPending}
+            className="ds-btn-primary w-full mt-2.5 flex items-center justify-center gap-1.5">
+            <Plus size={13} /> Ajouter l'absence
+          </button>
+          <p className="text-[11px] text-subtle/50 mt-2 text-center">Un seul jour ? Laisse « Au » vide. Week-ends, fériés et fermetures ne sont pas décomptés.</p>
+        </div>
       </div>
     </div>
   )

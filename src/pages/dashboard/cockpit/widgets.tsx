@@ -1,5 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { animate } from 'framer-motion'
+import { usePlanCharges } from '@/hooks/usePlanCharges'
+import { usePeriodesFermeture } from '@/hooks/usePeriodesFermeture'
+import { useAbsences } from '@/hooks/useAbsences'
+import { getJoursFeries, joursOuvresSemaine } from '@/utils/joursFeries'
+import { getWeeksForYear } from '@/pages/plancharges/utils'
+import { getISOWeek } from '@/lib/utils'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip } from 'recharts'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { cn } from '@/lib/utils'
@@ -10,7 +16,7 @@ import type { Tache } from '@/types'
 import type { UserProfile } from '@/contexts/AuthContext'
 import {
   Grid3x3, TrendingUp, CalendarClock, Euro, ShieldAlert, User, PieChart as PieChartIcon, Package,
-  BarChart3, Rows3, LineChart, Map as MapIcon,
+  BarChart3, Rows3, LineChart, Map as MapIcon, Users,
 } from 'lucide-react'
 import { SPRINTS_LIST } from '@/constants'
 import { PortfolioAvancementChart, PortfolioStatutsChart, PortfolioTendanceChart } from '@/pages/dashboard/DashboardCharts'
@@ -487,6 +493,92 @@ function RoadmapWidget(ctx: WidgetCtx) {
   )
 }
 
+// ── Charge équipe : allocation vs capacité sur les 4 prochaines semaines ──
+// Composant (et non simple fonction) car il charge ses propres données.
+function ChargeEquipeWidget({ ctx }: { ctx: WidgetCtx }) {
+  const year = new Date().getFullYear()
+  const cur  = getISOWeek(new Date()).semaine
+  const { data: plan = [] }       = usePlanCharges(year)
+  const { data: fermetures = [] } = usePeriodesFermeture(year)
+  const { data: absences = [] }   = useAbsences(year)
+
+  const rows = useMemo(() => {
+    const membres = ctx.membres.filter(m => m.actif && m.trigramme)
+    const tris = membres.map(m => m.trigramme!)
+    const feries = new Set(getJoursFeries(year).map(f => f.iso))
+    const fermRanges = fermetures.map(f => ({ debut: f.date_debut, fin: f.date_fin }))
+    const weeks = getWeeksForYear(year).filter(w => w.semaine >= cur && w.semaine < cur + 4)
+
+    const absWk = new Map<string, number>()
+    absences.forEach(a => {
+      const d = new Date(a.date_debut + 'T00:00:00')
+      const end = new Date(a.date_fin + 'T00:00:00')
+      while (d <= end) {
+        const dow = d.getDay()
+        const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+        if (dow !== 0 && dow !== 6 && !feries.has(iso)) {
+          const k = `${a.trigramme}|${getISOWeek(d).semaine}`
+          absWk.set(k, (absWk.get(k) ?? 0) + 1)
+        }
+        d.setDate(d.getDate() + 1)
+      }
+    })
+
+    const allocWk = new Map<string, number>()
+    plan.forEach(pc => {
+      const k = `${pc.assigne_a}|${pc.semaine}`
+      allocWk.set(k, (allocWk.get(k) ?? 0) + (pc.jours ?? 0))
+    })
+
+    return weeks.map(w => {
+      const jo = joursOuvresSemaine(w.lundi, feries, fermRanges)
+      let capa = 0, alloc = 0
+      const over: string[] = []
+      tris.forEach(tri => {
+        const c = Math.max(0, jo - (absWk.get(`${tri}|${w.semaine}`) ?? 0))
+        const a = allocWk.get(`${tri}|${w.semaine}`) ?? 0
+        capa += c; alloc += a
+        if (a > c) over.push(tri)
+      })
+      return { semaine: w.semaine, capa, alloc, over }
+    })
+  }, [ctx.membres, plan, fermetures, absences, year, cur])
+
+  if (!rows.length) return <EmptyHint>Plan de charges vide</EmptyHint>
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex flex-col gap-2.5 flex-1">
+        {rows.map(r => {
+          const pct = r.capa > 0 ? Math.round(r.alloc / r.capa * 100) : 0
+          return (
+            <div key={r.semaine}>
+              <div className="flex justify-between items-baseline mb-1">
+                <span className="text-xs font-semibold text-navy">S{String(r.semaine).padStart(2, '0')}
+                  {r.over.length > 0 && (
+                    <span className="ml-1.5 text-[11px] font-bold text-rose-600" title={r.over.join(', ')}>⚠ {r.over.length} surcharge{r.over.length > 1 ? 's' : ''}</span>
+                  )}
+                </span>
+                <span className={cn('text-xs tabular-nums', pct > 100 ? 'text-rose-600 font-bold' : 'text-subtle')}>
+                  {Math.round(r.alloc)}j / {Math.round(r.capa)}j · {pct}%
+                </span>
+              </div>
+              <div className="h-2 rounded-full bg-bg overflow-hidden">
+                <div className={cn('h-2 rounded-full', pct > 100 ? 'bg-rose-400' : pct > 80 ? 'bg-amber-400' : 'bg-emerald-400')}
+                  style={{ width: `${Math.min(100, pct)}%` }} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <button onClick={() => ctx.navigate('/plan-charges')}
+        className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 text-left mt-2 shrink-0">
+        Ouvrir le plan de charges →
+      </button>
+    </div>
+  )
+}
+
 // ── Registre ──────────────────────────────────────────────────────
 export const WIDGETS: WidgetDef[] = [
   { key: 'heatmap',     label: 'Santé RAG',            description: 'Produits × avancement, budget, date, blocages', icon: <Grid3x3 size={13} />,       defaultSize: { w: 6, h: 5 }, minW: 4, minH: 3, render: HeatmapWidget },
@@ -501,6 +593,7 @@ export const WIDGETS: WidgetDef[] = [
   { key: 'chart_avancement', label: 'Graphe avancement',  description: 'Barres d\'avancement par produit',            icon: <BarChart3 size={13} />,     defaultSize: { w: 6, h: 6 }, minW: 4, minH: 4, render: ctx => <PortfolioAvancementChart produits={ctx.produits} metricsMap={ctx.metricsMap} scope={ctx.scope} /> },
   { key: 'chart_statuts',    label: 'Graphe statuts',     description: 'Répartition des statuts par produit',          icon: <Rows3 size={13} />,         defaultSize: { w: 6, h: 6 }, minW: 4, minH: 4, render: ctx => <PortfolioStatutsChart produits={ctx.produits} allTaches={ctx.allTaches} /> },
   { key: 'chart_tendance',   label: 'Tendance trimestrielle', description: 'Avancement et budgets par trimestre',      icon: <LineChart size={13} />,     defaultSize: { w: 12, h: 6 }, minW: 6, minH: 4, render: ctx => <PortfolioTendanceChart produits={ctx.produits} /> },
+  { key: 'charge',      label: 'Charge équipe',        description: 'Allocation vs capacité sur 4 semaines',         icon: <Users size={13} />,         defaultSize: { w: 4, h: 5 }, minW: 3, minH: 3, render: ctx => <ChargeEquipeWidget ctx={ctx} /> },
 ]
 
 export const WIDGET_BY_KEY = new Map(WIDGETS.map(w => [w.key, w]))

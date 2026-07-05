@@ -92,31 +92,31 @@ const THEMES: Record<ThemeKey, SidebarTheme> = {
     editPanelBorder: 'border-white/10',
   },
   ardoise: {
-    id: 'ardoise', label: 'Ardoise', previewBg: '#1e293b', previewText: '#cbd5e1',
-    aside:           'bg-slate-900',
-    divider:         'border-slate-700/50',
+    id: 'ardoise', label: 'Ardoise', previewBg: '#262B4A', previewText: '#C3C8EC',
+    aside:           'bg-[#262B4A]',
+    divider:         'border-white/10',
     logoText:        'text-white',
-    navInactive:     'text-slate-300 hover:text-white',
-    navActive:       'bg-indigo-500/20 border border-indigo-500/30 text-white font-semibold',
-    navIconInactive: 'text-slate-400',
-    navIconActive:   'text-indigo-300',
-    navDot:          'bg-indigo-400',
-    navHoverBg:      'hover:bg-slate-800',
-    sectionLabel:    'text-slate-400',
-    selectorBtn:     'text-slate-300 hover:bg-slate-800',
-    selectorDropBg:  'bg-slate-800 border-slate-700',
-    selectorItemCls: 'text-slate-300 hover:text-white hover:bg-slate-700',
-    selectorItemActiveCls: 'text-white font-semibold bg-slate-700',
-    sprintChip:      'bg-slate-800',
-    sprintText:      'text-slate-300',
-    sprintBadge:     'text-emerald-400',
-    footerBorder:    'border-slate-700/50',
-    profileText:     'text-slate-300',
-    profileSub:      'text-indigo-400',
-    notesBtn:        'text-slate-300 hover:text-white hover:bg-slate-800',
-    logoutBtn:       'text-slate-400 hover:text-rose-400 hover:bg-slate-800',
-    editPanelBg:     'bg-slate-800',
-    editPanelBorder: 'border-slate-700',
+    navInactive:     'text-[#C3C8EC] hover:text-white',
+    navActive:       'bg-indigo-400/25 border border-indigo-300/40 text-white font-semibold',
+    navIconInactive: 'text-[#9BA3D6]',
+    navIconActive:   'text-indigo-200',
+    navDot:          'bg-indigo-300',
+    navHoverBg:      'hover:bg-white/8',
+    sectionLabel:    'text-[#8F97C9]',
+    selectorBtn:     'text-[#C3C8EC] hover:bg-white/8',
+    selectorDropBg:  'bg-[#303764] border-white/10',
+    selectorItemCls: 'text-[#C3C8EC] hover:text-white hover:bg-white/8',
+    selectorItemActiveCls: 'text-white font-semibold bg-white/12',
+    sprintChip:      'bg-white/8',
+    sprintText:      'text-[#C3C8EC]',
+    sprintBadge:     'text-emerald-300',
+    footerBorder:    'border-white/10',
+    profileText:     'text-[#C3C8EC]',
+    profileSub:      'text-indigo-300',
+    notesBtn:        'text-[#C3C8EC] hover:text-white hover:bg-white/8',
+    logoutBtn:       'text-[#9BA3D6] hover:text-rose-300 hover:bg-white/8',
+    editPanelBg:     'bg-[#2C3257]',
+    editPanelBorder: 'border-white/10',
   },
   clair: {
     id: 'clair', label: 'Clair', previewBg: '#f8fafc', previewText: '#1e293b',
@@ -806,19 +806,6 @@ function ProfileFooter({ t, onThemeChange, collapsed }: { t: SidebarTheme; onThe
             ))}
           </div>
 
-          {/* Apparence globale de l'app */}
-          <div className={cn('text-[11px] uppercase tracking-widest mb-2', t.sectionLabel)}>Apparence</div>
-          <button onClick={toggleDark}
-            className={cn('w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold mb-4 transition-colors', t.notesBtn)}>
-            <span className="flex items-center gap-2">
-              {darkMode ? <Moon size={13} /> : <Sun size={13} />}
-              {darkMode ? 'Mode sombre' : 'Mode clair'}
-            </span>
-            <span className={cn('relative w-8 h-4.5 rounded-full transition-colors', darkMode ? 'bg-indigo-500' : 'bg-slate-300')} style={{ height: 18 }}>
-              <span className={cn('absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white transition-transform', darkMode ? 'translate-x-4' : 'translate-x-0.5')} />
-            </span>
-          </button>
-
           {/* Thème sidebar */}
           <div className={cn('text-[11px] uppercase tracking-widest mb-2', t.sectionLabel)}>Thème du menu</div>
           <div className="flex gap-2">
@@ -894,6 +881,11 @@ function ProfileFooter({ t, onThemeChange, collapsed }: { t: SidebarTheme; onThe
               if (n === 0) return null
               return <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500" />
             })()}
+          </button>
+          <button onClick={toggleDark} title={darkMode ? 'Passer en mode clair' : 'Passer en mode sombre'}
+            className={cn('shrink-0 flex items-center justify-center rounded-lg transition-colors py-[7px]',
+              collapsed ? 'px-1.5' : 'px-2', t.notesBtn)}>
+            {darkMode ? <Sun size={14} className="shrink-0" /> : <Moon size={14} className="shrink-0" />}
           </button>
           {showNotifs && (
             <NotificationsPanel userId={user.id} onClose={() => setShowNotifs(false)} leftOffset={collapsed ? '4.5rem' : '14.5rem'} />

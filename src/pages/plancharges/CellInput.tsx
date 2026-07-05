@@ -1,12 +1,15 @@
 import { useState, useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 
-export function CellInput({ initVal, maxJours, onSave, onCancel, onTab }: {
+export type CellMove = 'next' | 'prev' | 'up' | 'down'
+
+export function CellInput({ initVal, maxJours, onSave, onCancel, onMove }: {
   initVal:  number
   maxJours: number
   onSave:   (v: number) => void
   onCancel: () => void
-  onTab?:   () => void
+  /** Navigation tableur : next/prev = semaine, up/down = membre */
+  onMove?:  (dir: CellMove) => void
 }) {
   const ref = useRef<HTMLInputElement>(null)
   const [val, setVal] = useState(initVal === 0 ? '' : String(initVal))
@@ -21,15 +24,25 @@ export function CellInput({ initVal, maxJours, onSave, onCancel, onTab }: {
     onSave(Math.min(n, maxJours))
   }
 
+  function commitAndMove(e: React.KeyboardEvent, dir: CellMove) {
+    e.preventDefault()
+    commit()
+    onMove?.(dir)
+  }
+
   return (
     <div className="relative">
       <input ref={ref} type="text" inputMode="decimal" value={val}
         onChange={e => setVal(e.target.value)}
         onBlur={commit}
         onKeyDown={e => {
-          if (e.key === 'Enter')  { e.preventDefault(); commit() }
-          if (e.key === 'Escape') { e.preventDefault(); onCancel() }
-          if (e.key === 'Tab')    { e.preventDefault(); commit(); onTab?.() }
+          if (e.key === 'Escape')     { e.preventDefault(); onCancel(); return }
+          if (e.key === 'Enter')      { commitAndMove(e, e.shiftKey ? 'prev' : 'next'); return }
+          if (e.key === 'Tab')        { commitAndMove(e, e.shiftKey ? 'prev' : 'next'); return }
+          if (e.key === 'ArrowRight') { commitAndMove(e, 'next'); return }
+          if (e.key === 'ArrowLeft')  { commitAndMove(e, 'prev'); return }
+          if (e.key === 'ArrowDown')  { commitAndMove(e, 'down'); return }
+          if (e.key === 'ArrowUp')    { commitAndMove(e, 'up');   return }
         }}
         className={cn(
           'w-full text-center text-xs font-semibold rounded outline-none py-0.5 tabular-nums border',

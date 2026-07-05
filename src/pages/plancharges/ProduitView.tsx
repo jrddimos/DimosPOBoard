@@ -19,7 +19,7 @@ export function ProduitView({
   today, annee, curYear, mode, currentISOWeek,
   quarters, activeProduits, expandedProduit, toggleProduit,
   membersByProduit, headerTotalsByQuarter,
-  getMaxJours, feriesMap, fermeturesDayMap,
+  getMaxJours, memberMaxJours, feriesMap, fermeturesDayMap,
   cellVal, cellValR, produitWkTotal, produitWkTotalR, allocForWeeks, realiseForWeeks, budgetQ,
   editCell, setEditCell, dragRange, setDragRange, dragRef, hasDragged,
   saveCell, totalWidth, canWriteProduit,
@@ -31,6 +31,7 @@ export function ProduitView({
   membersByProduit: Map<number, UserProfile[]>
   headerTotalsByQuarter: Map<number, { totAlloc: number; totBudget: number }>
   getMaxJours: (semaine: number) => number
+  memberMaxJours: (tri: string, semaine: number) => number
   feriesMap: Map<string, string>; fermeturesDayMap: Map<string, string>
   cellVal: (produit_id: number, semaine: number, assigne_a: string) => number
   cellValR: (produit_id: number, semaine: number, assigne_a: string) => number
@@ -152,7 +153,8 @@ export function ProduitView({
                 const isInDrag = !isReadOnly && dragRange !== null
                   && dragRange.produit_id === p.id && dragRange.assigne_a === assigne_a
                   && semaine >= dragRange.min && semaine <= dragRange.max
-                const maxJours = getMaxJours(semaine)
+                // Capacité individuelle (absences déduites) pour les lignes membre
+                const maxJours = assigne_a ? memberMaxJours(assigne_a, semaine) : getMaxJours(semaine)
 
                 const isToday = semaine === currentISOWeek && annee === curYear
 
@@ -272,15 +274,28 @@ export function ProduitView({
                           maxJours={maxJours}
                           onSave={val => saveCell(p.id, semaine, assigne_a, val)}
                           onCancel={() => setEditCell(null)}
-                          onTab={() => {
-                            const allWeeks = quarters.flatMap(qt => qt.weeks)
-                            const idx = allWeeks.findIndex(w => w.semaine === semaine)
-                            for (let i = idx + 1; i < allWeeks.length; i++) {
-                              if (getMaxJours(allWeeks[i].semaine) > 0) {
-                                setEditCell({ produit_id: p.id, semaine: allWeeks[i].semaine, assigne_a })
-                                return
+                          onMove={dir => {
+                            // Navigation tableur : next/prev = semaine suivante/précédente
+                            // (en sautant les semaines fermées), up/down = membre du produit
+                            if (dir === 'next' || dir === 'prev') {
+                              const allWeeks = quarters.flatMap(qt => qt.weeks)
+                              const idx = allWeeks.findIndex(w => w.semaine === semaine)
+                              const step = dir === 'next' ? 1 : -1
+                              for (let i = idx + step; i >= 0 && i < allWeeks.length; i += step) {
+                                if (getMaxJours(allWeeks[i].semaine) > 0) {
+                                  setEditCell({ produit_id: p.id, semaine: allWeeks[i].semaine, assigne_a })
+                                  return
+                                }
                               }
+                              return
                             }
+                            if (!assigne_a) return
+                            const tris = members2.map(m => m.trigramme ?? '').filter(Boolean)
+                            const mi = tris.indexOf(assigne_a)
+                            if (mi === -1) return
+                            const ni = dir === 'down' ? mi + 1 : mi - 1
+                            if (ni < 0 || ni >= tris.length) return
+                            setEditCell({ produit_id: p.id, semaine, assigne_a: tris[ni] })
                           }}
                         />
                       </div>
