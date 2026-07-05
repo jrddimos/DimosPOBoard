@@ -52,7 +52,7 @@ export function CriteresEditor({ items, onChange, readOnly = false, compact = fa
               style={{ width: `${pct}%` }}
             />
           </div>
-          <span className="text-[10px] text-subtle tabular-nums">{doneCount}/{items.length}</span>
+          <span className="text-[11px] text-subtle tabular-nums">{doneCount}/{items.length}</span>
         </div>
       )}
 
@@ -99,7 +99,7 @@ export function CriteresEditor({ items, onChange, readOnly = false, compact = fa
             <button
               onClick={() => remove(item.id)}
               className={cn(
-                'opacity-0 group-hover:opacity-100 transition-opacity text-subtle hover:text-red shrink-0',
+                'max-md:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity text-subtle hover:text-red shrink-0',
                 compact ? 'mt-0.5' : 'mt-0.5',
               )}
             >
@@ -124,7 +124,7 @@ export function CriteresEditor({ items, onChange, readOnly = false, compact = fa
             className="flex-1 text-xs bg-transparent border-none outline-none text-subtle placeholder:text-subtle/50"
           />
           {newText.trim() && (
-            <button onClick={add} className="text-[10px] text-purple font-semibold shrink-0 hover:underline">
+            <button onClick={add} className="text-[11px] text-purple font-semibold shrink-0 hover:underline">
               Ajouter
             </button>
           )}

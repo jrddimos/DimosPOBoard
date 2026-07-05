@@ -34,7 +34,7 @@ export function ToastContainer() {
               'min-w-[280px] max-w-sm animate-in',
               t.type === 'success' && 'bg-green  text-white',
               t.type === 'error'   && 'bg-red    text-white',
-              t.type === 'info'    && 'bg-navy   text-white',
+              t.type === 'info'    && 'bg-brand   text-white',
             )}
           >
             {t.type === 'success' && <CheckCircle size={15} className="shrink-0"/>}

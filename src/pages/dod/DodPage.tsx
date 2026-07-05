@@ -150,7 +150,7 @@ function CategoriesManager({ categories, items, produitId, qc, toast }: {
       ) : (
         <div className="flex flex-col gap-1.5">
           {categories.map(cat => (
-            <div key={cat.id} className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-border">
+            <div key={cat.id} className="flex items-center gap-2 px-3 py-2 bg-card rounded-lg border border-border">
               <span className="flex-1 text-sm font-medium text-navy truncate">{cat.nom}</span>
               <span className="text-xs text-subtle">{countFor(cat.nom)} critère{countFor(cat.nom) !== 1 ? 's' : ''}</span>
               <button onClick={() => rename(cat)} title="Renommer" className="p-1.5 rounded-lg text-subtle hover:text-navy hover:bg-bg transition-colors">
@@ -272,7 +272,7 @@ function ReferentielTab() {
                 ) : (
                   <div key={item.id} className={cn(
                     'flex items-start gap-3 px-3 py-2.5 rounded-xl border transition-all',
-                    item.actif ? 'bg-white border-border' : 'bg-bg border-border/50 opacity-60'
+                    item.actif ? 'bg-card border-border' : 'bg-bg border-border/50 opacity-60'
                   )}>
                     <span className="font-mono text-xs font-bold text-indigo-600 shrink-0 mt-0.5 w-16">{item.code}</span>
                     <div className="flex-1 min-w-0">
@@ -350,11 +350,11 @@ function CouvertureTab() {
       <div className="flex items-center gap-3 flex-wrap">
         <button onClick={() => setShowFilters(v => !v)}
           className={cn('relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all shrink-0',
-            showFilters ? 'bg-navy text-white border-navy' : 'bg-white text-subtle border-border hover:text-navy')}>
+            showFilters ? 'bg-brand text-white border-navy' : 'bg-card text-subtle border-border hover:text-navy')}>
           <SlidersHorizontal size={13} />
           Filtres
           {!showFilters && (search || filter !== 'all') && (
-            <span className="absolute -top-1.5 -right-1.5 bg-indigo-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+            <span className="absolute -top-1.5 -right-1.5 bg-indigo-500 text-white text-[11px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
               {(search ? 1 : 0) + (filter !== 'all' ? 1 : 0)}
             </span>
           )}

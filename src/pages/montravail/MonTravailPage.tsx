@@ -31,7 +31,7 @@ function StatusPill({ value, onChange }: { value: Statut; onChange: (s: Statut) 
   return (
     <select value={value} onChange={e => onChange(e.target.value as Statut)}
       className={cn(
-        'text-[11px] font-semibold px-2.5 py-1 rounded-full border cursor-pointer transition-all',
+        'text-xs font-semibold px-2.5 py-1 rounded-full border cursor-pointer transition-all',
         'focus:outline-none focus:ring-2 focus:ring-offset-1',
         cfg.bg, cfg.text, cfg.border
       )}>
@@ -191,7 +191,7 @@ export default function MonTravailPage() {
 
         {/* ── Profil + KPI ───────────────────────────────── */}
         {selMembre && membreSelObj && (
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4 bg-white border border-border rounded-2xl px-5 py-4 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4 bg-card border border-border rounded-2xl px-5 py-4 shadow-sm">
             {/* Avatar */}
             <div className="flex items-center gap-3 shrink-0">
               {membreSelObj.avatar_url ? (
@@ -235,7 +235,7 @@ export default function MonTravailPage() {
 
         {/* ── Pas de membre sélectionné ──────────────────── */}
         {!selMembre && (
-          <div className="bg-white border border-border rounded-2xl flex flex-col items-center py-14 text-subtle gap-3 shadow-sm">
+          <div className="bg-card border border-border rounded-2xl flex flex-col items-center py-14 text-subtle gap-3 shadow-sm">
             <div className="w-16 h-16 rounded-full bg-bg flex items-center justify-center">
               <User size={28} className="opacity-30" />
             </div>
@@ -256,7 +256,7 @@ export default function MonTravailPage() {
                   <Zap size={15} className="text-indigo-400 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-indigo-800 font-bold text-sm">Sprint(s) en cours</span>
+                      <span className="text-indigo-700 font-bold text-sm">Sprint(s) en cours</span>
                       <span className="ml-auto text-xs text-indigo-400 tabular-nums">
                         {sprintFait}/{sprintTaches.length} terminées
                       </span>
@@ -310,7 +310,7 @@ export default function MonTravailPage() {
             )}
 
             {myTaches.length === 0 && mySubTaches.length === 0 && (
-              <div className="bg-white border border-border rounded-2xl flex items-center justify-center py-12 text-subtle text-sm shadow-sm">
+              <div className="bg-card border border-border rounded-2xl flex items-center justify-center py-12 text-subtle text-sm shadow-sm">
                 Aucune tâche assignée à {selMembre}
               </div>
             )}
@@ -328,19 +328,19 @@ export default function MonTravailPage() {
                   Tâches à prendre
                 </span>
                 {unassignedTaches.length > 0 && (
-                  <span className="bg-purple/10 text-purple text-[10px] font-bold px-2 py-0.5 rounded-full">
+                  <span className="bg-purple/10 text-purple text-[11px] font-bold px-2 py-0.5 rounded-full">
                     {unassignedTaches.length}
                   </span>
                 )}
-                <span className="text-[10px] text-subtle font-medium ml-1">sprint(s) en cours</span>
+                <span className="text-[11px] text-subtle font-medium ml-1">sprint(s) en cours</span>
               </div>
               <button onClick={() => setShowFilters(v => !v)}
                 className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all relative',
-                  showFilters ? 'bg-navy text-white border-navy' : 'bg-white text-subtle border-border hover:text-navy hover:border-navy/30')}>
+                  showFilters ? 'bg-brand text-white border-navy' : 'bg-card text-subtle border-border hover:text-navy hover:border-navy/30')}>
                 <SlidersHorizontal size={12} />
                 Filtres
                 {!showFilters && hasFilters && (
-                  <span className="absolute -top-1.5 -right-1.5 bg-purple text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                  <span className="absolute -top-1.5 -right-1.5 bg-purple text-white text-[11px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
                     {(filterProduit !== null ? 1 : 0) + (filterEquipe ? 1 : 0) + (filterMetier ? 1 : 0)}
                   </span>
                 )}
@@ -349,14 +349,14 @@ export default function MonTravailPage() {
 
             {/* Filtres */}
             {showFilters && (
-              <div className="bg-white border border-border rounded-xl p-3 flex flex-col gap-2.5 shadow-sm">
+              <div className="bg-card border border-border rounded-xl p-3 flex flex-col gap-2.5 shadow-sm">
                 {produitsAccessibles.length > 1 && (
                   <div className="flex flex-wrap gap-1.5 items-center">
-                    <span className="text-[11px] text-subtle font-semibold shrink-0 w-14">Produit</span>
+                    <span className="text-xs text-subtle font-semibold shrink-0 w-14">Produit</span>
                     {produitsAccessibles.map(p => (
                       <button key={p.id} onClick={() => setFilterProduit(filterProduit === p.id ? null : p.id)}
                         className={cn('flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-all',
-                          filterProduit === p.id ? 'text-white border-transparent' : 'bg-white text-subtle border-border hover:text-navy')}
+                          filterProduit === p.id ? 'text-white border-transparent' : 'bg-card text-subtle border-border hover:text-navy')}
                         style={filterProduit === p.id ? { background: p.couleur ?? '#4A4CC8' } : {}}>
                         <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: p.couleur ?? '#4A4CC8' }} />
                         {p.nom}
@@ -367,11 +367,11 @@ export default function MonTravailPage() {
                 <div className="flex flex-wrap gap-1.5 items-center">
                   {sprintEquipes.length > 0 && (
                     <>
-                      <span className="text-[11px] text-subtle font-semibold shrink-0 w-14">Équipe</span>
+                      <span className="text-xs text-subtle font-semibold shrink-0 w-14">Équipe</span>
                       {sprintEquipes.map(eq => (
                         <button key={eq} onClick={() => setFilterEquipe(filterEquipe === eq ? '' : eq)}
                           className={cn('text-xs px-2.5 py-1 rounded-full border transition-all',
-                            filterEquipe === eq ? 'bg-navy text-white border-navy' : 'bg-white text-subtle border-border hover:border-navy/30 hover:text-navy')}>
+                            filterEquipe === eq ? 'bg-brand text-white border-navy' : 'bg-card text-subtle border-border hover:border-navy/30 hover:text-navy')}>
                           {eq}
                         </button>
                       ))}
@@ -379,11 +379,11 @@ export default function MonTravailPage() {
                   )}
                   {sprintMetiers.length > 0 && (
                     <>
-                      <span className="text-[11px] text-subtle font-semibold shrink-0 w-14">Métier</span>
+                      <span className="text-xs text-subtle font-semibold shrink-0 w-14">Métier</span>
                       {sprintMetiers.map(mt => (
                         <button key={mt} onClick={() => setFilterMetier(filterMetier === mt ? '' : mt)}
                           className={cn('text-xs px-2.5 py-1 rounded-full border transition-all',
-                            filterMetier === mt ? 'bg-purple text-white border-purple' : 'bg-white text-subtle border-border hover:border-purple/30 hover:text-purple')}>
+                            filterMetier === mt ? 'bg-purple text-white border-purple' : 'bg-card text-subtle border-border hover:border-purple/30 hover:text-purple')}>
                           {mt}
                         </button>
                       ))}
@@ -410,7 +410,7 @@ export default function MonTravailPage() {
                 ))}
               </div>
             ) : (
-              <div className="bg-white border border-border rounded-2xl flex flex-col items-center py-10 gap-2 text-subtle shadow-sm">
+              <div className="bg-card border border-border rounded-2xl flex flex-col items-center py-10 gap-2 text-subtle shadow-sm">
                 <CheckCircle2 size={28} className="text-green/50" />
                 <p className="text-sm font-medium text-navy/50">
                   {hasFilters ? 'Aucune tâche avec ces filtres' : 'Toutes les tâches sont assignées'}
@@ -425,7 +425,7 @@ export default function MonTravailPage() {
         )}
 
         {!sprintActif && (
-          <div className="bg-white border border-border rounded-2xl flex flex-col items-center py-12 text-subtle gap-2 shadow-sm">
+          <div className="bg-card border border-border rounded-2xl flex flex-col items-center py-12 text-subtle gap-2 shadow-sm">
             <Zap size={28} className="opacity-20" />
             <p className="text-sm font-medium">Aucun sprint en cours</p>
             <p className="text-xs">Les tâches disponibles apparaîtront ici lors d'un sprint actif</p>
@@ -443,7 +443,7 @@ function AvailableTaskCard({ task, canAssign, onAssign, produit }: {
   produit: { nom: string; couleur?: string | null } | null
 }) {
   return (
-    <div className="bg-white border border-dashed border-purple/25 rounded-xl px-4 py-3 flex items-start gap-3 hover:border-purple/50 hover:shadow-sm transition-all">
+    <div className="bg-card border border-dashed border-purple/25 rounded-xl px-4 py-3 flex items-start gap-3 hover:border-purple/50 hover:shadow-sm transition-all">
       {/* Bande produit */}
       {produit && (
         <div className="w-0.5 self-stretch rounded-full shrink-0 mt-0.5"
@@ -452,23 +452,23 @@ function AvailableTaskCard({ task, canAssign, onAssign, produit }: {
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1 flex-wrap">
-          <span className="text-[11px] font-bold text-purple/80 shrink-0">{task.id_tache}</span>
+          <span className="text-xs font-bold text-purple/80 shrink-0">{task.id_tache}</span>
           {produit && (
-            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full"
+            <span className="text-[11px] font-medium px-1.5 py-0.5 rounded-full"
               style={{ background: (produit.couleur ?? '#4A4CC8') + '20', color: produit.couleur ?? '#4A4CC8' }}>
               {produit.nom}
             </span>
           )}
           {task.effort_j != null && (
-            <span className="text-[11px] font-bold text-blue ml-auto">{task.effort_j}j</span>
+            <span className="text-xs font-bold text-blue ml-auto">{task.effort_j}j</span>
           )}
         </div>
         <p className="text-sm font-medium text-navy leading-snug mb-2">{task.titre}</p>
         <div className="flex flex-wrap gap-1.5">
           {task.epic && <EpicBadge value={task.epic} />}
           {task.jalon && <JalonBadge value={task.jalon} />}
-          {task.equipe && <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-bg border border-border text-subtle">{task.equipe}</span>}
-          {task.metier && <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-bg border border-border text-subtle">{task.metier}</span>}
+          {task.equipe && <span className="text-[11px] px-1.5 py-0.5 rounded-md bg-bg border border-border text-subtle">{task.equipe}</span>}
+          {task.metier && <span className="text-[11px] px-1.5 py-0.5 rounded-md bg-bg border border-border text-subtle">{task.metier}</span>}
         </div>
       </div>
 
@@ -501,7 +501,7 @@ function TaskRow({ task, subs, subsSelf, expanded, onToggle, onStatut, onSubStat
 
   return (
     <div className={cn(
-      'bg-white border rounded-xl overflow-hidden shadow-sm transition-all',
+      'bg-card border rounded-xl overflow-hidden shadow-sm transition-all',
       isSprint ? 'border-l-[3px]' : 'border-border/70',
       isSprint && task.statut === 'Bloqué'   ? 'border-rose-200'    :
       isSprint && task.statut === 'Fait'     ? 'border-emerald-200' :
@@ -518,17 +518,17 @@ function TaskRow({ task, subs, subsSelf, expanded, onToggle, onStatut, onSubStat
         <div className="flex-1 min-w-0">
           {/* Meta ligne */}
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span className={cn('text-[11px] font-bold shrink-0', isDone ? 'text-subtle/60' : 'text-purple/80')}>
+            <span className={cn('text-xs font-bold shrink-0', isDone ? 'text-subtle/60' : 'text-purple/80')}>
               {task.id_tache}
             </span>
             {produit && (
-              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0"
+              <span className="text-[11px] font-medium px-1.5 py-0.5 rounded-full shrink-0"
                 style={{ background: (produit.couleur ?? '#4A4CC8') + '18', color: produit.couleur ?? '#4A4CC8' }}>
                 {produit.nom}
               </span>
             )}
             {task.effort_j != null && (
-              <span className={cn('text-[11px] font-bold ml-auto', isDone ? 'text-subtle/50' : 'text-blue')}>
+              <span className={cn('text-xs font-bold ml-auto', isDone ? 'text-subtle/50' : 'text-blue')}>
                 {task.effort_j}j
               </span>
             )}
@@ -564,7 +564,7 @@ function TaskRow({ task, subs, subsSelf, expanded, onToggle, onStatut, onSubStat
           <div className="flex-1 h-1 bg-border/50 rounded-full overflow-hidden">
             <div className="h-full bg-green rounded-full transition-all" style={{ width: `${pct}%` }} />
           </div>
-          <span className="text-[10px] text-subtle tabular-nums">{done}/{subs.length} sous-tâches</span>
+          <span className="text-[11px] text-subtle tabular-nums">{done}/{subs.length} sous-tâches</span>
         </div>
       )}
 
@@ -581,12 +581,12 @@ function TaskRow({ task, subs, subsSelf, expanded, onToggle, onStatut, onSubStat
               )}>
                 <div className={cn('w-1.5 h-1.5 rounded-full shrink-0',
                   sDone ? 'bg-emerald-300' : s.statut === 'En cours' ? 'bg-amber-300' : s.statut === 'Bloqué' ? 'bg-rose-300' : 'bg-slate-200')} />
-                <span className="text-[10px] text-subtle w-16 shrink-0">{s.id_tache}</span>
+                <span className="text-[11px] text-subtle w-16 shrink-0">{s.id_tache}</span>
                 <span className={cn('text-xs flex-1 truncate', sDone ? 'line-through text-subtle/50' : 'text-navy/80')}>
                   {s.titre}
                 </span>
                 {s.assigne_a && (
-                  <span className="text-[10px] bg-purple/10 text-purple px-1.5 py-0.5 rounded-full shrink-0">
+                  <span className="text-[11px] bg-purple/10 text-purple px-1.5 py-0.5 rounded-full shrink-0">
                     {s.assigne_a}
                   </span>
                 )}

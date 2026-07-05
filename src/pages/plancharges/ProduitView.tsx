@@ -48,7 +48,7 @@ export function ProduitView({
   canWriteProduit: (produit_id: number) => boolean
 }) {
   return (
-    <div className="bg-white border border-border rounded-2xl overflow-hidden shadow-sm">
+    <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
       <div className="overflow-x-auto">
         <table className="text-xs" style={{ minWidth: totalWidth, borderCollapse: 'separate', borderSpacing: 0 }}>
           <thead>
@@ -56,7 +56,7 @@ export function ProduitView({
             <tr className="border-b border-border/40 bg-slate-50">
               <th className="sticky left-0 z-20 bg-slate-50 text-left px-4 py-2 border-r border-border"
                 style={{ width: COL_PRODUIT }} rowSpan={2}>
-                <span className="text-[10px] text-subtle uppercase tracking-wider">Produit / Membre</span>
+                <span className="text-[11px] text-subtle uppercase tracking-wider">Produit / Membre</span>
               </th>
 
               {quarters.map(qt => {
@@ -68,7 +68,7 @@ export function ProduitView({
                     <div className="flex items-center justify-center gap-2">
                       <span className="font-bold text-navy text-xs">{qt.label}</span>
                       {totBudget > 0 && (
-                        <span className="text-[10px] text-subtle tabular-nums">
+                        <span className="text-[11px] text-subtle tabular-nums">
                           {fmtJ(totAlloc) || '0j'} / {fmtJ(totBudget)} ({pct}%)
                         </span>
                       )}
@@ -79,7 +79,7 @@ export function ProduitView({
 
               {/* Total année — rowSpan=2 */}
               <th rowSpan={2} style={{ width: COL_Q }}
-                className="text-center py-2 text-[10px] font-bold text-slate-400 bg-slate-50 border-l border-border">
+                className="text-center py-2 text-[11px] font-bold text-slate-400 bg-slate-50 border-l border-border">
                 Total<br />année
               </th>
             </tr>
@@ -105,8 +105,8 @@ export function ProduitView({
                         : ''
                       )}>
                       {isToday && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-5 h-0.5 bg-yellow rounded-b-full" />}
-                      <div className="text-[9px] text-white/50">{fmtDayMonth(w.lundi)}</div>
-                      <div className={cn('text-[10px]', isToday && 'font-extrabold text-yellow')}>
+                      <div className="text-[10px] text-white/50">{fmtDayMonth(w.lundi)}</div>
+                      <div className={cn('text-[11px]', isToday && 'font-extrabold text-yellow')}>
                         S{String(w.semaine).padStart(2,'0')}
                       </div>
                       <div className={cn('text-[8px] font-bold mt-0.5',
@@ -117,11 +117,11 @@ export function ProduitView({
                   )
                 }),
                 <th key={`${qt.q}-tot-a`} style={{ width: COL_Q_ALLOC }}
-                  className="text-center py-2 border-l border-white/30 border-r border-white/10 text-[10px] font-bold text-white/90 bg-white/15">
+                  className="text-center py-2 border-l border-white/30 border-r border-white/10 text-[11px] font-bold text-white/90 bg-white/15">
                   {mode === 'realise' ? 'Réalisé' : mode === 'comparaison' ? 'P / R' : 'Saisi'}
                 </th>,
                 <th key={`${qt.q}-tot-r`} style={{ width: COL_Q_RESTE }}
-                  className="text-center py-2 border-r border-white/10 text-[10px] font-bold text-white/60 bg-white/15">
+                  className="text-center py-2 border-r border-white/10 text-[11px] font-bold text-white/60 bg-white/15">
                   {mode === 'realise' ? 'Écart' : 'Reste'}
                 </th>,
               ])}
@@ -176,11 +176,11 @@ export function ProduitView({
                   return (
                     <td key={`${semaine}-${isTotal ? 'tot' : assigne_a}`}
                       style={{ width: COL_WK, background: bg }}
-                      className={cn('text-center px-1 py-1.5 border-r border-b border-[#d1d5db]',
+                      className={cn('text-center px-1 py-1.5 border-r border-b border-border',
                         isToday && 'ring-1 ring-inset ring-yellow/40')}>
                       {displayVal
-                        ? <span className="text-[11px] font-bold tabular-nums" style={{ color: textCol }}>{displayVal}</span>
-                        : <span className="text-[9px]" style={{ color: '#e2e8f0' }}>·</span>}
+                        ? <span className="text-xs font-bold tabular-nums" style={{ color: textCol }}>{displayVal}</span>
+                        : <span className="text-[10px]" style={{ color: '#e2e8f0' }}>·</span>}
                     </td>
                   )
                 }
@@ -192,10 +192,10 @@ export function ProduitView({
                   const barHeightPctTot = v > 0 ? Math.max(14, Math.round(ratio * 100)) : 0
                   return (
                     <td key={`${semaine}-tot`} style={{ width: COL_WK }}
-                      className={cn('p-0 border-r border-b border-[#d1d5db]',
+                      className={cn('p-0 border-r border-b border-border',
                         isToday && 'ring-1 ring-inset ring-yellow/40')}>
                       <div className="relative h-9 flex flex-col items-center justify-end px-1 pb-0.5 bg-slate-50">
-                        <span className="text-[9px] font-bold leading-none mb-0.5 tabular-nums opacity-70"
+                        <span className="text-[10px] font-bold leading-none mb-0.5 tabular-nums opacity-70"
                           style={{ color: isGreenTot ? '#166534' : '#1e3a8a' }}>
                           {v > 0 ? fmtJ(v) : ''}
                         </span>
@@ -211,20 +211,20 @@ export function ProduitView({
                 if (maxJours === 0 || noBudget) {
                   return (
                     <td key={`${semaine}-${assigne_a}`} style={{ width: COL_WK }}
-                      className="text-center px-1 py-1.5 border-r border-b border-[#d1d5db] bg-[#fee2e2] cursor-not-allowed" />
+                      className="text-center px-1 py-1.5 border-r border-b border-border bg-rose-100 cursor-not-allowed" />
                   )
                 }
 
                 if (isInDrag) {
                   return (
                     <td key={`${semaine}-${assigne_a}`} style={{ width: COL_WK }}
-                      className="text-center px-1 py-1.5 border-r border-b border-[#d1d5db] bg-indigo-100/50 ring-2 ring-inset ring-indigo-400 cursor-crosshair"
+                      className="text-center px-1 py-1.5 border-r border-b border-border bg-indigo-100/50 ring-2 ring-inset ring-indigo-400 cursor-crosshair"
                       onMouseEnter={() => {
                         if (!dragRef.current) return
                         hasDragged.current = true
                         setDragRange(prev => prev ? { ...prev, min: Math.min(prev.min, semaine), max: Math.max(prev.max, semaine) } : null)
                       }}>
-                      <span className="text-[11px] font-bold tabular-nums text-indigo-600">{v > 0 ? fmtJ(v) : '·'}</span>
+                      <span className="text-xs font-bold tabular-nums text-indigo-600">{v > 0 ? fmtJ(v) : '·'}</span>
                     </td>
                   )
                 }
@@ -243,7 +243,7 @@ export function ProduitView({
                     title={isReadOnly
                       ? 'Lecture seule — vous n\'avez pas les droits d\'édition sur ce produit'
                       : 'Clic : saisir une valeur · Glisser sur plusieurs semaines : remplissage groupé'}
-                    className={cn('p-0 border-r border-b border-[#d1d5db] select-none transition-all',
+                    className={cn('p-0 border-r border-b border-border select-none transition-all',
                       isReadOnly ? 'cursor-default' : 'cursor-pointer',
                       isToday && 'ring-1 ring-inset ring-yellow/50'
                     )}
@@ -286,7 +286,7 @@ export function ProduitView({
                       </div>
                     ) : (
                       <div className="relative h-9 flex flex-col items-center justify-end px-1 pb-0.5" style={{ background: trackBg }}>
-                        <span className="text-[9px] font-bold leading-none mb-0.5 tabular-nums pointer-events-none" style={{ color: textColor }}>
+                        <span className="text-[10px] font-bold leading-none mb-0.5 tabular-nums pointer-events-none" style={{ color: textColor }}>
                           {v > 0 ? fmtJ(v) : ''}
                         </span>
                         {v > 0 ? (
@@ -316,8 +316,8 @@ export function ProduitView({
                 if (bq === 0 && !p.budget_etp) {
                   return (
                     <td key={`${qt.q}-collapsed`} colSpan={2} style={{ width: COL_Q_ALLOC + COL_Q_RESTE }}
-                      className="px-3 py-2 border-r border-b border-[#d1d5db] bg-slate-300 align-middle text-center">
-                      <span className="text-[10px] text-slate-600 font-medium italic select-none">Aucun budget</span>
+                      className="px-3 py-2 border-r border-b border-border bg-slate-300 align-middle text-center">
+                      <span className="text-[11px] text-slate-600 font-medium italic select-none">Aucun budget</span>
                     </td>
                   )
                 }
@@ -326,24 +326,24 @@ export function ProduitView({
                 if (mode === 'realise') {
                   return (
                     <td key={`${qt.q}-collapsed`} colSpan={2} style={{ width: COL_Q_ALLOC + COL_Q_RESTE }}
-                      className="px-3 py-2 border-r border-b border-[#d1d5db] bg-slate-300 align-middle">
+                      className="px-3 py-2 border-r border-b border-border bg-slate-300 align-middle">
                       <div className="space-y-1">
                         <div className="flex items-center justify-between tabular-nums">
-                          <span className={cn('text-[11px] font-bold', overR ? 'text-rose-600' : 'text-emerald-600')}>
+                          <span className={cn('text-xs font-bold', overR ? 'text-rose-600' : 'text-emerald-600')}>
                             {realQ > 0 ? fmtJ(realQ) : '0j'}
                           </span>
                           {resteR !== null && (
-                            <span className={cn('text-[10px] font-semibold', resteClass(resteR))}>
+                            <span className={cn('text-[11px] font-semibold', resteClass(resteR))}>
                               {fmtReste(resteR)}
                             </span>
                           )}
                         </div>
-                        <div className="h-1.5 rounded-full bg-[#e5e7eb] overflow-hidden">
+                        <div className="h-1.5 rounded-full bg-border overflow-hidden">
                           <div className={cn('h-full rounded-full transition-all',
                             overR ? 'bg-rose-400' : realQ === bq ? 'bg-emerald-400' : 'bg-emerald-300'
                           )} style={{ width: `${pctR}%` }} />
                         </div>
-                        <div className="text-[9px] text-subtle/50 tabular-nums text-right">/ {fmtJ(bq)}</div>
+                        <div className="text-[10px] text-subtle/50 tabular-nums text-right">/ {fmtJ(bq)}</div>
                       </div>
                     </td>
                   )
@@ -353,27 +353,27 @@ export function ProduitView({
                 if (mode === 'comparaison') {
                   return (
                     <td key={`${qt.q}-collapsed`} colSpan={2} style={{ width: COL_Q_ALLOC + COL_Q_RESTE }}
-                      className="px-2.5 py-2 border-r border-b border-[#d1d5db] bg-slate-300 align-middle">
+                      className="px-2.5 py-2 border-r border-b border-border bg-slate-300 align-middle">
                       <div className="space-y-1.5">
                         <div>
                           <div className="flex items-center justify-between tabular-nums mb-0.5">
-                            <span className="text-[9px] text-indigo-600 font-bold">{allocQ > 0 ? fmtJ(allocQ) : '0j'}</span>
-                            {reste !== null && <span className={cn('text-[9px]', resteClass(reste))}>{fmtReste(reste)}</span>}
+                            <span className="text-[10px] text-indigo-600 font-bold">{allocQ > 0 ? fmtJ(allocQ) : '0j'}</span>
+                            {reste !== null && <span className={cn('text-[10px]', resteClass(reste))}>{fmtReste(reste)}</span>}
                           </div>
-                          <div className="h-1 rounded-full bg-[#e5e7eb] overflow-hidden">
+                          <div className="h-1 rounded-full bg-border overflow-hidden">
                             <div className={cn('h-full rounded-full', over ? 'bg-rose-400' : 'bg-indigo-400')} style={{ width: `${pct}%` }} />
                           </div>
                         </div>
                         <div>
                           <div className="flex items-center justify-between tabular-nums mb-0.5">
-                            <span className="text-[9px] text-emerald-600 font-bold">{realQ > 0 ? fmtJ(realQ) : '0j'}</span>
-                            {resteR !== null && <span className={cn('text-[9px]', resteClass(resteR))}>{fmtReste(resteR)}</span>}
+                            <span className="text-[10px] text-emerald-600 font-bold">{realQ > 0 ? fmtJ(realQ) : '0j'}</span>
+                            {resteR !== null && <span className={cn('text-[10px]', resteClass(resteR))}>{fmtReste(resteR)}</span>}
                           </div>
-                          <div className="h-1 rounded-full bg-[#e5e7eb] overflow-hidden">
+                          <div className="h-1 rounded-full bg-border overflow-hidden">
                             <div className={cn('h-full rounded-full', overR ? 'bg-rose-400' : 'bg-emerald-400')} style={{ width: `${pctR}%` }} />
                           </div>
                         </div>
-                        <div className="text-[9px] text-subtle/40 text-right tabular-nums">/ {fmtJ(bq)}</div>
+                        <div className="text-[10px] text-subtle/40 text-right tabular-nums">/ {fmtJ(bq)}</div>
                       </div>
                     </td>
                   )
@@ -382,22 +382,22 @@ export function ProduitView({
                 // Mode prévisionnel (défaut)
                 return (
                   <td key={`${qt.q}-collapsed`} colSpan={2} style={{ width: COL_Q_ALLOC + COL_Q_RESTE }}
-                    className="px-3 py-2 border-r border-b border-[#d1d5db] bg-slate-300 align-middle">
+                    className="px-3 py-2 border-r border-b border-border bg-slate-300 align-middle">
                     <div className="space-y-1">
                       <div className="flex items-center justify-between tabular-nums">
-                        <span className={cn('text-[11px] font-bold', over ? 'text-rose-600' : 'text-indigo-600')}>
+                        <span className={cn('text-xs font-bold', over ? 'text-rose-600' : 'text-indigo-600')}>
                           {allocQ > 0 ? fmtJ(allocQ) : '0j'}
                         </span>
-                        <span className={cn('text-[10px] font-semibold', resteClass(reste))}>
+                        <span className={cn('text-[11px] font-semibold', resteClass(reste))}>
                           {reste !== null ? fmtReste(reste) : ''}
                         </span>
                       </div>
-                      <div className="h-1.5 rounded-full bg-[#e5e7eb] overflow-hidden">
+                      <div className="h-1.5 rounded-full bg-border overflow-hidden">
                         <div className={cn('h-full rounded-full transition-all',
                           over ? 'bg-rose-400' : allocQ === bq ? 'bg-emerald-400' : 'bg-indigo-400'
                         )} style={{ width: `${pct}%` }} />
                       </div>
-                      <div className="text-[9px] text-subtle/50 tabular-nums text-right">/ {fmtJ(bq)}</div>
+                      <div className="text-[10px] text-subtle/50 tabular-nums text-right">/ {fmtJ(bq)}</div>
                     </div>
                   </td>
                 )
@@ -407,18 +407,18 @@ export function ProduitView({
                 <React.Fragment key={`frag-${p.id}`}>
                   {/* ── Ligne produit ─────────────────────── */}
                   <tr
-                    className="border-b border-border/20 bg-white hover:bg-bg/30 transition-colors">
+                    className="border-b border-border/20 bg-card hover:bg-bg/30 transition-colors">
                     {/* Sticky : nom + toggle membres */}
-                    <td className="sticky left-0 z-10 bg-white px-3 py-2 border-r border-border/30"
+                    <td className="sticky left-0 z-10 bg-card px-3 py-2 border-r border-border/30"
                       style={{ width: COL_PRODUIT }}>
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.couleur ?? '#4A4CC8' }} />
-                        <span className="font-semibold text-navy text-[11px] flex-1 truncate" title={p.nom}>{p.nom}</span>
+                        <span className="font-semibold text-navy text-xs flex-1 truncate" title={p.nom}>{p.nom}</span>
 
                         {/* Badge reste annuel */}
                         {totReste !== null && (
                           <span className={cn(
-                            'text-[10px] tabular-nums shrink-0 px-1.5 py-0.5 rounded-full',
+                            'text-[11px] tabular-nums shrink-0 px-1.5 py-0.5 rounded-full',
                             totReste < 0  ? 'bg-rose-50 text-rose-600 font-bold' :
                             totReste === 0 ? 'bg-emerald-50 text-emerald-600 font-semibold' :
                                             'bg-amber-50 text-amber-600 font-semibold'
@@ -432,20 +432,20 @@ export function ProduitView({
                           <button onClick={() => toggleProduit(p.id)}
                             className="flex items-center gap-0.5 text-subtle hover:text-indigo-600 transition-colors shrink-0 ml-1">
                             <Users size={11} />
-                            <span className="text-[10px]">{members.length}</span>
+                            <span className="text-[11px]">{members.length}</span>
                             <ChevronDown size={10} className={cn('transition-transform', !isExpProd && '-rotate-90')} />
                           </button>
                         )}
                       </div>
                       {/* Budget annuel */}
                       {totBudget > 0 && (
-                        <div className="ml-4 mt-0.5 text-[10px] text-subtle tabular-nums">
+                        <div className="ml-4 mt-0.5 text-[11px] text-subtle tabular-nums">
                           {fmtJ(totAlloue)} / {fmtJ(totBudget)} budget
                         </div>
                       )}
                       {/* Pas de membres → indication de saisie directe */}
                       {!hasMembers && (
-                        <div className="ml-4 mt-0.5 text-[10px] text-subtle/50 italic">saisie directe</div>
+                        <div className="ml-4 mt-0.5 text-[11px] text-subtle/50 italic">saisie directe</div>
                       )}
                     </td>
 
@@ -467,27 +467,27 @@ export function ProduitView({
                       {totBudget > 0 ? (
                         <div className="space-y-1">
                           <div className="flex items-center justify-between tabular-nums">
-                            <span className={cn('text-[11px] font-bold',
+                            <span className={cn('text-xs font-bold',
                               totAlloue > totBudget ? 'text-rose-600' : 'text-indigo-600')}>
                               {totAlloue > 0 ? fmtJ(totAlloue) : '0j'}
                             </span>
                             {totReste !== null && (
-                              <span className={cn('text-[10px] font-semibold', resteClass(totReste))}>
+                              <span className={cn('text-[11px] font-semibold', resteClass(totReste))}>
                                 {fmtReste(totReste)}
                               </span>
                             )}
                           </div>
-                          <div className="h-1.5 rounded-full bg-[#e5e7eb] overflow-hidden">
+                          <div className="h-1.5 rounded-full bg-border overflow-hidden">
                             <div className={cn('h-full rounded-full transition-all',
                               totAlloue > totBudget ? 'bg-rose-400' : totAlloue === totBudget ? 'bg-emerald-400' : 'bg-indigo-400'
                             )} style={{ width: `${Math.min(100, totBudget > 0 ? Math.round(totAlloue/totBudget*100) : 0)}%` }} />
                           </div>
-                          <div className="text-[9px] text-subtle/50 tabular-nums text-right">/ {fmtJ(totBudget)}</div>
+                          <div className="text-[10px] text-subtle/50 tabular-nums text-right">/ {fmtJ(totBudget)}</div>
                         </div>
                       ) : (
                         totAlloue > 0
-                          ? <span className="text-[11px] font-bold text-indigo-600 tabular-nums">{fmtJ(totAlloue)}</span>
-                          : <span className="text-subtle/30 text-[10px] block text-center">—</span>
+                          ? <span className="text-xs font-bold text-indigo-600 tabular-nums">{fmtJ(totAlloue)}</span>
+                          : <span className="text-subtle/30 text-[11px] block text-center">—</span>
                       )}
                     </td>
                   </tr>
@@ -507,7 +507,7 @@ export function ProduitView({
                           <div className="flex items-center justify-between gap-2">
                             <MemberTag profile={member} />
                             {memberAlloue > 0 && (
-                              <span className="text-[10px] text-subtle tabular-nums shrink-0">
+                              <span className="text-[11px] text-subtle tabular-nums shrink-0">
                                 {fmtJ(memberAlloue)}
                               </span>
                             )}
@@ -532,12 +532,12 @@ export function ProduitView({
                               className="text-center py-1.5 border-l border-border/20 border-r border-border/10 tabular-nums bg-slate-300">
                               {mode === 'comparaison' ? (
                                 <div className="flex flex-col gap-px">
-                                  <span className="text-[9px] text-indigo-600">{allocQ > 0 ? fmtJ(allocQ) : '—'}</span>
-                                  <span className="text-[9px] text-emerald-600">{realQ > 0 ? fmtJ(realQ) : '—'}</span>
+                                  <span className="text-[10px] text-indigo-600">{allocQ > 0 ? fmtJ(allocQ) : '—'}</span>
+                                  <span className="text-[10px] text-emerald-600">{realQ > 0 ? fmtJ(realQ) : '—'}</span>
                                 </div>
                               ) : dispQ > 0
-                                ? <span className={cn('text-[10px]', isGreen ? 'text-emerald-600' : 'text-indigo-600')}>{fmtJ(dispQ)}</span>
-                                : <span className="text-subtle/20 text-[10px]">—</span>}
+                                ? <span className={cn('text-[11px]', isGreen ? 'text-emerald-600' : 'text-indigo-600')}>{fmtJ(dispQ)}</span>
+                                : <span className="text-subtle/20 text-[11px]">—</span>}
                             </td>,
                             <td key={`${qt.q}-r`} style={{ width: COL_Q_RESTE }}
                               className="border-r border-border/10 bg-slate-300" />,
@@ -553,12 +553,12 @@ export function ProduitView({
                             const isGreen = mode === 'realise'
                             return mode === 'comparaison' ? (
                               <div className="flex flex-col gap-px">
-                                <span className="text-[9px] text-indigo-600 font-semibold">{memberAlloue > 0 ? fmtJ(memberAlloue) : '—'}</span>
-                                <span className="text-[9px] text-emerald-600 font-semibold">{totalR > 0 ? fmtJ(totalR) : '—'}</span>
+                                <span className="text-[10px] text-indigo-600 font-semibold">{memberAlloue > 0 ? fmtJ(memberAlloue) : '—'}</span>
+                                <span className="text-[10px] text-emerald-600 font-semibold">{totalR > 0 ? fmtJ(totalR) : '—'}</span>
                               </div>
                             ) : disp > 0
-                              ? <span className={cn('text-[10px] font-semibold', isGreen ? 'text-emerald-600' : 'text-indigo-600')}>{fmtJ(disp)}</span>
-                              : <span className="text-subtle/20 text-[10px]">—</span>
+                              ? <span className={cn('text-[11px] font-semibold', isGreen ? 'text-emerald-600' : 'text-indigo-600')}>{fmtJ(disp)}</span>
+                              : <span className="text-subtle/20 text-[11px]">—</span>
                           })()}
                         </td>
                       </tr>
@@ -572,11 +572,11 @@ export function ProduitView({
           {/* ── Footer totaux équipe ──────────────────────── */}
           <tfoot>
             <tr className="border-t-2 border-slate-200 bg-slate-50 sticky bottom-0 z-20">
-              <td className="sticky left-0 z-30 bg-slate-50 px-4 py-2 font-bold text-slate-600 text-[10px] uppercase tracking-wider border-r border-border/30"
+              <td className="sticky left-0 z-30 bg-slate-50 px-4 py-2 font-bold text-slate-600 text-[11px] uppercase tracking-wider border-r border-border/30"
                 style={{ width: COL_PRODUIT }}>
                 Total équipe
                 {mode !== 'previsionnel' && (
-                  <span className={cn('ml-2 text-[9px] font-semibold px-1.5 py-0.5 rounded-full',
+                  <span className={cn('ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full',
                     mode === 'realise' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700')}>
                     {mode === 'realise' ? 'Réalisé' : 'Comparaison'}
                   </span>
@@ -607,10 +607,10 @@ export function ProduitView({
                         } else if (vP > 0) { bg = 'rgba(59,130,246,0.07)'; textCol = '#93c5fd' }
                         return (
                           <td key={w.semaine} style={{ width: COL_WK, background: bg }}
-                            className={cn('text-center py-2 border-r border-b border-[#d1d5db] tabular-nums',
+                            className={cn('text-center py-2 border-r border-b border-border tabular-nums',
                               isToday && 'ring-1 ring-inset ring-yellow/40')}>
                             {(vP > 0 || vR > 0) && (
-                              <span className="text-[10px] font-bold" style={{ color: textCol }}>
+                              <span className="text-[11px] font-bold" style={{ color: textCol }}>
                                 {fmtJ(vR > 0 ? vR : vP)}
                               </span>
                             )}
@@ -622,10 +622,10 @@ export function ProduitView({
                       const isGreen = mode === 'realise'
                       return (
                         <td key={w.semaine} style={{ width: COL_WK }}
-                          className={cn('text-center py-2 border-r border-b border-[#d1d5db] tabular-nums',
+                          className={cn('text-center py-2 border-r border-b border-border tabular-nums',
                             isToday && 'ring-1 ring-inset ring-yellow/40')}>
                           {v > 0 && (
-                            <span className={cn('text-[10px] font-bold',
+                            <span className={cn('text-[11px] font-bold',
                               isGreen
                                 ? v > 10 ? 'text-rose-600' : 'text-emerald-600'
                                 : v > 10 ? 'text-rose-600' : v > 5 ? 'text-amber-600' : 'text-slate-500')}>
@@ -640,11 +640,11 @@ export function ProduitView({
                       className="text-center py-2 border-l border-border/30 border-r border-border/20 tabular-nums bg-slate-300 align-middle">
                       {mode === 'comparaison' ? (
                         <div className="flex flex-col gap-px">
-                          <span className={cn('text-[10px] font-bold', totAlloc > 0 ? 'text-indigo-600' : 'text-subtle/30')}>{totAlloc > 0 ? fmtJ(totAlloc) : '—'}</span>
-                          <span className={cn('text-[10px] font-bold', totRealise > 0 ? 'text-emerald-600' : 'text-subtle/30')}>{totRealise > 0 ? fmtJ(totRealise) : '—'}</span>
+                          <span className={cn('text-[11px] font-bold', totAlloc > 0 ? 'text-indigo-600' : 'text-subtle/30')}>{totAlloc > 0 ? fmtJ(totAlloc) : '—'}</span>
+                          <span className={cn('text-[11px] font-bold', totRealise > 0 ? 'text-emerald-600' : 'text-subtle/30')}>{totRealise > 0 ? fmtJ(totRealise) : '—'}</span>
                         </div>
                       ) : (
-                        <span className={cn('text-[11px] font-bold', totDisp > 0 ? (mode === 'realise' ? 'text-emerald-600' : 'text-indigo-600') : 'text-subtle/30')}>
+                        <span className={cn('text-xs font-bold', totDisp > 0 ? (mode === 'realise' ? 'text-emerald-600' : 'text-indigo-600') : 'text-subtle/30')}>
                           {totDisp > 0 ? fmtJ(totDisp) : '—'}
                         </span>
                       )}
@@ -654,16 +654,16 @@ export function ProduitView({
                       className="text-center py-2 border-r border-border/20 tabular-nums bg-slate-300 align-middle">
                       {mode === 'comparaison' ? (
                         totResteR !== null
-                          ? <span className={cn('text-[10px] font-bold', resteClass(totResteR))}>{fmtReste(totResteR)}</span>
-                          : <span className="text-subtle/30 text-[10px]">—</span>
+                          ? <span className={cn('text-[11px] font-bold', resteClass(totResteR))}>{fmtReste(totResteR)}</span>
+                          : <span className="text-subtle/30 text-[11px]">—</span>
                       ) : mode === 'realise' ? (
                         totResteR !== null
-                          ? <span className={cn('text-[11px] font-bold', resteClass(totResteR))}>{fmtReste(totResteR)}</span>
-                          : <span className="text-subtle/30 text-[10px]">—</span>
+                          ? <span className={cn('text-xs font-bold', resteClass(totResteR))}>{fmtReste(totResteR)}</span>
+                          : <span className="text-subtle/30 text-[11px]">—</span>
                       ) : (
                         totReste !== null
-                          ? <span className={cn('text-[11px] font-bold', resteClass(totReste))}>{fmtReste(totReste)}</span>
-                          : <span className="text-subtle/30 text-[10px]">—</span>
+                          ? <span className={cn('text-xs font-bold', resteClass(totReste))}>{fmtReste(totReste)}</span>
+                          : <span className="text-subtle/30 text-[11px]">—</span>
                       )}
                     </td>,
                 ]
@@ -688,8 +688,8 @@ export function ProduitView({
                       <div className="space-y-1.5">
                         <div>
                           <div className="flex items-center justify-between tabular-nums mb-0.5">
-                            <span className="text-[9px] text-indigo-600 font-bold">{fmtJ(totA) || '0j'}</span>
-                            {resteP !== null && <span className={cn('text-[9px]', resteClass(resteP))}>{fmtReste(resteP)}</span>}
+                            <span className="text-[10px] text-indigo-600 font-bold">{fmtJ(totA) || '0j'}</span>
+                            {resteP !== null && <span className={cn('text-[10px]', resteClass(resteP))}>{fmtReste(resteP)}</span>}
                           </div>
                           <div className="h-1 rounded-full bg-white/60 overflow-hidden">
                             <div className={cn('h-full rounded-full', totA > totB ? 'bg-rose-400' : 'bg-indigo-400')} style={{ width: `${pctAnnP}%` }} />
@@ -697,29 +697,29 @@ export function ProduitView({
                         </div>
                         <div>
                           <div className="flex items-center justify-between tabular-nums mb-0.5">
-                            <span className="text-[9px] text-emerald-600 font-bold">{fmtJ(totRl) || '0j'}</span>
-                            {resteR !== null && <span className={cn('text-[9px]', resteClass(resteR))}>{fmtReste(resteR)}</span>}
+                            <span className="text-[10px] text-emerald-600 font-bold">{fmtJ(totRl) || '0j'}</span>
+                            {resteR !== null && <span className={cn('text-[10px]', resteClass(resteR))}>{fmtReste(resteR)}</span>}
                           </div>
                           <div className="h-1 rounded-full bg-white/60 overflow-hidden">
                             <div className={cn('h-full rounded-full', totRl > totB ? 'bg-rose-400' : 'bg-emerald-400')} style={{ width: `${pctAnnR}%` }} />
                           </div>
                         </div>
-                        {totB > 0 && <div className="text-[9px] text-slate-400 tabular-nums text-right">/ {fmtJ(totB)}</div>}
+                        {totB > 0 && <div className="text-[10px] text-slate-400 tabular-nums text-right">/ {fmtJ(totB)}</div>}
                       </div>
                     ) : totB > 0 ? (
                       <div className="space-y-1">
                         <div className="flex items-center justify-between tabular-nums">
-                          <span className={cn('text-[11px] font-bold', totD > totB ? 'text-rose-600' : isGreen ? 'text-emerald-600' : 'text-indigo-600')}>{fmtJ(totD) || '0j'}</span>
-                          {resteD !== null && <span className={cn('text-[10px] font-bold', resteClass(resteD))}>{fmtReste(resteD)}</span>}
+                          <span className={cn('text-xs font-bold', totD > totB ? 'text-rose-600' : isGreen ? 'text-emerald-600' : 'text-indigo-600')}>{fmtJ(totD) || '0j'}</span>
+                          {resteD !== null && <span className={cn('text-[11px] font-bold', resteClass(resteD))}>{fmtReste(resteD)}</span>}
                         </div>
                         <div className="h-1.5 rounded-full bg-white/50 overflow-hidden">
                           <div className={cn('h-full rounded-full', totD > totB ? 'bg-rose-400' : totD === totB ? 'bg-emerald-400' : isGreen ? 'bg-emerald-300' : 'bg-indigo-400')}
                             style={{ width: `${pctAnn}%` }} />
                         </div>
-                        <div className="text-[9px] text-slate-400 tabular-nums text-right">/ {fmtJ(totB)}</div>
+                        <div className="text-[10px] text-slate-400 tabular-nums text-right">/ {fmtJ(totB)}</div>
                       </div>
                     ) : (
-                      <span className={cn('text-[11px] font-bold', totD > 0 ? (isGreen ? 'text-emerald-600' : 'text-indigo-600') : 'text-subtle/30')}>
+                      <span className={cn('text-xs font-bold', totD > 0 ? (isGreen ? 'text-emerald-600' : 'text-indigo-600') : 'text-subtle/30')}>
                         {totD > 0 ? fmtJ(totD) : '—'}
                       </span>
                     )}

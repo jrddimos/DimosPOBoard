@@ -61,12 +61,12 @@ export function PlanChargesSettings({ annee, onClose }: Props) {
       <div className="flex-1 bg-black/30" onClick={onClose} />
 
       {/* Panel */}
-      <div className="w-96 bg-white shadow-2xl flex flex-col overflow-hidden">
+      <div className="w-96 bg-card shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-navy/3">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-brand/3">
           <div>
             <h2 className="text-sm font-bold text-navy">Paramètres plan de charges</h2>
-            <p className="text-[10px] text-subtle mt-0.5">Définit les jours non-ouvrés pour {annee}</p>
+            <p className="text-[11px] text-subtle mt-0.5">Définit les jours non-ouvrés pour {annee}</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-black/5 text-subtle hover:text-navy transition-colors">
             <X size={16} />
@@ -82,7 +82,7 @@ export function PlanChargesSettings({ annee, onClose }: Props) {
               <h3 className="text-xs font-bold text-navy uppercase tracking-wider">
                 Jours fériés {annee}
               </h3>
-              <span className="ml-auto text-[10px] text-subtle bg-orange/10 text-orange px-1.5 py-0.5 rounded-full font-semibold">
+              <span className="ml-auto text-[11px] text-subtle bg-orange/10 text-orange px-1.5 py-0.5 rounded-full font-semibold">
                 {feries.length} jours
               </span>
             </div>
@@ -91,14 +91,14 @@ export function PlanChargesSettings({ annee, onClose }: Props) {
                 <div key={f.iso}
                   className="flex items-center gap-3 px-3 py-2 rounded-lg bg-orange/5 border border-orange/15">
                   <div className="w-1.5 h-1.5 rounded-full bg-orange shrink-0" />
-                  <span className="text-[11px] font-semibold text-navy/70 tabular-nums w-16 shrink-0">
+                  <span className="text-xs font-semibold text-navy/70 tabular-nums w-16 shrink-0">
                     {fmtDate(f.iso)}
                   </span>
-                  <span className="text-[11px] text-navy flex-1">{f.label}</span>
+                  <span className="text-xs text-navy flex-1">{f.label}</span>
                 </div>
               ))}
             </div>
-            <p className="text-[10px] text-subtle mt-2 italic">
+            <p className="text-[11px] text-subtle mt-2 italic">
               Calculés automatiquement pour la France métropolitaine.
             </p>
           </section>
@@ -111,7 +111,7 @@ export function PlanChargesSettings({ annee, onClose }: Props) {
                 Fermetures société
               </h3>
               <button onClick={() => setShowForm(v => !v)}
-                className="ml-auto flex items-center gap-1 text-[10px] font-semibold text-purple hover:bg-purple/10 px-2 py-1 rounded-lg transition-colors">
+                className="ml-auto flex items-center gap-1 text-[11px] font-semibold text-purple hover:bg-purple/10 px-2 py-1 rounded-lg transition-colors">
                 <Plus size={11} />
                 Ajouter
               </button>
@@ -157,9 +157,9 @@ export function PlanChargesSettings({ annee, onClose }: Props) {
 
             {/* Liste fermetures */}
             {isLoading ? (
-              <div className="text-[11px] text-subtle py-2">Chargement…</div>
+              <div className="text-xs text-subtle py-2">Chargement…</div>
             ) : fermetures.length === 0 ? (
-              <div className="text-[11px] text-subtle italic py-2">
+              <div className="text-xs text-subtle italic py-2">
                 Aucune fermeture définie pour {annee}
               </div>
             ) : (
@@ -172,8 +172,8 @@ export function PlanChargesSettings({ annee, onClose }: Props) {
                       className="flex items-center gap-3 px-3 py-2 rounded-lg bg-purple/5 border border-purple/15 group">
                       <div className="w-1.5 h-1.5 rounded-full bg-purple shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <div className="text-[11px] font-semibold text-navy truncate">{f.label}</div>
-                        <div className="text-[10px] text-subtle tabular-nums">
+                        <div className="text-xs font-semibold text-navy truncate">{f.label}</div>
+                        <div className="text-[11px] text-subtle tabular-nums">
                           {fmtDate(f.date_debut)}
                           {f.date_debut !== f.date_fin && ` → ${fmtDate(f.date_fin)}`}
                           {' '}· {nbDays} jour{nbDays > 1 ? 's' : ''} calendaires, {jours} ouvré{jours > 1 ? 's' : ''}
@@ -182,7 +182,7 @@ export function PlanChargesSettings({ annee, onClose }: Props) {
                       <button
                         onClick={() => remove.mutate({ id: f.id, annee })}
                         disabled={remove.isPending}
-                        className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red/10 text-subtle hover:text-red transition-all shrink-0">
+                        className="p-1 rounded max-md:opacity-100 opacity-0 group-hover:opacity-100 hover:bg-red/10 text-subtle hover:text-red transition-all shrink-0">
                         <Trash2 size={12} />
                       </button>
                     </div>
@@ -194,14 +194,14 @@ export function PlanChargesSettings({ annee, onClose }: Props) {
 
           {/* ── Impact résumé ───────────────────────────────────── */}
           {(feries.length > 0 || fermetures.length > 0) && (
-            <section className="p-3 rounded-xl bg-navy/5 border border-navy/10">
-              <div className="text-[10px] font-bold text-navy uppercase tracking-wider mb-2">
+            <section className="p-3 rounded-xl bg-brand/5 border border-navy/10">
+              <div className="text-[11px] font-bold text-navy uppercase tracking-wider mb-2">
                 Impact sur {annee}
               </div>
-              <div className="text-[11px] text-subtle space-y-1">
+              <div className="text-xs text-subtle space-y-1">
                 <div>· <strong className="text-navy">{feries.length}</strong> jours fériés légaux</div>
                 <div>· <strong className="text-navy">{fermetures.length}</strong> période{fermetures.length > 1 ? 's' : ''} de fermeture</div>
-                <div className="text-[10px] mt-2 italic">
+                <div className="text-[11px] mt-2 italic">
                   Ces données limitent automatiquement la saisie dans le tableau — impossible de saisir plus de jours que les jours ouvrés disponibles par semaine.
                 </div>
               </div>

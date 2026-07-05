@@ -16,7 +16,7 @@ import { UserPlus, Shield, Trash2, Mail, Clock, Send } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const ROLE_COLORS: Record<RoleProduit, string> = {
-  po:      'bg-navy/10 text-navy',
+  po:      'bg-brand/10 text-navy',
   dev:     'bg-green/10 text-green',
   lecteur: 'bg-subtle/10 text-subtle',
 }
@@ -172,7 +172,7 @@ export default function UsersPage() {
 
       {/* ── Formulaire ───────────────────────────────────────── */}
       {showForm && (
-        <div className="bg-white rounded-2xl border border-purple/30 p-5 mb-6 shadow-sm">
+        <div className="bg-card rounded-2xl border border-purple/30 p-5 mb-6 shadow-sm">
           <div className="text-sm font-semibold text-navy mb-4 flex items-center gap-2">
             <UserPlus size={15} className="text-purple" /> Ajouter un utilisateur
           </div>
@@ -187,7 +187,7 @@ export default function UsersPage() {
                 className={cn(
                   'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all',
                   formMode === opt.mode
-                    ? 'bg-white shadow text-navy'
+                    ? 'bg-card shadow text-navy'
                     : 'text-subtle hover:text-navy'
                 )}>
                 {opt.icon} {opt.label}
@@ -228,7 +228,7 @@ export default function UsersPage() {
                       <div className="font-semibold mb-0.5 flex items-center gap-1.5">
                         {opt.val && <Shield size={11} />} {opt.label}
                       </div>
-                      <div className="text-[11px] opacity-70">{opt.desc}</div>
+                      <div className="text-xs opacity-70">{opt.desc}</div>
                     </button>
                   ))}
                 </div>
@@ -356,9 +356,9 @@ export default function UsersPage() {
           <div className="space-y-2">
             {pendingProfiles.map(pp => (
               <div key={pp.id}
-                className="flex flex-wrap items-center gap-3 bg-white rounded-xl px-4 py-2.5 border border-orange/10">
+                className="flex flex-wrap items-center gap-3 bg-card rounded-xl px-4 py-2.5 border border-orange/10">
                 {/* Avatar */}
-                <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-[10px] font-bold shrink-0"
+                <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-[11px] font-bold shrink-0"
                   style={{ background: pp.couleur ?? '#4A4CC8' }}>
                   {pp.trigramme ?? (pp.display_name.slice(0,2).toUpperCase())}
                 </span>
@@ -368,15 +368,15 @@ export default function UsersPage() {
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-semibold text-navy">{pp.display_name}</span>
                     {pp.trigramme && (
-                      <span className="text-[10px] text-subtle font-mono bg-bg px-1.5 py-0.5 rounded">{pp.trigramme}</span>
+                      <span className="text-[11px] text-subtle font-mono bg-bg px-1.5 py-0.5 rounded">{pp.trigramme}</span>
                     )}
                     {pp.role_global === 'admin' && (
-                      <span className="text-[10px] bg-purple/10 text-purple font-semibold px-1.5 py-0.5 rounded flex items-center gap-1">
+                      <span className="text-[11px] bg-purple/10 text-purple font-semibold px-1.5 py-0.5 rounded flex items-center gap-1">
                         <Shield size={9} /> Admin
                       </span>
                     )}
                   </div>
-                  <div className="text-[10px] text-subtle mt-0.5">Aucune invitation envoyée</div>
+                  <div className="text-[11px] text-subtle mt-0.5">Aucune invitation envoyée</div>
                 </div>
 
                 {/* Bouton invitation / formulaire inline */}
@@ -420,7 +420,7 @@ export default function UsersPage() {
       )}
 
       {/* ── Tableau utilisateurs actifs ──────────────────────── */}
-      <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
+      <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[600px]">
             <thead>

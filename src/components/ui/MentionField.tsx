@@ -83,7 +83,7 @@ export function MentionField({
 
       {mentionQuery !== null && mentionMatches.length > 0 && (
         <div className={cn(
-          'absolute left-0 z-30 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden',
+          'absolute left-0 z-30 bg-card border border-slate-200 rounded-xl shadow-lg overflow-hidden',
           dropDirection === 'up' ? 'bottom-full mb-1' : 'top-full mt-1',
         )} style={{ minWidth: '180px' }}>
           {mentionMatches.map(m => (

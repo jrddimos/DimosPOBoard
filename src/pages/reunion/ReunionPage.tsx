@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Layout } from '@/components/layout/Layout'
@@ -11,7 +12,7 @@ import {
 } from '@/hooks/useReunions'
 import { useToast } from '@/hooks/useToast'
 import { MentionField } from '@/components/ui/MentionField'
-import { cn } from '@/lib/utils'
+import { cn, getISOWeek } from '@/lib/utils'
 import {
   ChevronLeft, ChevronRight, Play, Pause, SkipBack, SkipForward,
   Plus, X, Check, Save, Printer, ChevronDown, ChevronUp, AlertTriangle,
@@ -50,17 +51,6 @@ const TRIM_BAR: Record<string, string> = {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
-function getISOWeek(date: Date): { semaine: number; annee: number } {
-  const d = new Date(date)
-  d.setHours(0, 0, 0, 0)
-  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7))
-  const week1 = new Date(d.getFullYear(), 0, 4)
-  const semaine = 1 + Math.round(
-    ((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7
-  )
-  return { semaine, annee: d.getFullYear() }
-}
-
 function shiftWeek(semaine: number, annee: number, delta: number): { semaine: number; annee: number } {
   const jan4  = new Date(annee, 0, 4)
   const dow   = jan4.getDay() || 7
@@ -111,15 +101,15 @@ function TrimBlock({
         className="w-full flex items-center gap-2 px-3 py-2 hover:bg-border/20 transition-colors text-left"
       >
         <Target size={10} className="text-indigo-500 shrink-0" />
-        <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Objectif trim</span>
-        {t.trimestre && <span className="text-[10px] text-slate-400">— {t.trimestre}</span>}
+        <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Objectif trim</span>
+        {t.trimestre && <span className="text-[11px] text-slate-400">— {t.trimestre}</span>}
         <div className="flex items-center gap-1.5 ml-auto">
           {t.statut && (
-            <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full font-semibold', STATUT_COLORS[t.statut] ?? 'bg-gray-100')}>
+            <span className={cn('text-[11px] px-1.5 py-0.5 rounded-full font-semibold', STATUT_COLORS[t.statut] ?? 'bg-gray-100')}>
               {t.statut}
             </span>
           )}
-          {pct !== null && <span className="text-[10px] font-bold text-slate-700 tabular-nums">{pct}%</span>}
+          {pct !== null && <span className="text-[11px] font-bold text-slate-600 tabular-nums">{pct}%</span>}
           {open ? <ChevronUp size={10} className="text-subtle ml-1" /> : <ChevronDown size={10} className="text-subtle ml-1" />}
         </div>
       </button>
@@ -129,7 +119,7 @@ function TrimBlock({
           <div className="flex-1 h-1 rounded-full bg-border overflow-hidden">
             <div className={cn('h-full rounded-full transition-all', barColor)} style={{ width: `${pct}%` }} />
           </div>
-          <span className="text-[10px] text-subtle tabular-nums">{done}/{items.length}</span>
+          <span className="text-[11px] text-subtle tabular-nums">{done}/{items.length}</span>
         </div>
       )}
 
@@ -147,7 +137,7 @@ function TrimBlock({
               )}>
                 {obj.checked && <Check size={8} className="text-white" />}
               </div>
-              <span className={cn('text-xs leading-snug flex-1', obj.checked ? 'line-through text-slate-400' : 'text-slate-700')}>
+              <span className={cn('text-xs leading-snug flex-1', obj.checked ? 'line-through text-slate-400' : 'text-slate-600')}>
                 {obj.texte || <span className="italic text-subtle/40">Sans titre</span>}
               </span>
             </button>
@@ -199,6 +189,14 @@ function ProduitRevueCard({
   const [sprintDetailOpen, setSprintDetailOpen] = useState(false)
   const [selectedSprintNum, setSelectedSprintNum] = useState<string | null>(null)
 
+  // Fermeture de l'overlay zoom au clavier
+  useEffect(() => {
+    if (!zoomed) return
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setZoomed(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [zoomed])
+
   // Fetch all sprints pour ce produit (même cache que ProduitBandeauRow)
   const { data: allSprints = [] } = useQuery({
     queryKey: ['sprints', p.id],
@@ -221,7 +219,7 @@ function ProduitRevueCard({
   const pct       = items.length > 0 ? Math.round(doneCount / items.length * 100) : 0
 
   return (
-    <div className="border border-white rounded-2xl overflow-hidden bg-white shadow-md">
+    <div className="border border-white rounded-2xl overflow-hidden bg-card shadow-md">
       <div className="h-1 shrink-0" style={{ background: p.couleur ?? '#4A4CC8' }} />
 
       {/* En-tête cliquable */}
@@ -233,7 +231,7 @@ function ProduitRevueCard({
           <div className="flex items-center gap-2">
             <span className="font-bold text-sm text-navy truncate">{p.nom}</span>
             {revue.statut_presente && (
-              <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full font-semibold shrink-0',
+              <span className={cn('text-[11px] px-1.5 py-0.5 rounded-full font-semibold shrink-0',
                 STATUT_COLORS[revue.statut_presente] ?? 'bg-gray-100')}>
                 {revue.statut_presente}
               </span>
@@ -249,8 +247,8 @@ function ProduitRevueCard({
         {revue.expanded ? <ChevronUp size={14} className="text-subtle shrink-0" /> : <ChevronDown size={14} className="text-subtle shrink-0" />}
       </button>
 
-      {/* Bandeau RAG — masqué en zoom (le dashboard complet a son propre bandeau, pour éviter le doublon) */}
-      {!zoomed && (
+      {/* Bandeau RAG */}
+      {(
         <div className="border-t border-border/40">
           <ProduitBandeauRow
             produit={p}
@@ -259,7 +257,7 @@ function ProduitRevueCard({
             extraLeft={
               <div className="flex items-center gap-2 shrink-0">
                 {/* Scope toggle — Sprint en premier */}
-                <div className="flex rounded border border-border overflow-hidden text-[9px]">
+                <div className="flex rounded border border-border overflow-hidden text-[10px]">
                   {(['sprint', 'trim', 'global'] as BandeauScope[]).map(v => (
                     <button key={v} onClick={e => { e.stopPropagation(); setScope(v) }}
                       className={cn('px-2.5 py-1 font-semibold transition-colors',
@@ -274,7 +272,7 @@ function ProduitRevueCard({
                     value={selectedSprintNum ?? ''}
                     onChange={e => { e.stopPropagation(); setSelectedSprintNum(e.target.value || null) }}
                     onClick={e => e.stopPropagation()}
-                    className="text-[9px] border border-slate-200 rounded px-1.5 py-0.5 text-slate-700 font-semibold bg-white cursor-pointer focus:outline-none focus:border-indigo-300"
+                    className="text-[10px] border border-slate-200 rounded px-1.5 py-0.5 text-slate-600 font-semibold bg-card cursor-pointer focus:outline-none focus:border-indigo-300"
                   >
                     <option value="">Actif / Dernier</option>
                     {[...sortedSprints].reverse().map(s => (
@@ -288,7 +286,7 @@ function ProduitRevueCard({
             }
             extraRight={
               <button onClick={e => { e.stopPropagation(); setZoomed(v => !v) }}
-                className="flex items-center gap-1.5 px-4 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 transition-colors shrink-0">
+                className="flex items-center gap-1.5 px-4 text-xs font-semibold text-indigo-600 hover:text-indigo-700 transition-colors shrink-0">
                 <Maximize2 size={13} /> Zoom
               </button>
             }
@@ -296,15 +294,7 @@ function ProduitRevueCard({
         </div>
       )}
 
-      {/* En zoom : juste le bouton pour revenir, le dashboard complet a déjà tout le reste */}
-      {zoomed && (
-        <div className="border-t border-border/40 px-4 py-1.5 flex justify-end">
-          <button onClick={() => setZoomed(false)}
-            className="flex items-center gap-1.5 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 transition-colors">
-            <Minimize2 size={13} /> Réduire
-          </button>
-        </div>
-      )}
+      {/* Le zoom s'affiche en overlay plein écran (portal) — voir plus bas */}
 
       {/* Carte Objectifs & Review — même style que TrimBlock */}
       {!zoomed && ((scope === 'sprint' && !!effectiveSprintObj) || trims.length > 0) && (
@@ -316,13 +306,13 @@ function ProduitRevueCard({
             className="w-full flex items-center gap-2 px-3 py-2 hover:bg-border/20 transition-colors text-left"
           >
             <Target size={10} className="text-indigo-500 shrink-0" />
-            <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">
+            <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
               {scope === 'sprint' && effectiveSprintObj
                 ? `Objectifs & Review — S${effectiveSprintObj.numero}`
                 : 'Objectifs & Review'}
             </span>
             {scope === 'sprint' && items.length > 0 && (
-              <span className={cn('text-[10px] font-bold tabular-nums ml-auto', pct === 100 ? 'text-emerald-600' : 'text-slate-500')}>
+              <span className={cn('text-[11px] font-bold tabular-nums ml-auto', pct === 100 ? 'text-emerald-600' : 'text-slate-500')}>
                 {doneCount}/{items.length} · {pct}%
               </span>
             )}
@@ -337,7 +327,7 @@ function ProduitRevueCard({
               <div className="flex-1 h-1 rounded-full bg-border overflow-hidden">
                 <div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
               </div>
-              <span className="text-[10px] text-subtle tabular-nums">{doneCount}/{items.length}</span>
+              <span className="text-[11px] text-subtle tabular-nums">{doneCount}/{items.length}</span>
             </div>
           )}
 
@@ -351,20 +341,20 @@ function ProduitRevueCard({
 
                   {/* Objectifs */}
                   <div className="flex flex-col gap-2.5 p-4">
-                    <div className="text-[9px] font-bold text-subtle uppercase tracking-wider">
+                    <div className="text-[10px] font-bold text-subtle uppercase tracking-wider">
                       Objectifs — S{effectiveSprintObj.numero}
                     </div>
                     {freeObj && (
-                      <div className="text-xs text-navy/80 leading-relaxed whitespace-pre-line bg-white border border-border rounded-lg px-3 py-2">
+                      <div className="text-xs text-navy/80 leading-relaxed whitespace-pre-line bg-card border border-border rounded-lg px-3 py-2">
                         {freeObj}
                       </div>
                     )}
                     {items.length > 0 && (
                       <>
-                        <div className="text-[9px] font-semibold text-subtle">Objectifs clés ({items.length})</div>
+                        <div className="text-[10px] font-semibold text-subtle">Objectifs clés ({items.length})</div>
                         <ul className="flex flex-col gap-1">
                           {items.map(item => (
-                            <li key={item} className="flex items-center gap-2 px-2 py-1 rounded-lg bg-white border border-border/40 text-xs">
+                            <li key={item} className="flex items-center gap-2 px-2 py-1 rounded-lg bg-card border border-border/40 text-xs">
                               <span className="w-1.5 h-1.5 rounded-full bg-indigo-300 shrink-0" />
                               <span className="text-navy">{item}</span>
                             </li>
@@ -379,17 +369,17 @@ function ProduitRevueCard({
 
                   {/* Review + Checklist */}
                   <div className="flex flex-col gap-2.5 p-4">
-                    <div className="text-[9px] font-bold text-subtle uppercase tracking-wider">Sprint Review</div>
+                    <div className="text-[10px] font-bold text-subtle uppercase tracking-wider">Sprint Review</div>
                     {freeRev && (
-                      <div className="text-xs text-navy/80 leading-relaxed whitespace-pre-line bg-white border border-border rounded-lg px-3 py-2">
+                      <div className="text-xs text-navy/80 leading-relaxed whitespace-pre-line bg-card border border-border rounded-lg px-3 py-2">
                         {freeRev}
                       </div>
                     )}
                     {items.length > 0 && (
                       <>
                         <div className="flex items-center gap-2">
-                          <div className="text-[9px] font-semibold text-subtle">Checklist objectifs</div>
-                          <span className={cn('text-[9px] font-bold ml-auto', pct === 100 ? 'text-emerald-600' : 'text-slate-400')}>
+                          <div className="text-[10px] font-semibold text-subtle">Checklist objectifs</div>
+                          <span className={cn('text-[10px] font-bold ml-auto', pct === 100 ? 'text-emerald-600' : 'text-slate-400')}>
                             {doneCount}/{items.length} · {pct}%
                           </span>
                         </div>
@@ -399,9 +389,9 @@ function ProduitRevueCard({
                         <ul className="flex flex-col gap-1.5">
                           {items.map(item => (
                             <li key={item} className={cn('flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs',
-                              checks[item] ? 'bg-emerald-50 text-emerald-700' : 'bg-white border border-slate-100 text-slate-700')}>
+                              checks[item] ? 'bg-emerald-50 text-emerald-700' : 'bg-card border border-slate-100 text-slate-600')}>
                               <span className={cn('w-4 h-4 rounded flex items-center justify-center border shrink-0',
-                                checks[item] ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-200 bg-white')}>
+                                checks[item] ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-200 bg-card')}>
                                 {checks[item] && <Check size={10} />}
                               </span>
                               <span className={cn('flex-1', checks[item] && 'line-through opacity-60')}>{item}</span>
@@ -435,15 +425,28 @@ function ProduitRevueCard({
         </div>
       )}
 
-      {/* Dashboard complet (zoom) */}
-      {zoomed && (
-        <div className="border-t border-border">
-          <ProduitDashboardBody produit={p} />
-        </div>
+      {/* Dashboard complet en overlay plein écran — corrige le débordement
+          des grilles fixes du dashboard quand il était incrusté dans la carte */}
+      {zoomed && createPortal(
+        <div className="fixed inset-0 z-[10060] flex flex-col bg-page">
+          <div className="flex items-center gap-3 px-5 py-3 border-b border-border bg-card shrink-0">
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: p.couleur ?? '#4A4CC8' }} />
+            <h2 className="text-sm font-bold text-navy truncate">{p.nom} — Dashboard</h2>
+            <span className="text-xs text-subtle hidden sm:inline">(Échap pour fermer)</span>
+            <button onClick={() => setZoomed(false)}
+              className="ml-auto ds-btn flex items-center gap-1.5 shrink-0">
+              <Minimize2 size={13} /> Fermer
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 md:p-5">
+            <ProduitDashboardBody produit={p} customizable={false} />
+          </div>
+        </div>,
+        document.body
       )}
 
       {/* Détail expandable */}
-      {!zoomed && revue.expanded && (
+      {revue.expanded && (
         <div className="px-4 pb-4 space-y-3 border-t border-border pt-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -646,12 +649,15 @@ export default function ReunionPage() {
       {/* Topbar */}
       <div className="page-topbar -mx-3 -mt-3 mb-5 px-3 md:-mx-5 md:-mt-5 md:px-5 print:hidden">
         <div className="flex items-center gap-3">
+          <a href="/reunions" className="ds-btn ds-btn-sm flex items-center gap-1.5 shrink-0" title="Toutes les réunions">
+            <ChevronLeft size={13} /> Réunions
+          </a>
           <PageTitle icon={<CalendarClock size={15}/>} label="Réunion PO" />
           <div className="flex items-center gap-1">
             <button onClick={() => navigateWeek(-1)} className="p-1 rounded hover:bg-bg text-subtle hover:text-navy transition-colors">
               <ChevronLeft size={14} />
             </button>
-            <span className={cn('text-xs font-bold px-2', isCurrentWeek ? 'text-indigo-600' : 'text-slate-700')}>
+            <span className={cn('text-xs font-bold px-2', isCurrentWeek ? 'text-indigo-600' : 'text-slate-600')}>
               Semaine {semaine} — {annee}
             </span>
             <button onClick={() => navigateWeek(1)} className="p-1 rounded hover:bg-bg text-subtle hover:text-navy transition-colors">
@@ -660,7 +666,7 @@ export default function ReunionPage() {
           </div>
           {!isCurrentWeek && (
             <button onClick={() => { setSemaine(initWeek.semaine); setAnnee(initWeek.annee) }}
-              className="flex items-center gap-1.5 text-[11px] font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg transition-colors">
+              className="flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg transition-colors">
               <CalendarClock size={11} />
               Cette semaine
             </button>
@@ -755,7 +761,7 @@ export default function ReunionPage() {
         <div className="flex-1 min-w-0 space-y-5">
 
           {/* Stepper phases */}
-          <div className="bg-white rounded-2xl border border-border p-3 print:hidden">
+          <div className="bg-card rounded-2xl border border-border p-3 print:hidden">
             <div className="flex items-stretch gap-1">
               {PHASES.map((ph, i) => {
                 const isDone    = i < currentPhase
@@ -767,13 +773,13 @@ export default function ReunionPage() {
                       isCurrent ? `${ph.bg} ${ph.text} ${ph.border}` : isDone ? 'bg-slate-50 text-slate-400 border-slate-100' : 'hover:bg-slate-50 text-slate-400 border-transparent'
                     )}>
                     <div className={cn(
-                      'w-5 h-5 rounded-full border-2 flex items-center justify-center text-[10px] font-bold shrink-0',
+                      'w-5 h-5 rounded-full border-2 flex items-center justify-center text-[11px] font-bold shrink-0',
                       isCurrent ? `${ph.border} ${ph.text}` : isDone ? 'border-emerald-400 bg-emerald-400 text-white' : 'border-slate-200'
                     )}>
                       {isDone ? <Check size={10} /> : i + 1}
                     </div>
-                    <span className="text-[10px] font-semibold leading-tight">{ph.label}</span>
-                    <span className={cn('text-[9px]', isCurrent ? 'opacity-60' : 'text-slate-400')}>{ph.minutes} min</span>
+                    <span className="text-[11px] font-semibold leading-tight">{ph.label}</span>
+                    <span className={cn('text-[10px]', isCurrent ? 'opacity-60' : 'text-slate-400')}>{ph.minutes} min</span>
                   </button>
                 )
               })}
@@ -787,7 +793,7 @@ export default function ReunionPage() {
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-bold text-navy flex items-center gap-2">
                   Ordre du jour — Revues produits
-                  <span className="text-[10px] font-normal text-subtle">
+                  <span className="text-[11px] font-normal text-subtle">
                     {activeProducts.length} produit{activeProducts.length > 1 ? 's' : ''}
                     {totalBlockages > 0 && (
                       <span className="ml-2 text-rose-600 font-semibold">
@@ -827,7 +833,7 @@ export default function ReunionPage() {
               </div>
             </div>
           ) : (
-            <div className="bg-white rounded-2xl border border-border p-5">
+            <div className="bg-card rounded-2xl border border-border p-5">
               <h2 className="text-sm font-bold text-navy mb-3">{phase.label}</h2>
               <MentionField as="textarea"
                 value={phaseNotes[currentPhase]}
@@ -845,7 +851,7 @@ export default function ReunionPage() {
           )}
 
           {/* Notes de séance */}
-          <div className="bg-white rounded-2xl border border-border p-5">
+          <div className="bg-card rounded-2xl border border-border p-5">
             <h2 className="text-sm font-bold text-navy mb-3">Notes de séance</h2>
             <MentionField as="textarea"
               value={notesSeance}
@@ -864,7 +870,7 @@ export default function ReunionPage() {
 
           {/* Timer */}
           <div className={cn('rounded-2xl border p-5 space-y-3', phase.timerBg, phase.border)}>
-            <div className={cn('text-[10px] uppercase tracking-widest font-bold opacity-60 text-center', phase.timerText)}>
+            <div className={cn('text-[11px] uppercase tracking-widest font-bold opacity-60 text-center', phase.timerText)}>
               Phase {currentPhase + 1}/{PHASES.length}
             </div>
             <div className={cn('text-5xl font-mono font-bold text-center tabular-nums', phase.timerText)}>
@@ -873,7 +879,7 @@ export default function ReunionPage() {
             <div className="h-1.5 rounded-full bg-white/80 overflow-hidden">
               <div className={cn('h-full rounded-full transition-all', phase.dot)} style={{ width: `${phasePct}%` }} />
             </div>
-            <div className={cn('text-[10px] text-center opacity-60', phase.timerText)}>{phase.label}</div>
+            <div className={cn('text-[11px] text-center opacity-60', phase.timerText)}>{phase.label}</div>
             <div className="flex items-center justify-center gap-2">
               <button onClick={() => goToPhase(Math.max(0, currentPhase - 1))}
                 disabled={currentPhase === 0}
@@ -896,8 +902,8 @@ export default function ReunionPage() {
           </div>
 
           {/* Progression */}
-          <div className="bg-white rounded-2xl border border-border p-4 space-y-2">
-            <div className="text-[10px] uppercase tracking-widest font-bold text-subtle mb-2">Progression</div>
+          <div className="bg-card rounded-2xl border border-border p-4 space-y-2">
+            <div className="text-[11px] uppercase tracking-widest font-bold text-subtle mb-2">Progression</div>
             {PHASES.map((ph, i) => (
               <div key={i} className={cn('flex items-center gap-2 text-xs', i === currentPhase ? 'font-bold text-navy' : 'text-subtle')}>
                 <div className={cn('w-2 h-2 rounded-full shrink-0', ph.dot, i > currentPhase && 'opacity-30')} />
@@ -912,9 +918,9 @@ export default function ReunionPage() {
           </div>
 
           {/* Sujets transverses */}
-          <div className="bg-white rounded-2xl border border-border p-4">
+          <div className="bg-card rounded-2xl border border-border p-4">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] uppercase tracking-widest font-bold text-subtle">Sujets transverses</span>
+              <span className="text-[11px] uppercase tracking-widest font-bold text-subtle">Sujets transverses</span>
               <button onClick={() => setSujets(prev => [...prev, { id: crypto.randomUUID(), type_tag: '', titre: '' }])}
                 className="p-1 rounded hover:bg-slate-50 text-slate-400 hover:text-indigo-600 transition-colors">
                 <Plus size={13} />
@@ -929,7 +935,7 @@ export default function ReunionPage() {
                     <input
                       value={s.type_tag}
                       onChange={e => setSujets(prev => prev.map(x => x.id === s.id ? { ...x, type_tag: e.target.value } : x))}
-                      className="ds-input text-[10px] w-14 shrink-0 px-1.5 py-1"
+                      className="ds-input text-[11px] w-14 shrink-0 px-1.5 py-1"
                       placeholder="Tag"
                     />
                     <input

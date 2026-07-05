@@ -56,14 +56,14 @@ export function MemberView({ annee, curYear, mode, quarters,
   )
 
   return (
-    <div className="bg-white border border-border rounded-2xl overflow-hidden shadow-sm">
+    <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
       <div className="overflow-x-auto">
         <table className="text-xs" style={{ minWidth: totalWidth, borderCollapse: 'separate', borderSpacing: 0 }}>
           <thead>
             <tr className="border-b border-border/40 bg-slate-50">
               <th className="sticky left-0 z-20 bg-slate-50 text-left px-4 py-2 border-r border-border"
                 style={{ width: COL_PRODUIT }} rowSpan={2}>
-                <span className="text-[10px] text-subtle uppercase tracking-wider">Membre</span>
+                <span className="text-[11px] text-subtle uppercase tracking-wider">Membre</span>
               </th>
               {quarters.map(qt => (
                 <th key={qt.q} colSpan={qt.weeks.length + 2} className="border-r border-border text-center py-2">
@@ -71,7 +71,7 @@ export function MemberView({ annee, curYear, mode, quarters,
                 </th>
               ))}
               <th rowSpan={2} style={{ width: COL_Q }}
-                className="text-center py-2 text-[10px] font-bold text-slate-400 bg-slate-50 border-l border-border">
+                className="text-center py-2 text-[11px] font-bold text-slate-400 bg-slate-50 border-l border-border">
                 Total<br />année
               </th>
             </tr>
@@ -90,18 +90,18 @@ export function MemberView({ annee, curYear, mode, quarters,
                         isToday ? 'bg-yellow/25 ring-1 ring-inset ring-yellow/60'
                         : isFerme ? 'bg-rose-400/25' : hasOff ? 'bg-amber-400/20' : '')}>
                       {isToday && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-5 h-0.5 bg-yellow rounded-b-full" />}
-                      <div className="text-[9px] text-white/50">{fmtDayMonth(w.lundi)}</div>
-                      <div className={cn('text-[10px]', isToday && 'font-extrabold text-yellow')}>S{String(w.semaine).padStart(2,'0')}</div>
+                      <div className="text-[10px] text-white/50">{fmtDayMonth(w.lundi)}</div>
+                      <div className={cn('text-[11px]', isToday && 'font-extrabold text-yellow')}>S{String(w.semaine).padStart(2,'0')}</div>
                       <div className={cn('text-[8px] font-bold mt-0.5', isFerme ? 'text-rose-300' : hasOff ? 'text-amber-300' : isToday ? 'text-yellow/80' : 'text-white/30')}>{jo}j</div>
                     </th>
                   )
                 }),
                 <th key={`${qt.q}-a`} style={{ width: COL_Q_ALLOC }}
-                  className="text-center py-2 border-l border-white/30 border-r border-white/10 text-[10px] font-bold text-white/90 bg-white/15">
+                  className="text-center py-2 border-l border-white/30 border-r border-white/10 text-[11px] font-bold text-white/90 bg-white/15">
                   {mode === 'realise' ? 'Réalisé' : 'Saisi'}
                 </th>,
                 <th key={`${qt.q}-r`} style={{ width: COL_Q_RESTE }}
-                  className="text-center py-2 border-r border-white/10 text-[10px] font-bold text-white/60 bg-white/15">Charge</th>,
+                  className="text-center py-2 border-r border-white/10 text-[11px] font-bold text-white/60 bg-white/15">Charge</th>,
               ])}
             </tr>
           </thead>
@@ -117,14 +117,14 @@ export function MemberView({ annee, curYear, mode, quarters,
               return (
                 <tr key={member.user_id} className="border-b border-border/10 hover:bg-bg/20 transition-colors">
                   {/* Sticky : membre */}
-                  <td className="sticky left-0 z-10 bg-white px-3 py-2 border-r border-border/30" style={{ width: COL_PRODUIT }}>
+                  <td className="sticky left-0 z-10 bg-card px-3 py-2 border-r border-border/30" style={{ width: COL_PRODUIT }}>
                     <div className="flex items-center gap-2">
-                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-[10px] font-bold shrink-0"
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-[11px] font-bold shrink-0"
                         style={{ background: member.couleur ?? '#4A4CC8' }}>
                         {(member.trigramme ?? member.display_name ?? '?').slice(0,2).toUpperCase()}
                       </span>
                       <div className="min-w-0">
-                        <div className="text-[11px] font-semibold text-navy truncate">{member.display_name}</div>
+                        <div className="text-xs font-semibold text-navy truncate">{member.display_name}</div>
                         <div className="flex gap-1 mt-0.5 flex-wrap">
                           {memberProduits.slice(0,4).map(p => (
                             <span key={p.id} className="w-2 h-2 rounded-full inline-block" style={{ background: p.couleur ?? '#4A4CC8' }} title={p.nom} />
@@ -132,7 +132,7 @@ export function MemberView({ annee, curYear, mode, quarters,
                         </div>
                       </div>
                       {totAnnee > 0 && (
-                        <span className="ml-auto text-[10px] text-subtle tabular-nums shrink-0">{fmtJ(totAnnee)}j</span>
+                        <span className="ml-auto text-[11px] text-subtle tabular-nums shrink-0">{fmtJ(totAnnee)}j</span>
                       )}
                     </div>
                   </td>
@@ -173,11 +173,11 @@ export function MemberView({ annee, curYear, mode, quarters,
                             return (
                               <td key={`${qt.q}-${w.semaine}`} style={{ width: COL_WK, background: bg }}
                                 title={tooltipText}
-                                className={cn('text-center px-1 py-1.5 border-r border-b border-[#d1d5db]',
+                                className={cn('text-center px-1 py-1.5 border-r border-b border-border',
                                   isToday && 'ring-1 ring-inset ring-yellow/40')}>
                                 {(vP > 0 || vR > 0)
-                                  ? <span className="text-[11px] font-bold tabular-nums" style={{ color: textCol }}>{fmtJ(vR > 0 ? vR : vP)}</span>
-                                  : <span className="text-[9px] text-subtle/20">·</span>}
+                                  ? <span className="text-xs font-bold tabular-nums" style={{ color: textCol }}>{fmtJ(vR > 0 ? vR : vP)}</span>
+                                  : <span className="text-[10px] text-subtle/20">·</span>}
                               </td>
                             )
                           }
@@ -192,10 +192,10 @@ export function MemberView({ annee, curYear, mode, quarters,
                           return (
                             <td key={`${qt.q}-${w.semaine}`} style={{ width: COL_WK }}
                               title={tooltipText}
-                              className={cn('border-r border-b border-[#d1d5db] select-none p-0',
+                              className={cn('border-r border-b border-border select-none p-0',
                                 isToday && 'ring-1 ring-inset ring-yellow/50')}>
                               <div className="relative h-9 flex flex-col items-center justify-end px-1 pb-0.5" style={{ background: trackBg }}>
-                                <span className="text-[9px] font-bold tabular-nums leading-none mb-0.5" style={{ color: txtC }}>
+                                <span className="text-[10px] font-bold tabular-nums leading-none mb-0.5" style={{ color: txtC }}>
                                   {v > 0 ? fmtJ(v) : ''}
                                 </span>
                                 {v > 0 ? (
@@ -220,21 +220,21 @@ export function MemberView({ annee, curYear, mode, quarters,
                         <td key={`${qt.q}-a`} style={{ width: COL_Q_ALLOC }}
                           className="text-center py-1.5 border-l border-border/20 border-r border-border/10 bg-slate-300 tabular-nums align-middle">
                           {dispQ > 0
-                            ? <span className={cn('text-[10px] font-semibold', mode === 'realise' ? 'text-emerald-600' : 'text-indigo-600')}>{fmtJ(dispQ)}</span>
-                            : <span className="text-subtle/20 text-[10px]">—</span>}
+                            ? <span className={cn('text-[11px] font-semibold', mode === 'realise' ? 'text-emerald-600' : 'text-indigo-600')}>{fmtJ(dispQ)}</span>
+                            : <span className="text-subtle/20 text-[11px]">—</span>}
                         </td>,
                         // Charge Q (% du temps dispo)
                         <td key={`${qt.q}-r`} style={{ width: COL_Q_RESTE }}
                           className="px-2 border-r border-border/10 bg-slate-300 align-middle">
                           {maxQJ > 0 && (
                             <div>
-                              <div className="h-1.5 rounded-full bg-[#e5e7eb] overflow-hidden">
+                              <div className="h-1.5 rounded-full bg-border overflow-hidden">
                                 <div className="h-full rounded-full" style={{
                                   width: `${Math.round(ratioQ * 100)}%`,
                                   background: ratioQ > 1 ? '#ef4444' : ratioQ > 0.8 ? '#f97316' : '#22c55e'
                                 }} />
                               </div>
-                              <div className="text-[9px] text-subtle/50 text-center mt-0.5 tabular-nums">{Math.round(ratioQ * 100)}%</div>
+                              <div className="text-[10px] text-subtle/50 text-center mt-0.5 tabular-nums">{Math.round(ratioQ * 100)}%</div>
                             </div>
                           )}
                         </td>,
@@ -244,8 +244,8 @@ export function MemberView({ annee, curYear, mode, quarters,
                   {/* Total année */}
                   <td className="px-3 py-2 border-l border-border/20 align-middle text-center" style={{ width: COL_Q }}>
                     {totAnnee > 0
-                      ? <span className={cn('text-[11px] font-bold tabular-nums', mode === 'realise' ? 'text-emerald-600' : 'text-indigo-600')}>{fmtJ(totAnnee)}</span>
-                      : <span className="text-subtle/20 text-[10px]">—</span>}
+                      ? <span className={cn('text-xs font-bold tabular-nums', mode === 'realise' ? 'text-emerald-600' : 'text-indigo-600')}>{fmtJ(totAnnee)}</span>
+                      : <span className="text-subtle/20 text-[11px]">—</span>}
                   </td>
                 </tr>
               )

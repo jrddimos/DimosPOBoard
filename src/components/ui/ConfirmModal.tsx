@@ -36,7 +36,7 @@ export function ConfirmProvider() {
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
       onClick={() => answer(false)}>
-      <div className="bg-white rounded-2xl shadow-modal w-full max-w-sm p-6 animate-in"
+      <div className="bg-card rounded-2xl shadow-modal w-full max-w-sm p-6 animate-in"
         onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between mb-3">
           <h3 className="text-sm font-bold text-navy">{modal.title}</h3>

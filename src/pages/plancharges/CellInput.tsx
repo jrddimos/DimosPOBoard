@@ -32,14 +32,14 @@ export function CellInput({ initVal, maxJours, onSave, onCancel, onTab }: {
           if (e.key === 'Tab')    { e.preventDefault(); commit(); onTab?.() }
         }}
         className={cn(
-          'w-full text-center text-[11px] font-semibold rounded outline-none py-0.5 tabular-nums border',
+          'w-full text-center text-xs font-semibold rounded outline-none py-0.5 tabular-nums border',
           tooHigh
             ? 'bg-rose-50 border-rose-300 text-rose-700'
             : 'bg-indigo-50 border-indigo-300 text-indigo-700'
         )}
       />
       {tooHigh && (
-        <div className="absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] bg-rose-500 text-white px-1.5 py-0.5 rounded z-10">
+        <div className="absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] bg-rose-500 text-white px-1.5 py-0.5 rounded z-10">
           max {maxJours}j
         </div>
       )}

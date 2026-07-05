@@ -22,6 +22,7 @@ import { PageTitle } from '@/components/ui/PageTitle'
 import { StatusPicker } from '@/components/ui/StatusPicker'
 import { AssignPicker } from '@/components/ui/AssignPicker'
 import { ToggleGroup } from '@/components/ui/ToggleGroup'
+import { FilterPopover, FilterField } from '@/components/ui/FilterPopover'
 import { useAuth } from '@/contexts/AuthContext'
 import { useProduit } from '@/contexts/ProduitContext'
 import {
@@ -136,7 +137,7 @@ function KanbanCard({
         />
       </div>
       {blockedByTask && (
-        <div className="flex items-center gap-1 mb-2 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-600 text-[10px] font-medium">
+        <div className="flex items-center gap-1 mb-2 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-600 text-[11px] font-medium">
           <AlertTriangle size={10} className="shrink-0" />
           {pendingSubs} sous-tâche(s) restante(s)
         </div>
@@ -145,7 +146,7 @@ function KanbanCard({
       {/* Bouton ajout sous-tâche */}
       {!isReadOnly && (
         <button onClick={e => { e.stopPropagation(); onAddSub(t) }}
-          className="w-full flex items-center gap-1.5 mt-1 mb-1 px-2 py-1.5 rounded-lg border border-dashed border-indigo-200 text-indigo-500 hover:bg-indigo-50 hover:border-indigo-300 transition-all text-[11px] font-medium">
+          className="w-full flex items-center gap-1.5 mt-1 mb-1 px-2 py-1.5 rounded-lg border border-dashed border-indigo-200 text-indigo-500 hover:bg-indigo-50 hover:border-indigo-300 transition-all text-xs font-medium">
           <CornerDownRight size={11} />
           Ajouter une sous-tâche
         </button>
@@ -262,16 +263,16 @@ function SousTacheModal({ parent, sprint, membres, equipeNoms, onClose, onCreate
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/40 backdrop-blur-sm p-4"
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-brand/40 backdrop-blur-sm p-4"
       onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+      <div className="bg-card rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}>
 
         {/* Header modal */}
         <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
           <CornerDownRight size={14} className="text-indigo-500 shrink-0" />
           <div>
-            <p className="text-[10px] text-slate-400 font-medium">Nouvelle sous-tâche de</p>
+            <p className="text-[11px] text-slate-400 font-medium">Nouvelle sous-tâche de</p>
             <p className="text-sm font-bold text-navy">
               {parent.id_tache} — <span className="font-normal text-slate-500 truncate">{parent.titre}</span>
             </p>
@@ -457,7 +458,7 @@ function PanelCriteres({ tache, onSave }: { tache: Tache; onSave: (criteres: str
         Critères d'acceptation
         {total > 0 && (
           <span className={cn(
-            'ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded-full',
+            'ml-auto text-[11px] font-semibold px-1.5 py-0.5 rounded-full',
             done === total ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
           )}>
             {done}/{total}
@@ -640,14 +641,22 @@ export default function SprintBoardPage() {
         )}
 
         <div className="ds-sep" />
-        <select value={filterEpic} onChange={e => setFilterEpic(e.target.value)} className="ds-select w-36 text-xs py-1">
-          <option value="">Tous Epics</option>
-          {EPIC_LIST.map(e => <option key={e} value={e}>{e.split(' — ')[0]}</option>)}
-        </select>
-        <select value={filterJalon} onChange={e => setFilterJalon(e.target.value)} className="ds-select w-56 text-xs py-1">
-          <option value="">Tous Jalons - Incréments majeurs</option>
-          {JALON_LIST.map(j => <option key={j}>{j}</option>)}
-        </select>
+        <FilterPopover
+          activeCount={(filterEpic ? 1 : 0) + (filterJalon ? 1 : 0)}
+          onReset={() => { setFilterEpic(''); setFilterJalon('') }}>
+          <FilterField label="Epic">
+            <select value={filterEpic} onChange={e => setFilterEpic(e.target.value)} className="ds-select text-xs py-1.5">
+              <option value="">Tous Epics</option>
+              {EPIC_LIST.map(e => <option key={e} value={e}>{e.split(' — ')[0]}</option>)}
+            </select>
+          </FilterField>
+          <FilterField label="Jalon — incrément majeur">
+            <select value={filterJalon} onChange={e => setFilterJalon(e.target.value)} className="ds-select text-xs py-1.5">
+              <option value="">Tous Jalons</option>
+              {JALON_LIST.map(j => <option key={j}>{j}</option>)}
+            </select>
+          </FilterField>
+        </FilterPopover>
 
         <div className="flex gap-1.5 ml-auto">
           <span className="ds-pill-stat pill-todo rounded-full">{boardTaches.filter(t => t.statut === 'À faire').length} à faire</span>
@@ -671,7 +680,7 @@ export default function SprintBoardPage() {
                   return (
                     <button key={col.key} onClick={() => setMobileCol(col.key)}
                       className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap border transition-all shrink-0',
-                        active ? 'text-white border-transparent' : 'bg-white text-subtle border-slate-200')}
+                        active ? 'text-white border-transparent' : 'bg-card text-subtle border-slate-200')}
                       style={active ? { background: col.dot } : {}}>
                       <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: active ? '#fff' : col.dot }} />
                       {col.label} <span className="opacity-70">{n}</span>
@@ -714,7 +723,7 @@ export default function SprintBoardPage() {
                           <div className="w-2 h-2 rounded-full" style={{ background: col.dot }} />
                           <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{col.label}</span>
                         </div>
-                        <span className="text-xs font-medium text-slate-400 bg-white border border-slate-200 px-2 py-0.5 rounded-full">{colTaches.length}</span>
+                        <span className="text-xs font-medium text-slate-400 bg-card border border-slate-200 px-2 py-0.5 rounded-full">{colTaches.length}</span>
                       </div>
 
                       {colTaches.map(t => (
@@ -752,7 +761,7 @@ export default function SprintBoardPage() {
         {/* Panel détail — barre du bas sur mobile, colonne latérale sur desktop */}
         {panel && (
           <>
-            <div className="fixed inset-0 z-40 bg-navy/40" onClick={() => setPanel(null)} />
+            <div className="fixed inset-0 z-40 bg-brand/40" onClick={() => setPanel(null)} />
             <div className={cn(
               'fixed inset-x-0 bottom-0 z-50 animate-in',
               'md:inset-x-auto md:left-auto md:right-4 md:top-4 md:bottom-4 md:w-3/5 md:min-w-[380px] md:max-w-[860px]',
@@ -860,11 +869,11 @@ export default function SprintBoardPage() {
 
       {/* Modal Effort réalisé */}
       {effortModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/40 backdrop-blur-sm"
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-brand/40 backdrop-blur-sm"
           onClick={() => setEffortModal(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-80 p-5 space-y-4" onClick={e => e.stopPropagation()}>
+          <div className="bg-card rounded-2xl shadow-2xl w-80 p-5 space-y-4" onClick={e => e.stopPropagation()}>
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">Effort réalisé</p>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">Effort réalisé</p>
               <p className="text-sm font-bold text-navy">{effortModal.tache.id_tache}</p>
               <p className="text-xs text-slate-400 leading-snug line-clamp-2">{effortModal.tache.titre}</p>
             </div>
@@ -886,7 +895,7 @@ export default function SprintBoardPage() {
               <button onClick={() => setEffortModal(null)} className="ds-btn">Annuler</button>
             </div>
             <button onClick={skipEffort}
-              className="w-full text-center text-[10px] text-slate-400 hover:text-navy underline underline-offset-2 transition-colors">
+              className="w-full text-center text-[11px] text-slate-400 hover:text-navy underline underline-offset-2 transition-colors">
               Passer sans renseigner l'effort
             </button>
           </div>

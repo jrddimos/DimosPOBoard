@@ -138,7 +138,7 @@ export default function FinanceSetupPage() {
                 value: `${recap.equipesAvecTjm} / ${activeEquipes.length}`,
                 sub:   'avec un TJM',
                 color: 'bg-slate-50 border-slate-200',
-                text:  'text-slate-700',
+                text:  'text-slate-600',
               },
               {
                 label: 'TJM moyen',
@@ -163,16 +163,16 @@ export default function FinanceSetupPage() {
               },
             ].map(card => (
               <div key={card.label} className={cn('rounded-xl border p-3', card.color)}>
-                <div className="text-[10px] text-slate-500 font-medium mb-1">{card.label}</div>
+                <div className="text-[11px] text-slate-500 font-medium mb-1">{card.label}</div>
                 <div className={cn('text-lg font-bold tabular-nums leading-none', card.text)}>{card.value}</div>
-                <div className="text-[10px] text-slate-400 mt-0.5">{card.sub}</div>
+                <div className="text-[11px] text-slate-400 mt-0.5">{card.sub}</div>
               </div>
             ))}
           </div>
         )}
 
         {/* ── TJM par équipe ── */}
-        <div className="bg-white border border-border rounded-2xl p-5 space-y-4">
+        <div className="bg-card border border-border rounded-2xl p-5 space-y-4">
           <div className="flex items-center gap-2">
             <Users size={14} className="text-navy" />
             <h2 className="text-xs font-bold text-navy uppercase tracking-wider">TJM par équipe</h2>
@@ -185,7 +185,7 @@ export default function FinanceSetupPage() {
           ) : (
             <div className="rounded-xl border border-border overflow-hidden">
               {/* En-tête */}
-              <div className="grid grid-cols-[1fr_120px_100px_130px] gap-0 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 border-b border-border">
+              <div className="grid grid-cols-[1fr_120px_100px_130px] gap-0 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 border-b border-border">
                 <div className="px-4 py-2.5">Équipe</div>
                 <div className="px-3 py-2.5 text-right border-l border-border">TJM (€/j)</div>
                 <div className="px-3 py-2.5 text-right border-l border-border">Jours / ETP</div>
@@ -245,7 +245,7 @@ export default function FinanceSetupPage() {
         </div>
 
         {/* ── Trimestres ── */}
-        <div className="bg-white border border-border rounded-2xl p-5 space-y-4">
+        <div className="bg-card border border-border rounded-2xl p-5 space-y-4">
           <div className="flex items-center gap-2">
             <Calendar size={14} className="text-navy" />
             <h2 className="text-xs font-bold text-navy uppercase tracking-wider">Trimestres</h2>
@@ -255,7 +255,7 @@ export default function FinanceSetupPage() {
           <div className="flex items-center gap-4 pb-3 border-b border-border">
             <label className="text-sm text-slate-500 font-medium flex-1">
               Jours ouvrés par défaut
-              <p className="text-[11px] text-slate-400 font-normal mt-0.5">Appliqué à la génération et dans le tableau ci-dessus</p>
+              <p className="text-xs text-slate-400 font-normal mt-0.5">Appliqué à la génération et dans le tableau ci-dessus</p>
             </label>
             <div className="flex items-center gap-2">
               <input type="number" min="1" max="100" step="1" value={joursParTrim}
@@ -281,7 +281,7 @@ export default function FinanceSetupPage() {
           {/* Liste */}
           {trimestres.length > 0 ? (
             <div className="rounded-xl border border-border overflow-hidden">
-              <div className="grid grid-cols-[1fr_130px_36px] gap-0 px-3 py-2 bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-border">
+              <div className="grid grid-cols-[1fr_130px_36px] gap-0 px-3 py-2 bg-slate-50 text-[11px] font-bold text-slate-400 uppercase tracking-wider border-b border-border">
                 <span>Trimestre</span>
                 <span className="text-right">Jours ouvrés</span>
                 <span/>
@@ -290,7 +290,7 @@ export default function FinanceSetupPage() {
                 {trimestres.map((t, i) => (
                   <div key={t.id} className={cn('grid grid-cols-[1fr_130px_36px] items-center px-3 py-2', i % 2 === 1 && 'bg-slate-50/60')}>
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full shrink-0">{t.id}</span>
+                      <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full shrink-0">{t.id}</span>
                       <input type="text" value={t.label}
                         onChange={e => updateTrimestre(t.id, 'label', e.target.value)}
                         className="ds-input text-sm flex-1 min-w-0" />

@@ -54,7 +54,7 @@ function RagCell({ label, rag, sub, tooltip }: { label: string; rag: Rag; sub?: 
         'flex flex-col h-full rounded-xl border overflow-hidden min-w-[80px] flex-1 cursor-help',
         cfg ? cn(cfg.bg, cfg.border) : 'bg-slate-50 border-slate-200'
       )}>
-        <div className={cn('text-[9px] font-bold uppercase tracking-wider px-2 py-1.5 text-center border-b',
+        <div className={cn('text-[10px] font-bold uppercase tracking-wider px-2 py-1.5 text-center border-b',
           cfg ? cn(cfg.text, cfg.border) : 'text-slate-400 border-slate-200')}>
           {label}
         </div>
@@ -257,43 +257,43 @@ export function ProduitBandeauRow({
       <div className="flex items-center gap-6 px-5 py-3 border-r border-border flex-wrap">
         {extraLeft}
         <div>
-          <div className="text-[9px] text-subtle uppercase font-bold tracking-wider mb-0.5">Date MAJ</div>
+          <div className="text-[10px] text-subtle uppercase font-bold tracking-wider mb-0.5">Date MAJ</div>
           <div className="text-sm font-bold text-navy">{dateMAJ}</div>
         </div>
         <div>
-          <div className="text-[9px] text-subtle uppercase font-bold tracking-wider mb-0.5">Semaine</div>
+          <div className="text-[10px] text-subtle uppercase font-bold tracking-wider mb-0.5">Semaine</div>
           <div className="text-sm font-bold text-navy">{semaine}</div>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded-full shrink-0" style={{ background: produit.couleur ?? '#4A4CC8' }} />
           <div>
-            <div className="text-[9px] text-subtle uppercase font-bold tracking-wider mb-0.5">Produit</div>
+            <div className="text-[10px] text-subtle uppercase font-bold tracking-wider mb-0.5">Produit</div>
             <div className="text-sm font-bold text-navy">{produit.nom}</div>
           </div>
         </div>
         {produit.priorite_strategique && (
           <div>
-            <div className="text-[9px] text-subtle uppercase font-bold tracking-wider mb-0.5">Priorité</div>
+            <div className="text-[10px] text-subtle uppercase font-bold tracking-wider mb-0.5">Priorité</div>
             <div className="text-sm font-bold text-navy">{'★'.repeat(produit.priorite_strategique)} P{produit.priorite_strategique}</div>
           </div>
         )}
         {isSprint && effectiveSprint !== null && (
           <div>
-            <div className="text-[9px] text-subtle uppercase font-bold tracking-wider mb-0.5">Sprint</div>
+            <div className="text-[10px] text-subtle uppercase font-bold tracking-wider mb-0.5">Sprint</div>
             <div className="text-sm font-bold text-navy">
               S{effectiveSprint}
-              {sprintIsCloture && <span className="ml-1 text-[9px] font-normal text-subtle">(clôturé)</span>}
+              {sprintIsCloture && <span className="ml-1 text-[10px] font-normal text-subtle">(clôturé)</span>}
             </div>
           </div>
         )}
         {totalUSDisp > 0 && (
           <div className="flex items-center gap-2 ml-auto">
-            <div className="text-[9px] text-subtle uppercase font-bold tracking-wider">Backlog</div>
+            <div className="text-[10px] text-subtle uppercase font-bold tracking-wider">Backlog</div>
             <div className="w-24 h-1.5 rounded-full bg-border overflow-hidden">
               <div className={cn('h-full rounded-full', barColor(backlogPctDisp))} style={{ width: `${backlogPctDisp}%` }} />
             </div>
             <div className="text-xs font-bold text-navy tabular-nums">{backlogPctDisp} %</div>
-            <div className="text-[10px] text-subtle">{faitUSDisp}/{totalUSDisp} US</div>
+            <div className="text-[11px] text-subtle">{faitUSDisp}/{totalUSDisp} US</div>
           </div>
         )}
       </div>
@@ -310,7 +310,7 @@ export function ProduitBandeauRow({
       <div className="flex items-center divide-x divide-border">
         <Tooltip content={tipTraj}>
           <div className="flex flex-col items-center gap-1.5 px-5 py-3 min-w-[120px] cursor-help">
-            <div className="text-[9px] text-subtle uppercase font-bold tracking-wider">Trajectoire</div>
+            <div className="text-[10px] text-subtle uppercase font-bold tracking-wider">Trajectoire</div>
             {trajectoire && TRAJ_CFG[trajectoire] ? (
               <div className={cn('text-xs font-bold px-3 py-1 rounded-xl border whitespace-nowrap',
                 TRAJ_CFG[trajectoire].bg, TRAJ_CFG[trajectoire].text, TRAJ_CFG[trajectoire].border)}>
@@ -323,7 +323,7 @@ export function ProduitBandeauRow({
         </Tooltip>
         <Tooltip content={tipD}>
           <div className="flex flex-col items-center gap-1.5 px-5 py-3 min-w-[80px] cursor-help">
-            <div className="text-[9px] text-subtle uppercase font-bold tracking-wider">Livraison est.</div>
+            <div className="text-[10px] text-subtle uppercase font-bold tracking-wider">Livraison est.</div>
             <div className={cn('text-sm font-black tabular-nums',
               ragD === 'green' ? 'text-emerald-600'
               : ragD === 'amber' ? 'text-amber-600'

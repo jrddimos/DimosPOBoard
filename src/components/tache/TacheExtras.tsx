@@ -10,7 +10,7 @@ import type { Tache } from '@/types'
 import type { useToast } from '@/hooks/useToast'
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <label className="text-[11px] font-bold text-navy/75 uppercase tracking-wide mb-1.5 block">{children}</label>
+  return <label className="text-xs font-bold text-navy/75 uppercase tracking-wide mb-1.5 block">{children}</label>
 }
 
 // Discussion (commentaires + @mentions), Temps passé (chrono + pointage) et
@@ -95,12 +95,12 @@ export function TacheExtras({ produitId, tache, membres, userId, toast }: {
                 return (
                   <div key={c.id} className="bg-bg rounded-lg px-2.5 py-2 group/com">
                     <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-[11px] font-semibold text-navy">{auteur?.trigramme ?? auteur?.display_name ?? '—'}</span>
+                      <span className="text-xs font-semibold text-navy">{auteur?.trigramme ?? auteur?.display_name ?? '—'}</span>
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-subtle/60">{new Date(c.created_at).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                        <span className="text-[11px] text-subtle/60">{new Date(c.created_at).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
                         {c.user_id === userId && (
                           <button onClick={() => produitId && deleteCommentaire.mutate({ id: c.id, produit_id: produitId, id_tache: tache.id_tache })}
-                            className="opacity-0 group-hover/com:opacity-100 text-subtle hover:text-red transition-all"><X size={10}/></button>
+                            className="max-md:opacity-100 opacity-0 group-hover/com:opacity-100 text-subtle hover:text-red transition-all"><X size={10}/></button>
                         )}
                       </div>
                     </div>
@@ -134,14 +134,14 @@ export function TacheExtras({ produitId, tache, membres, userId, toast }: {
           <div className="flex flex-col gap-2">
             {timerIsHere ? (
               <button onClick={stopAndSave}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold bg-rose-500 text-white hover:bg-rose-600 transition-colors">
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold bg-rose-500 text-white hover:bg-rose-500 transition-colors">
                 <Square size={11}/> Arrêter · {formatElapsed(running!.started_at)}
               </button>
             ) : running ? (
               <div className="text-xs text-subtle italic">Chrono en cours sur {running.id_tache} — arrête-le d'abord depuis cette tâche.</div>
             ) : (
               <button onClick={() => startTimer({ id_tache: tache.id_tache, titre: tache.titre, produit_id: produitId, started_at: new Date().toISOString() })}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold bg-emerald-500 text-white hover:bg-emerald-600 transition-colors">
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold bg-emerald-500 text-white hover:bg-emerald-500 transition-colors">
                 <Play size={11}/> Démarrer le chrono
               </button>
             )}
@@ -163,7 +163,7 @@ export function TacheExtras({ produitId, tache, membres, userId, toast }: {
                     {entry.note && <span className="text-subtle/60 italic">{entry.note}</span>}
                     {entry.user_id === userId && (
                       <button onClick={() => deleteTemps.mutate({ id: entry.id, produit_id: produitId, id_tache: tache.id_tache })}
-                        className="ml-auto opacity-0 group-hover/temps:opacity-100 text-subtle hover:text-red transition-all"><X size={10}/></button>
+                        className="ml-auto max-md:opacity-100 opacity-0 group-hover/temps:opacity-100 text-subtle hover:text-red transition-all"><X size={10}/></button>
                     )}
                   </div>
                 ))}
@@ -186,9 +186,9 @@ export function TacheExtras({ produitId, tache, membres, userId, toast }: {
                   <DownloadIcon size={11} className="shrink-0"/>
                   <span className="truncate font-medium text-navy group-hover/att:text-indigo-600">{a.file_name}</span>
                 </button>
-                <span className="text-[10px] text-subtle shrink-0">{formatFileSize(a.file_size)}</span>
+                <span className="text-[11px] text-subtle shrink-0">{formatFileSize(a.file_size)}</span>
                 {(a.uploaded_by === userId) && (
-                  <button onClick={() => deleteAttachment.mutate(a)} className="opacity-0 group-hover/att:opacity-100 text-subtle hover:text-red transition-all shrink-0"><X size={11}/></button>
+                  <button onClick={() => deleteAttachment.mutate(a)} className="max-md:opacity-100 opacity-0 group-hover/att:opacity-100 text-subtle hover:text-red transition-all shrink-0"><X size={11}/></button>
                 )}
               </div>
             ))}

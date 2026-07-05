@@ -4,7 +4,7 @@ import type { HTMLAttributes } from 'react'
 export function Card({ className, children, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('bg-white rounded-xl shadow-card p-5 border border-border/40', className)}
+      className={cn('bg-card rounded-xl shadow-card p-5 border border-border/40', className)}
       {...props}
     >
       {children}

@@ -2,17 +2,61 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Tokens sémantiques (canaux RGB, consommés par tailwind.config.ts) ── */
 @layer base {
+  :root {
+    --c-page:   227 230 239;   /* fond de page      #E3E6EF */
+    --c-bg:     248 249 255;   /* fond léger        #F8F9FF */
+    --c-card:   255 255 255;   /* surface carte     #FFFFFF */
+    --c-ink:     30  58  95;   /* texte principal   #1E3A5F */
+    --c-subtle: 107 107 138;   /* texte secondaire  #6B6B8A */
+    --c-border: 226 226 240;   /* bordures          #E2E2F0 */
+    --c-border-strong: 200 204 220;
+    --c-brand:   30  58  95;   /* aplats marque     #1E3A5F */
+
+    --tw-slate-50:  248 250 252;  --tw-slate-100: 241 245 249;  --tw-slate-200: 226 232 240;
+    --tw-slate-500: 100 116 139;  --tw-slate-600:  71  85 105;
+    --tw-indigo-50: 238 242 255;  --tw-indigo-100: 224 231 255; --tw-indigo-200: 199 210 254;
+    --tw-indigo-600: 79  70 229;  --tw-indigo-700:  67  56 202;
+    --tw-emerald-50: 236 253 245; --tw-emerald-100: 209 250 229; --tw-emerald-200: 167 243 208;
+    --tw-emerald-600:  5 150 105; --tw-emerald-700:   4 120  87;
+    --tw-amber-50: 255 251 235;   --tw-amber-100: 254 243 199;  --tw-amber-200: 253 230 138;
+    --tw-amber-600: 217 119   6;  --tw-amber-700: 180  83   9;
+    --tw-rose-50: 255 241 242;    --tw-rose-100: 255 228 230;   --tw-rose-200: 254 205 211;
+    --tw-rose-600: 225  29  72;   --tw-rose-700: 190  18  60;
+  }
+
+  .dark {
+    --c-page:    11  17  32;   /* #0B1120 */
+    --c-bg:      15  23  40;   /* #0F1728 */
+    --c-card:    20  30  51;   /* #141E33 */
+    --c-ink:    226 232 240;   /* #E2E8F0 */
+    --c-subtle: 143 163 192;   /* #8FA3C0 */
+    --c-border:  38  52  82;   /* #263452 */
+    --c-border-strong: 56 74 108;
+    --c-brand:   58  80 165;   /* #3A50A5 — lisible avec texte blanc */
+
+    --tw-slate-50:   27  36  56;  --tw-slate-100:  32  43  66;  --tw-slate-200:  42  55  82;
+    --tw-slate-500: 139 158 187;  --tw-slate-600: 158 176 203;
+    --tw-indigo-50:  33  38  70;  --tw-indigo-100:  40  46  86; --tw-indigo-200:  62  70 122;
+    --tw-indigo-600: 139 150 248; --tw-indigo-700: 165 176 250;
+    --tw-emerald-50: 16  43  34;  --tw-emerald-100: 21  56  44; --tw-emerald-200: 30  78  60;
+    --tw-emerald-600: 52 211 153; --tw-emerald-700: 110 231 183;
+    --tw-amber-50:   47  38  15;  --tw-amber-100:  61  48  17;  --tw-amber-200:  85  66  22;
+    --tw-amber-600: 251 191  36;  --tw-amber-700: 252 211  77;
+    --tw-rose-50:    50  22  28;  --tw-rose-100:  64  27  35;   --tw-rose-200:  90  37  48;
+    --tw-rose-600:  251 113 133;  --tw-rose-700: 253 164 175;
+  }
+
   * { box-sizing: border-box; }
   html { font-size: 14.5px; }
   body {
     @apply font-sans antialiased;
-    background: #ECEEF4;
-    color: #1E3A5F;
+    background: rgb(var(--c-page));
+    color: rgb(var(--c-ink));
     font-feature-settings: 'cv11', 'ss01';
     transition: background-color .15s ease;
   }
-  .dark body { background: #0B1120; color: #E2E8F0; }
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { @apply bg-border rounded-full; }
@@ -20,16 +64,22 @@
 
 @media print {
   html, body { height: auto !important; overflow: visible !important; background: white !important; }
+  /* L'impression reste toujours en clair, même si le mode sombre est actif */
+  .dark {
+    --c-page: 255 255 255; --c-bg: 248 249 255; --c-card: 255 255 255;
+    --c-ink: 30 58 95; --c-subtle: 107 107 138; --c-border: 226 226 240;
+    --c-border-strong: 200 204 220; --c-brand: 30 58 95;
+  }
 }
 
 @layer components {
   .page-topbar {
-    @apply flex items-center gap-2 md:gap-3 px-3 md:px-5 bg-white;
+    @apply flex items-center gap-2 md:gap-3 px-3 md:px-5 bg-card;
     flex-wrap: wrap;
     padding-top: 10px;
     padding-bottom: 10px;
     min-height: 52px;
-    border-bottom: 1px solid #D0D4DF;
+    border-bottom: 1px solid rgb(var(--c-border-strong));
     box-shadow: 0 1px 4px rgba(30,58,95,0.07);
   }
   @media (min-width: 768px) {
@@ -46,73 +96,74 @@
   .page-content { @apply p-3 md:p-5; }
 
   /* Cards */
-  .ds-card { @apply bg-white border border-border rounded-xl p-4 shadow-sm; }
+  .ds-card { @apply bg-card border border-border rounded-xl p-4 shadow-sm; }
   .ds-card-title { @apply text-xs font-semibold text-subtle uppercase tracking-wide mb-3; }
 
   /* Pills */
-  .ds-pill { @apply inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border border-border bg-white text-subtle cursor-pointer transition-all; }
+  .ds-pill { @apply inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border border-border bg-card text-subtle cursor-pointer transition-all; }
   .ds-pill:hover { @apply border-navy/30 text-navy; }
-  .ds-pill.active { @apply bg-navy text-white border-navy; }
+  .ds-pill.active { @apply bg-brand text-white border-brand; }
   .ds-pill-stat { @apply inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full; }
   .pill-todo  { background:#F1F5F9; color:#475569; }
   .pill-wip   { background:#FEF3C7; color:#92600A; }
   .pill-done  { background:#D1FAE5; color:#065F46; }
   .pill-block { background:#FEE2E2; color:#991B1B; }
   .pill-blue  { background:#DBEAFE; color:#1E40AF; }
+  .dark .pill-todo  { background:#202B42; color:#9EB0CB; }
+  .dark .pill-wip   { background:#3D3011; color:#FAC775; }
+  .dark .pill-done  { background:#15382C; color:#6EE7B7; }
+  .dark .pill-block { background:#401B23; color:#FDA4AF; }
+  .dark .pill-blue  { background:#1B2A4A; color:#93C5FD; }
 
   /* Table */
   .ds-table { @apply w-full text-xs; border-collapse: collapse; }
-  .ds-table thead tr { @apply bg-navy; }
+  .ds-table thead tr { @apply bg-brand; }
   .ds-table th { @apply text-left py-2.5 px-3 text-white font-semibold text-xs whitespace-nowrap; }
   .ds-table td { @apply py-2 px-3 border-b border-border/50 text-xs; }
   .ds-table tbody tr:hover td { background: rgba(74,76,200,0.03); }
+  .dark .ds-table tbody tr:hover td { background: rgba(139,150,248,0.06); }
   .ds-table .group-row td { @apply bg-bg py-1.5 font-semibold text-navy border-b border-border text-xs; }
 
   /* Form */
   .ds-input {
-    @apply w-full px-3 py-2 text-sm border border-border rounded-lg bg-white text-navy placeholder:text-subtle/50;
+    @apply w-full px-3 py-2 text-sm border border-border rounded-lg bg-card text-navy placeholder:text-subtle/50;
     @apply focus:outline-none focus:ring-1 focus:ring-indigo-300/60 focus:border-indigo-400 transition-colors;
   }
   .ds-select {
-    @apply w-full px-3 py-2 text-sm border border-border rounded-lg bg-white text-navy;
+    @apply w-full px-3 py-2 text-sm border border-border rounded-lg bg-card text-navy;
     @apply focus:outline-none focus:ring-1 focus:ring-indigo-300/60 focus:border-indigo-400 transition-colors;
   }
   .ds-textarea {
-    @apply w-full px-3 py-2 text-sm border border-border rounded-lg bg-white text-navy placeholder:text-subtle/50;
+    @apply w-full px-3 py-2 text-sm border border-border rounded-lg bg-card text-navy placeholder:text-subtle/50;
     @apply focus:outline-none focus:ring-1 focus:ring-indigo-300/60 focus:border-indigo-400 transition-colors;
     resize: vertical;
   }
   .ds-label { @apply text-xs font-semibold text-subtle uppercase tracking-wide; }
 
   /* Buttons */
-  .ds-btn { @apply inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-border bg-white text-subtle transition-all hover:border-navy/30 hover:text-navy active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed; }
-  .ds-btn-primary { @apply inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-navy text-white transition-all hover:bg-navy/90 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed; }
+  .ds-btn { @apply inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-border bg-card text-subtle transition-all hover:border-navy/30 hover:text-navy active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed; }
+  .ds-btn-primary { @apply inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-brand text-white transition-all hover:bg-brand/90 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed; }
   .ds-btn-danger  { @apply inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-red text-white transition-all hover:opacity-90 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed; }
   .ds-btn-sm { @apply px-2.5 py-1 text-xs; }
 
   /* Kanban */
   .kanban-col { @apply flex flex-col gap-2 p-3; min-height: 400px; }
-  .kanban-card { @apply bg-white border border-border rounded-xl p-3 cursor-pointer transition-all; box-shadow: 0 1px 3px rgba(30,58,95,0.06); }
-  .kanban-card:hover { box-shadow: 0 3px 10px rgba(30,58,95,0.1); border-color: #C8C8DC; }
+  .kanban-card { @apply bg-card border border-border rounded-xl p-3 cursor-pointer transition-all; box-shadow: 0 1px 3px rgba(30,58,95,0.06); }
+  .kanban-card:hover { box-shadow: 0 3px 10px rgba(30,58,95,0.1); border-color: rgb(var(--c-border-strong)); }
   .kanban-card.selected { border-color: #6366F1; border-left-width: 3px; }
   .kanban-select { @apply w-full text-xs px-2 py-1.5 rounded-lg border border-border bg-bg text-navy; @apply focus:outline-none focus:ring-1 focus:ring-indigo-200/70 focus:border-indigo-400; }
 
   /* Search */
-  .ds-searchbar { @apply flex items-center gap-2 bg-white border border-border rounded-lg px-3; height: 34px; }
+  .ds-searchbar { @apply flex items-center gap-2 bg-card border border-border rounded-lg px-3; height: 34px; }
   .ds-searchbar input { @apply flex-1 text-sm outline-none bg-transparent text-navy placeholder:text-subtle/50; }
 
   /* Inline edit */
-  .inline-edit-row { @apply flex items-center gap-2 p-2.5 rounded-lg border border-border bg-white; }
+  .inline-edit-row { @apply flex items-center gap-2 p-2.5 rounded-lg border border-border bg-card; }
   .inline-edit-row:hover { @apply border-indigo-200 bg-indigo-50/50; }
 
   /* Misc */
   .ds-sep { @apply w-px h-4 bg-border shrink-0; }
   .ds-badge { @apply inline-flex text-xs font-medium px-2 py-0.5 rounded-full; }
-  .ds-btn-primary { @apply inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-navy text-white transition-all hover:bg-navy/90 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed; }
-  .ds-btn-danger  { @apply inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-red text-white transition-all hover:opacity-90 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed; }
-  .ds-btn-sm      { @apply px-2.5 py-1 text-xs; }
-  .ds-card-title  { @apply text-xs font-semibold text-subtle uppercase tracking-wide mb-3; }
-  .ds-pill-stat   { @apply inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full; }
 
   .ds-section-divider { @apply flex items-center gap-3 my-4; }
   .ds-section-divider span { @apply text-xs font-semibold text-subtle uppercase tracking-wide whitespace-nowrap; }

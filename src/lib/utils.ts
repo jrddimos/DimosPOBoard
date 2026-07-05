@@ -68,3 +68,15 @@ export function downloadCSV(data: Record<string, unknown>[], filename: string, h
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
+
+// ── Semaine ISO (partagé Réunion PO / hub Réunions) ───────────────
+export function getISOWeek(date: Date): { semaine: number; annee: number } {
+  const d = new Date(date)
+  d.setHours(0, 0, 0, 0)
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7))
+  const week1 = new Date(d.getFullYear(), 0, 4)
+  const semaine = 1 + Math.round(
+    ((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7
+  )
+  return { semaine, annee: d.getFullYear() }
+}

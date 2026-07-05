@@ -29,7 +29,7 @@ export function Tooltip({ children, content, className }: {
       {visible && createPortal(
         <div className="fixed z-[9999] pointer-events-none"
           style={{ left: pos.x, top: pos.y - 8, transform: 'translate(-50%, -100%)' }}>
-          <div className="bg-navy text-white text-[10px] rounded-xl px-3 py-2 shadow-2xl
+          <div className="bg-brand text-white text-[11px] rounded-xl px-3 py-2 shadow-2xl
                           whitespace-pre-line min-w-[140px] max-w-[220px] leading-relaxed text-center">
             {content}
           </div>

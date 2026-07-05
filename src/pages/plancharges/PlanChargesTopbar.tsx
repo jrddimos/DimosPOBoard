@@ -42,7 +42,7 @@ export function PlanChargesTopbar({
 
           {annee === curYear && (
             <button onClick={scrollToToday}
-              className="flex items-center gap-1.5 text-[11px] font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg transition-colors">
+              className="flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg transition-colors">
               <CalendarClock size={13} aria-hidden="true" />
               Aujourd'hui
             </button>
@@ -75,11 +75,11 @@ export function PlanChargesTopbar({
               { key: 'comparaison',  label: 'Comparaison',   icon: <ArrowLeftRight size={11}/> },
             ] as const).map(m => (
               <button key={m.key} onClick={() => setMode(m.key as PlanMode)}
-                className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-all',
+                className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all',
                   mode === m.key
-                    ? m.key === 'realise'     ? 'bg-white shadow-sm text-emerald-700'
-                    : m.key === 'comparaison' ? 'bg-white shadow-sm text-amber-700'
-                    :                           'bg-white shadow-sm text-navy'
+                    ? m.key === 'realise'     ? 'bg-card shadow-sm text-emerald-700'
+                    : m.key === 'comparaison' ? 'bg-card shadow-sm text-amber-700'
+                    :                           'bg-card shadow-sm text-navy'
                     : 'text-subtle hover:text-navy'
                 )}>
                 {m.icon}{m.label}
@@ -98,7 +98,7 @@ export function PlanChargesTopbar({
       </div>
 
       {showTip && viewMode === 'produit' && mode !== 'comparaison' && (
-        <div className="flex items-center gap-2 text-[11px] text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-1.5 mb-3">
+        <div className="flex items-center gap-2 text-xs text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-1.5 mb-3">
           <Info size={13} className="shrink-0" aria-hidden="true" />
           <span>Cliquez sur une cellule pour saisir une valeur, ou glissez sur plusieurs semaines pour un remplissage groupé.</span>
           <button onClick={() => { setShowTip(false); localStorage.setItem('pc-hideTip', '1') }}

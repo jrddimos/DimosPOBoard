@@ -35,7 +35,7 @@ export function StatusPicker({ value, onChange, disabled }: {
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-lg py-1 min-w-[140px] overflow-hidden">
+        <div className="absolute left-0 top-full mt-1 z-50 bg-card border border-slate-200 rounded-xl shadow-lg py-1 min-w-[140px] overflow-hidden">
           {(Object.entries(STATUT_PICKER_CONFIG) as [Statut, typeof cfg][]).map(([statut, c]) => (
             <button key={statut} type="button"
               onClick={() => { onChange(statut); setOpen(false) }}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, lazy, Suspense } from 'react'
 import type { ReactNode } from 'react'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { useNavigate } from 'react-router-dom'
@@ -11,6 +11,44 @@ import { cn } from '@/lib/utils'
 import { AlertTriangle, Check, CheckCircle, XCircle, CornerDownRight, ListPlus, Lock, Pencil, Plus, X } from 'lucide-react'
 import type { Produit, RisqueItem, ActionLop } from '@/hooks/useProduits'
 import { EPIC_COLORS } from '@/constants'
+import { BentoGrid } from '@/pages/dashboard/cockpit/BentoGrid'
+
+// Graphiques en widgets — chargés à la demande pour garder recharts hors du bundle initial
+const LazyRoadmapChart   = lazy(() => import('@/pages/dashboard/DashboardCharts').then(m => ({ default: m.RoadmapChart })))
+const LazyStatutsChart   = lazy(() => import('@/pages/dashboard/DashboardCharts').then(m => ({ default: m.VerticalStackedStatutChart })))
+const LazyEpicsChart     = lazy(() => import('@/pages/dashboard/DashboardCharts').then(m => ({ default: m.ProduitEpicsChart })))
+const LazyTendanceChart  = lazy(() => import('@/pages/dashboard/DashboardCharts').then(m => ({ default: m.ProduitTendanceSprintChart })))
+
+function ChartWidget({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-card border border-white rounded-2xl overflow-hidden flex flex-col shadow-md h-full">
+      <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 shrink-0">
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{title}</span>
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto p-3">
+        <Suspense fallback={<div className="flex items-center justify-center h-full text-xs text-subtle/40">Chargement…</div>}>
+          {children}
+        </Suspense>
+      </div>
+    </div>
+  )
+}
+import type { ViewLayoutItem } from '@/hooks/useDashboardViews'
+
+// Disposition par défaut : reproduit l'agencement historique
+// (colonne étroite / colonne centrale / colonne droite, LOP en pleine largeur)
+const PRODUIT_LAYOUT: ViewLayoutItem[] = [
+  { i: 'produit',    x: 0, y: 0, w: 2, h: 3 },
+  { i: 'equipes',    x: 0, y: 3, w: 2, h: 3 },
+  { i: 'jalons',     x: 0, y: 6, w: 2, h: 3 },
+  { i: 'avancement', x: 2, y: 0, w: 7, h: 4 },
+  { i: 'epics',      x: 2, y: 4, w: 3, h: 5 },
+  { i: 'points',     x: 5, y: 4, w: 4, h: 5 },
+  { i: 'effort',     x: 9, y: 0, w: 3, h: 3 },
+  { i: 'finance',    x: 9, y: 3, w: 3, h: 3 },
+  { i: 'risques',    x: 9, y: 6, w: 3, h: 3 },
+  { i: 'lop',        x: 0, y: 9, w: 12, h: 4 },
+]
 
 // ── Types ────────────────────────────────────────────────────────
 type Rag = 'green' | 'amber' | 'red' | null
@@ -99,7 +137,7 @@ function RagCell({ label, rag, sub, tooltip }: { label: string; rag: Rag; sub?: 
         'flex flex-col rounded-xl border overflow-hidden min-w-[80px] cursor-help transition-colors',
         cfg ? cn(cfg.bg, cfg.border) : 'bg-slate-50 border-slate-200'
       )}>
-        <div className={cn('text-[9px] font-bold uppercase tracking-wider px-2 py-1.5 text-center border-b',
+        <div className={cn('text-[10px] font-bold uppercase tracking-wider px-2 py-1.5 text-center border-b',
           cfg ? cn(cfg.text, cfg.border) : 'text-slate-400 border-slate-200')}>
           {label}
         </div>
@@ -123,9 +161,9 @@ function Section({ title, children, className, noPad, action, scrollable }: {
   title: string; children: ReactNode; className?: string; noPad?: boolean; action?: ReactNode; scrollable?: boolean
 }) {
   return (
-    <div className={cn('bg-white border border-white rounded-2xl overflow-hidden flex flex-col shadow-md', className)}>
+    <div className={cn('bg-card border border-white rounded-2xl overflow-hidden flex flex-col shadow-md', className)}>
       <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 shrink-0 flex items-center gap-2">
-        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest flex-1">{title}</span>
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex-1">{title}</span>
         {action}
       </div>
       <div className={cn('flex-1 min-h-0', !noPad && 'p-3', scrollable && 'overflow-y-auto')}>
@@ -146,9 +184,9 @@ function MiniBar({ pct, color = 'bg-purple' }: { pct: number; color?: string }) 
 function StatChip({ label, value, sub, color, bg, border }: { label: string; value: string | number; sub?: string; color?: string; bg?: string; border?: string }) {
   return (
     <div className={cn('rounded-xl px-2 py-2 text-center border', bg ?? 'bg-slate-50', border ?? 'border-slate-100')}>
-      <div className="text-[9px] text-slate-500 uppercase tracking-wider font-medium">{label}</div>
-      <div className={cn('text-sm font-bold tabular-nums mt-0.5', color ?? 'text-slate-700')}>{value}</div>
-      {sub && <div className="text-[9px] text-slate-400">{sub}</div>}
+      <div className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">{label}</div>
+      <div className={cn('text-sm font-bold tabular-nums mt-0.5', color ?? 'text-slate-600')}>{value}</div>
+      {sub && <div className="text-[10px] text-slate-400">{sub}</div>}
     </div>
   )
 }
@@ -162,21 +200,21 @@ function AvancementStats({ total, fait, enCours, bloque, backlogPct, effortFait,
   return (
     <>
       <div className="grid grid-cols-4 gap-2 mb-3">
-        <StatChip label="Total US"  value={total} bg="bg-slate-50"   border="border-slate-100" color="text-slate-700" />
+        <StatChip label="Total US"  value={total} bg="bg-slate-50"   border="border-slate-100" color="text-slate-600" />
         <StatChip label="Terminées" value={fait}    sub={`${backlogPct} %`} bg="bg-emerald-50" border="border-emerald-100" color="text-emerald-700" />
         <StatChip label="En cours"  value={enCours} bg={enCours > 0 ? 'bg-amber-50'  : 'bg-slate-50'} border={enCours > 0 ? 'border-amber-100'  : 'border-slate-100'} color={enCours > 0 ? 'text-amber-700'  : 'text-slate-400'} />
         <StatChip label="Bloquées"  value={bloque}  bg={bloque > 0  ? 'bg-rose-50'   : 'bg-slate-50'} border={bloque > 0  ? 'border-rose-100'   : 'border-slate-100'} color={bloque > 0  ? 'text-rose-700'   : 'text-slate-400'} />
       </div>
       <div className="space-y-2">
         <div>
-          <div className="flex justify-between text-[9px] text-subtle mb-0.5">
+          <div className="flex justify-between text-[10px] text-subtle mb-0.5">
             <span>US terminées</span><span>{fait}/{total} · {backlogPct} %</span>
           </div>
           <MiniBar pct={backlogPct} color={barColor(backlogPct)} />
         </div>
         {effortTotal > 0 && (
           <div>
-            <div className="flex justify-between text-[9px] text-subtle mb-0.5">
+            <div className="flex justify-between text-[10px] text-subtle mb-0.5">
               <span>Effort consommé</span><span>{effortFait}j / {effortTotal}j · {effortPct} %</span>
             </div>
             <MiniBar pct={effortPct} color={barColor(effortPct)} />
@@ -184,13 +222,13 @@ function AvancementStats({ total, fait, enCours, bloque, backlogPct, effortFait,
         )}
         {mustHaveTotal > 0 && mustHavePct !== null && (
           <div>
-            <div className="flex justify-between text-[9px] text-subtle mb-0.5">
+            <div className="flex justify-between text-[10px] text-subtle mb-0.5">
               <span>Must Have</span><span>{mustHaveFait}/{mustHaveTotal} · {mustHavePct} %</span>
             </div>
             <MiniBar pct={mustHavePct} color={barColor(mustHavePct)} />
           </div>
         )}
-        {note && <p className="text-[9px] text-subtle/60 pt-1">{note}</p>}
+        {note && <p className="text-[10px] text-subtle/60 pt-1">{note}</p>}
       </div>
     </>
   )
@@ -198,15 +236,15 @@ function AvancementStats({ total, fait, enCours, bloque, backlogPct, effortFait,
 
 function ToggleBtn({ active, onClick, children, expand }: { active: boolean; onClick: () => void; children: ReactNode; expand?: boolean }) {
   return (
-    <button onClick={onClick} className={cn('px-2 py-1 text-[9px] font-semibold transition-colors text-center', expand && 'flex-1',
-      active ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50')}>
+    <button onClick={onClick} className={cn('px-2 py-1 text-[10px] font-semibold transition-colors text-center', expand && 'flex-1',
+      active ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'text-slate-500 hover:text-slate-600 hover:bg-slate-50')}>
       {children}
     </button>
   )
 }
 
 // ── Composant principal ──────────────────────────────────────────
-export function ProduitDashboardBody({ produit }: { produit: Produit }) {
+export function ProduitDashboardBody({ produit, customizable = true }: { produit: Produit; customizable?: boolean }) {
   const navigate = useNavigate()
 
   const [scopeView, setScopeView]             = useState<'global' | 'trim' | 'sprint'>('trim')
@@ -632,7 +670,7 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
     const diff = (new Date(iso).getTime() - Date.now()) / 86_400_000
     if (diff < 0) return 'text-rose-600 font-semibold'
     if (diff < 7) return 'text-amber-600 font-semibold'
-    return 'text-slate-700'
+    return 'text-slate-600'
   }
 
   // ── JSX ──────────────────────────────────────────────────────
@@ -640,7 +678,7 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
     <>
       {/* Toggle scope — au-dessus du bandeau car contrôle les données */}
       <div className="flex justify-end mb-2">
-        <div className="flex rounded-lg border border-border overflow-hidden bg-white shadow-sm w-[260px]">
+        <div className="flex rounded-lg border border-border overflow-hidden bg-card shadow-sm w-[260px]">
           <ToggleBtn expand active={scopeView === 'global'} onClick={() => setScopeView('global')}>Global</ToggleBtn>
           <div className="w-px bg-border shrink-0" />
           <ToggleBtn expand active={scopeView === 'trim'} onClick={() => setScopeView('trim')}>
@@ -652,38 +690,38 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
       </div>
 
       {/* Bandeau en-tête */}
-      <div className="bg-white border border-white rounded-2xl mb-4 overflow-hidden shadow-md">
+      <div className="bg-card border border-white rounded-2xl mb-4 overflow-hidden shadow-md">
         <div className="grid grid-cols-[1fr_auto_auto]">
           <div className="flex items-center gap-6 px-5 py-3 border-r border-border flex-wrap">
             <div>
-              <div className="text-[9px] text-subtle uppercase font-bold tracking-wider mb-0.5">Date MAJ</div>
+              <div className="text-[10px] text-subtle uppercase font-bold tracking-wider mb-0.5">Date MAJ</div>
               <div className="text-sm font-bold text-navy">{dateMAJ}</div>
             </div>
             <div>
-              <div className="text-[9px] text-subtle uppercase font-bold tracking-wider mb-0.5">Semaine</div>
+              <div className="text-[10px] text-subtle uppercase font-bold tracking-wider mb-0.5">Semaine</div>
               <div className="text-sm font-bold text-navy">{semaine}</div>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full shrink-0" style={{ background: produit.couleur ?? '#4A4CC8' }} />
               <div>
-                <div className="text-[9px] text-subtle uppercase font-bold tracking-wider mb-0.5">Produit</div>
+                <div className="text-[10px] text-subtle uppercase font-bold tracking-wider mb-0.5">Produit</div>
                 <div className="text-sm font-bold text-navy">{produit.nom}</div>
               </div>
             </div>
             {produit.priorite_strategique && (
               <div>
-                <div className="text-[9px] text-subtle uppercase font-bold tracking-wider mb-0.5">Priorité</div>
+                <div className="text-[10px] text-subtle uppercase font-bold tracking-wider mb-0.5">Priorité</div>
                 <div className="text-sm font-bold text-navy">{'★'.repeat(produit.priorite_strategique)} P{produit.priorite_strategique}</div>
               </div>
             )}
             {totalUS > 0 && (
               <div className="flex items-center gap-2 ml-auto">
-                <div className="text-[9px] text-subtle uppercase font-bold tracking-wider">Backlog</div>
+                <div className="text-[10px] text-subtle uppercase font-bold tracking-wider">Backlog</div>
                 <div className="w-24 h-1.5 rounded-full bg-border overflow-hidden">
                   <div className={cn('h-full rounded-full', barColor(backlogPct))} style={{ width: `${backlogPct}%` }} />
                 </div>
                 <div className="text-xs font-bold text-navy tabular-nums">{backlogPct} %</div>
-                <div className="text-[10px] text-subtle">{faitUS}/{totalUS} US</div>
+                <div className="text-[11px] text-subtle">{faitUS}/{totalUS} US</div>
               </div>
             )}
           </div>
@@ -700,7 +738,7 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
           <div className="flex items-center divide-x divide-border">
             <Tooltip content={tipDelai}>
               <div className="flex flex-col items-center gap-1.5 px-5 py-3 min-w-[120px] cursor-help">
-                <div className="text-[9px] text-subtle uppercase font-bold tracking-wider">Trajectoire</div>
+                <div className="text-[10px] text-subtle uppercase font-bold tracking-wider">Trajectoire</div>
                 {ragD && TRAJ_CFG[ragD] ? (
                   <div className={cn('text-xs font-bold px-3 py-1 rounded-xl border whitespace-nowrap', TRAJ_CFG[ragD].bg, TRAJ_CFG[ragD].text,
                     ragD === 'green' ? 'border-emerald-200' : ragD === 'amber' ? 'border-amber-200' : 'border-rose-200')}>
@@ -713,7 +751,7 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
             </Tooltip>
             <Tooltip content={tipLivraison}>
               <div className="flex flex-col items-center gap-1.5 px-5 py-3 min-w-[80px] cursor-help">
-                <div className="text-[9px] text-subtle uppercase font-bold tracking-wider">Livraison est.</div>
+                <div className="text-[10px] text-subtle uppercase font-bold tracking-wider">Livraison est.</div>
                 <div className={cn('text-sm font-black tabular-nums',
                   ragD === 'green' ? 'text-emerald-600' : ragD === 'amber' ? 'text-amber-600' : ragD === 'red' ? 'text-rose-600' : 'text-slate-400')}>
                   {estimatedDeliveryDate
@@ -726,19 +764,21 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
         </div>
       </div>
 
-      {/* Grille principale 3 colonnes */}
-      <div className="grid grid-cols-[200px_1fr_260px] gap-3 h-[35vh] min-h-[400px]">
-
-        {/* COL 1 : Produit / Équipes / Jalons */}
-        <div className="flex flex-col gap-3 h-full min-h-0">
-          <Section title="Produit" className="shrink-0">
+      {/* Grille bento : les mêmes blocs qu'avant, désormais personnalisables */}
+      <BentoGrid
+        contexte="produit"
+        editable={customizable}
+        defaultLayout={PRODUIT_LAYOUT}
+        items={[
+          { key: 'produit', label: 'Produit', minW: 2, minH: 2, defaultSize: { w: 2, h: 3 }, content: (
+<Section title="Produit" className="h-full">
             {produit.vision
               ? <p className="text-xs text-navy/80 leading-relaxed">{produit.vision}</p>
               : <p className="text-xs text-subtle/40 italic">Vision non définie</p>}
             {produit.niveau_risque && (
               <div className="mt-2 flex items-center gap-1.5">
-                <span className="text-[10px] font-bold text-subtle uppercase">Risque</span>
-                <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full font-semibold border',
+                <span className="text-[11px] font-bold text-subtle uppercase">Risque</span>
+                <span className={cn('text-[11px] px-1.5 py-0.5 rounded-full font-semibold border',
                   produit.niveau_risque === 'Faible'   && 'bg-emerald-50 text-emerald-700 border-emerald-200',
                   produit.niveau_risque === 'Moyen'    && 'bg-amber-50 text-amber-700 border-amber-200',
                   produit.niveau_risque === 'Élevé'    && 'bg-orange-50 text-orange-700 border-orange-200',
@@ -750,15 +790,16 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
             )}
             {produit.date_lancement_cible && (
               <div className="mt-2 pt-2 border-t border-border flex justify-between items-center">
-                <span className="text-[10px] text-subtle">Lancement cible</span>
-                <span className={cn('text-[10px] font-bold', delaiInfo.onTime ? 'text-slate-700' : 'text-rose-600')}>
+                <span className="text-[11px] text-subtle">Lancement cible</span>
+                <span className={cn('text-[11px] font-bold', delaiInfo.onTime ? 'text-slate-600' : 'text-rose-600')}>
                   {fmtDate(produit.date_lancement_cible)}
                 </span>
               </div>
             )}
           </Section>
-
-          <Section title={`Équipes (${equipesMembres.length})`} className="shrink-0" scrollable>
+          ) },
+          { key: 'equipes', label: 'Équipes', minW: 2, minH: 2, defaultSize: { w: 2, h: 3 }, content: (
+<Section title={`Équipes (${equipesMembres.length})`} className="h-full" scrollable>
             {equipesMembres.length === 0 && equipesNoms.length === 0
               ? <p className="text-xs text-subtle/40 italic">Aucune équipe assignée</p>
               : (
@@ -782,12 +823,12 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                           className="w-6 h-6 rounded-full overflow-hidden shrink-0 border border-white">
                           {m.avatar_url
                             ? <img src={m.avatar_url} alt="" className="w-full h-full object-cover" />
-                            : <div className="w-full h-full flex items-center justify-center text-white text-[9px] font-bold"
+                            : <div className="w-full h-full flex items-center justify-center text-white text-[10px] font-bold"
                                 style={{ background: m.couleur ?? '#4A4CC8' }}>{m.trigramme ?? '?'}</div>}
                         </div>
                       ))}
                       {equipesMembres.length > 10 && (
-                        <div className="w-6 h-6 rounded-full bg-subtle/20 flex items-center justify-center text-[9px] text-subtle font-bold">
+                        <div className="w-6 h-6 rounded-full bg-subtle/20 flex items-center justify-center text-[10px] text-subtle font-bold">
                           +{equipesMembres.length - 10}
                         </div>
                       )}
@@ -796,8 +837,9 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                 </div>
               )}
           </Section>
-
-          <Section title={`Jalons - Incréments majeurs (${jalons.length})`} className="flex-1 min-h-0" scrollable>
+          ) },
+          { key: 'jalons', label: 'Jalons', minW: 2, minH: 2, defaultSize: { w: 2, h: 3 }, content: (
+<Section title={`Jalons - Incréments majeurs (${jalons.length})`} className="h-full" scrollable>
             {jalons.length === 0
               ? <p className="text-xs text-subtle/40 italic">Aucun jalon - incrément majeur dans les tâches</p>
               : <div className="space-y-2">
@@ -806,8 +848,8 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                     return (
                       <div key={j}>
                         <div className="flex items-center justify-between mb-0.5">
-                          <span className="text-[10px] font-medium text-navy truncate flex-1">{j}</span>
-                          <span className="text-[9px] text-subtle ml-1 shrink-0">{stats.fait}/{stats.total}</span>
+                          <span className="text-[11px] font-medium text-navy truncate flex-1">{j}</span>
+                          <span className="text-[10px] text-subtle ml-1 shrink-0">{stats.fait}/{stats.total}</span>
                         </div>
                         <MiniBar pct={pct} color={barColor(pct)} />
                       </div>
@@ -815,11 +857,9 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                   })}
                 </div>}
           </Section>
-        </div>
-
-        {/* COL 2 : Avancement + Épics + Points ouverts */}
-        <div className="flex flex-col gap-3 h-full min-h-0">
-          <Section className="shrink-0"
+          ) },
+          { key: 'avancement', label: 'Avancement', minW: 4, minH: 3, defaultSize: { w: 7, h: 4 }, content: (
+<Section className="h-full"
             title={scopeView === 'global' ? 'Avancement global' : scopeView === 'trim' ? `Objectifs — ${currentTrim?.trimestre || 'Trimestre en cours'}` : 'Sprint'}>
             {scopeView === 'global' ? (
               totalUS === 0
@@ -842,10 +882,10 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                     const isSelected = s.numero === effectiveSprint
                     return (
                       <button key={s.numero} onClick={() => setSelectedSprintNum(s.numero)}
-                        className={cn('text-[9px] px-1.5 py-0.5 rounded font-semibold transition-colors',
-                          isSelected ? 'bg-navy text-white'
+                        className={cn('text-[10px] px-1.5 py-0.5 rounded font-semibold transition-colors',
+                          isSelected ? 'bg-brand text-white'
                           : isActive  ? 'bg-purple/20 text-purple border border-purple/30'
-                          : 'bg-bg text-subtle hover:text-navy hover:bg-navy/5')}>
+                          : 'bg-bg text-subtle hover:text-navy hover:bg-brand/5')}>
                         {s.numero}{isActive ? ' ●' : ''}
                       </button>
                     )
@@ -860,11 +900,10 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
               </>
             )}
           </Section>
-
-          <div className="flex gap-3 flex-1 min-h-0">
-            {epics.length > 0 && (
-              <div className="w-[340px] shrink-0 h-full">
-                <Section title={`Épics — ${epics.length}`} noPad scrollable className="h-full">
+          ) },
+          { key: 'epics', label: 'Épics', minW: 2, minH: 3, defaultSize: { w: 3, h: 5 }, content: (
+<Section title={`Épics — ${epics.length}`} noPad scrollable className="h-full">
+{epics.length === 0 ? <p className="p-3 text-xs text-subtle/40 italic">Aucun épic dans les tâches</p> : (<>
                   <div className="divide-y divide-border">
                     {epics.map(([epicName, stats]) => {
                       const pct   = stats.total > 0 ? Math.round(stats.fait / stats.total * 100) : 0
@@ -872,19 +911,19 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                       return (
                         <div key={epicName} className="flex items-center gap-2 px-3 py-2 hover:bg-bg/50 transition-colors">
                           <div className="w-2 h-2 rounded-sm shrink-0" style={{ background: color }} />
-                          <span className="text-[10px] font-semibold text-navy truncate flex-1">{epicName}</span>
+                          <span className="text-[11px] font-semibold text-navy truncate flex-1">{epicName}</span>
                           <div className="w-16 shrink-0"><MiniBar pct={pct} color="bg-purple/60" /></div>
-                          <span className="text-[9px] tabular-nums text-subtle shrink-0 w-10 text-right">{stats.fait}/{stats.total}</span>
-                          <span className={cn('text-[10px] font-bold tabular-nums shrink-0 w-7 text-right', textColor(pct))}>{pct}%</span>
+                          <span className="text-[10px] tabular-nums text-subtle shrink-0 w-10 text-right">{stats.fait}/{stats.total}</span>
+                          <span className={cn('text-[11px] font-bold tabular-nums shrink-0 w-7 text-right', textColor(pct))}>{pct}%</span>
                         </div>
                       )
                     })}
                   </div>
-                </Section>
-              </div>
-            )}
-            <div className="flex-1 min-w-0 h-full">
-              <Section title={`Points ouverts — ${blockedTaches.length} bloquée${blockedTaches.length !== 1 ? 's' : ''}`} noPad scrollable className="h-full">
+                </>)}
+</Section>
+          ) },
+          { key: 'points', label: 'Points ouverts', minW: 3, minH: 3, defaultSize: { w: 4, h: 5 }, content: (
+<Section title={`Points ouverts — ${blockedTaches.length} bloquée${blockedTaches.length !== 1 ? 's' : ''}`} noPad scrollable className="h-full">
                 {blockedTaches.length === 0
                   ? <div className="p-3"><p className="text-xs text-emerald-600 font-medium flex items-center gap-1.5"><Check size={12} /> Aucun point bloquant</p></div>
                   : (
@@ -892,15 +931,15 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                       <thead>
                         <tr className="border-b border-slate-100 text-left">
                           {['ID', 'Titre', 'Épic', 'Sprint', 'Équipe', 'Assigné'].map(h => (
-                            <th key={h} className="px-3 py-2 text-[9px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50">{h}</th>
+                            <th key={h} className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50">{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {blockedTaches.map((t, i) => (
-                          <tr key={t.id_tache} className={cn('border-b border-slate-50', i % 2 === 0 ? 'bg-white' : 'bg-rose-50/30')}>
+                          <tr key={t.id_tache} className={cn('border-b border-slate-50', i % 2 === 0 ? 'bg-card' : 'bg-rose-50/30')}>
                             <td className="px-3 py-2 font-mono font-bold text-rose-600">{t.id_tache}</td>
-                            <td className="px-3 py-2 text-slate-700 font-medium max-w-[180px]">
+                            <td className="px-3 py-2 text-slate-600 font-medium max-w-[180px]">
                               <div className="flex items-center gap-1.5">
                                 <AlertTriangle size={10} className="text-rose-500 shrink-0" />
                                 <span className="line-clamp-1">{t.titre}</span>
@@ -916,26 +955,22 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                     </table>
                   )}
               </Section>
-            </div>
-          </div>
-        </div>
-
-        {/* COL 3 : Budget / Finance / Risques */}
-        <div className="flex flex-col gap-3 h-full min-h-0">
-          {(() => {
+          ) },
+          { key: 'effort', label: 'Budget / Effort', minW: 2, minH: 2, defaultSize: { w: 3, h: 3 }, content: (
+(() => {
             // Vue sprint : jours estimés vs réalisés
             if (isSprintScope) {
               const effortRestant = Math.max(0, effortTotalSprint - effortFaitSprint)
               const effortPctSp   = effortTotalSprint > 0 ? Math.round(effortFaitSprint / effortTotalSprint * 100) : 0
               const delta         = effortPctSp - backlogPctSprint
               return (
-                <Section title={`Effort — ${effectiveSprint ?? '?'}`} noPad className="shrink-0">
+                <Section title={`Effort — ${effectiveSprint ?? '?'}`} noPad className="h-full">
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b border-border">
-                        <td className="px-3 py-1.5 text-[9px] font-bold text-subtle uppercase w-20" />
-                        <td className="px-3 py-1.5 text-[9px] font-bold text-subtle uppercase text-right">Estimé</td>
-                        <td className="px-3 py-1.5 text-[9px] font-bold text-subtle uppercase text-right">Réalisé</td>
+                        <td className="px-3 py-1.5 text-[10px] font-bold text-subtle uppercase w-20" />
+                        <td className="px-3 py-1.5 text-[10px] font-bold text-subtle uppercase text-right">Estimé</td>
+                        <td className="px-3 py-1.5 text-[10px] font-bold text-subtle uppercase text-right">Réalisé</td>
                       </tr>
                     </thead>
                     <tbody>
@@ -944,16 +979,16 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                         <td className="px-3 py-1.5 text-right tabular-nums text-navy">{effortTotalSprint > 0 ? `${effortTotalSprint} j` : '—'}</td>
                         <td className="px-3 py-1.5 text-right tabular-nums">
                           {effortFaitSprint > 0
-                            ? <div><div className="text-navy font-semibold">{effortFaitSprint} j</div><div className="text-[9px] text-subtle">{effortPctSp}% effort</div></div>
+                            ? <div><div className="text-navy font-semibold">{effortFaitSprint} j</div><div className="text-[10px] text-subtle">{effortPctSp}% effort</div></div>
                             : '—'}
                         </td>
                       </tr>
                       <tr className="border-b border-border/50">
                         <td className="px-3 py-1.5 font-medium text-navy">Restant</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-slate-700" colSpan={2}>{effortRestant > 0 ? `${effortRestant} j` : <span className="text-emerald-600 font-semibold">Terminé</span>}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-slate-600" colSpan={2}>{effortRestant > 0 ? `${effortRestant} j` : <span className="text-emerald-600 font-semibold">Terminé</span>}</td>
                       </tr>
                       <tr className="bg-slate-50">
-                        <td className="px-3 py-2 font-bold text-slate-700">Delta effort</td>
+                        <td className="px-3 py-2 font-bold text-slate-600">Delta effort</td>
                         <td className="px-3 py-2 text-right font-bold tabular-nums" colSpan={2}>
                           {effortTotalSprint > 0
                             ? <span className={cn(delta <= 10 ? 'text-emerald-600' : delta <= 20 ? 'text-amber-600' : 'text-rose-600')}>
@@ -965,7 +1000,7 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                     </tbody>
                   </table>
                   <div className="px-3 pb-3 pt-1">
-                    <div className="flex justify-between text-[9px] text-subtle mb-1">
+                    <div className="flex justify-between text-[10px] text-subtle mb-1">
                       <span>US terminées</span><span>{faitUSSprint}/{totalUSSprint} · {backlogPctSprint}%</span>
                     </div>
                     <MiniBar pct={backlogPctSprint} color={barColor(backlogPctSprint)} />
@@ -985,13 +1020,13 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
             const rAchats   = isGlobal ? realiseAchats  : trimRealiseAchats
             const rTotal    = isGlobal ? realiseEtpEur + realiseInvest + realiseAchats : trimRealiseTotal
             return (
-              <Section title="Budget" noPad className="shrink-0">
+              <Section title="Budget" noPad className="h-full">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-border">
-                      <td className="px-3 py-1.5 text-[9px] font-bold text-subtle uppercase w-14" />
-                      <td className="px-3 py-1.5 text-[9px] font-bold text-subtle uppercase text-right">Budget</td>
-                      <td className="px-3 py-1.5 text-[9px] font-bold text-subtle uppercase text-right">Réel</td>
+                      <td className="px-3 py-1.5 text-[10px] font-bold text-subtle uppercase w-14" />
+                      <td className="px-3 py-1.5 text-[10px] font-bold text-subtle uppercase text-right">Budget</td>
+                      <td className="px-3 py-1.5 text-[10px] font-bold text-subtle uppercase text-right">Réel</td>
                     </tr>
                   </thead>
                   <tbody>
@@ -999,7 +1034,7 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                       <td className="px-3 py-1.5 font-medium text-navy">ETP</td>
                       <td className="px-3 py-1.5 text-right tabular-nums text-navy">{bEtp > 0 ? fmt(bEtp) : '—'}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums">
-                        {rEtpJ > 0 ? <div><div className="text-navy font-semibold">{fmt(rEtpEur)}</div><div className="text-[9px] text-subtle">{rEtpJ} j · {tjmMoyen}€/j</div></div> : '—'}
+                        {rEtpJ > 0 ? <div><div className="text-navy font-semibold">{fmt(rEtpEur)}</div><div className="text-[10px] text-subtle">{rEtpJ} j · {tjmMoyen}€/j</div></div> : '—'}
                       </td>
                     </tr>
                     <tr className="border-b border-border/50">
@@ -1013,8 +1048,8 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                       <td className="px-3 py-1.5 text-right tabular-nums text-navy">{rInvest > 0 ? fmt(rInvest) : '—'}</td>
                     </tr>
                     <tr className="bg-slate-50">
-                      <td className="px-3 py-2 font-bold text-slate-700">Total</td>
-                      <td className="px-3 py-2 text-right font-bold text-slate-700 tabular-nums">{bTotal > 0 ? fmt(bTotal) : '—'}</td>
+                      <td className="px-3 py-2 font-bold text-slate-600">Total</td>
+                      <td className="px-3 py-2 text-right font-bold text-slate-600 tabular-nums">{bTotal > 0 ? fmt(bTotal) : '—'}</td>
                       <td className="px-3 py-2 text-right font-bold tabular-nums">
                         {rTotal > 0 ? <span className={cn(rTotal <= bTotal ? 'text-emerald-600' : 'text-rose-600')}>{fmt(rTotal)}</span> : '—'}
                       </td>
@@ -1023,11 +1058,12 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                 </table>
               </Section>
             )
-          })()}
-
-          <Section title="Finance" noPad className="shrink-0">
+          })()
+          ) },
+          { key: 'finance', label: 'Finance', minW: 2, minH: 2, defaultSize: { w: 3, h: 3 }, content: (
+<Section title="Finance" noPad className="h-full">
             <table className="w-full text-xs">
-              <thead><tr className="border-b border-border"><td className="px-3 py-1.5 text-[9px] font-bold text-subtle uppercase" /><td className="px-3 py-1.5 text-[9px] font-bold text-subtle uppercase text-right">Estimé</td></tr></thead>
+              <thead><tr className="border-b border-border"><td className="px-3 py-1.5 text-[10px] font-bold text-subtle uppercase" /><td className="px-3 py-1.5 text-[10px] font-bold text-subtle uppercase text-right">Estimé</td></tr></thead>
               <tbody>
                 <tr className="border-b border-border/50">
                   <td className="px-3 py-1.5 font-medium text-navy">Outcome</td>
@@ -1038,7 +1074,7 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                   <td className="px-3 py-1.5 text-right tabular-nums text-navy">{totalBudget > 0 ? fmt(totalBudget) : '—'}</td>
                 </tr>
                 <tr className="bg-slate-50">
-                  <td className="px-3 py-2 font-bold text-slate-700">ROI estimé</td>
+                  <td className="px-3 py-2 font-bold text-slate-600">ROI estimé</td>
                   <td className="px-3 py-2 text-right font-bold tabular-nums">
                     {roi !== null ? <span className={cn(roi >= 0 ? 'text-emerald-600' : 'text-rose-600')}>{roi >= 0 ? '+' : ''}{roi} %</span> : '—'}
                   </td>
@@ -1046,12 +1082,13 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
               </tbody>
             </table>
           </Section>
-
-          <Section className="flex-1 min-h-0" scrollable noPad
+          ) },
+          { key: 'risques', label: 'Risques', minW: 2, minH: 2, defaultSize: { w: 3, h: 3 }, content: (
+<Section className="h-full" scrollable noPad
             title={`Risques — ${openRisques.length} ouvert${openRisques.length !== 1 ? 's' : ''}`}
             action={
               <button onClick={() => { setAddingRisque(true); setNewRisqueTitre('') }}
-                className="flex items-center gap-1 text-[9px] text-subtle hover:text-navy transition-colors">
+                className="flex items-center gap-1 text-[10px] text-subtle hover:text-navy transition-colors">
                 <Plus size={10} /> Ajouter
               </button>
             }>
@@ -1060,7 +1097,7 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                 <input autoFocus value={newRisqueTitre} onChange={e => setNewRisqueTitre(e.target.value)}
                   onKeyDown={e => { if (e.key==='Enter') addRisque(); if (e.key==='Escape') setAddingRisque(false) }}
                   placeholder="Décrire le risque…"
-                  className="flex-1 text-xs bg-transparent outline-none text-slate-700 placeholder:text-slate-400" />
+                  className="flex-1 text-xs bg-transparent outline-none text-slate-600 placeholder:text-slate-400" />
                 <button onClick={addRisque} className="text-emerald-600 hover:opacity-70"><Check size={12} /></button>
                 <button onClick={() => setAddingRisque(false)} className="text-subtle hover:text-rose-500"><X size={12} /></button>
               </div>
@@ -1071,38 +1108,34 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                   {openRisques.map(r => (
                     <div key={r.id} className="flex items-start gap-2 px-3 py-2 hover:bg-amber-50/40 transition-colors group">
                       <AlertTriangle size={11} className="text-amber-500 shrink-0 mt-0.5" />
-                      <span className="flex-1 text-xs text-slate-700 leading-snug">{r.titre}</span>
+                      <span className="flex-1 text-xs text-slate-600 leading-snug">{r.titre}</span>
                       <button onClick={() => cloturerRisque(r.id)} title="Clôturer"
-                        className="text-[9px] text-slate-400 hover:text-emerald-600 opacity-0 group-hover:opacity-100 transition-all shrink-0 font-medium">
+                        className="text-[10px] text-slate-400 hover:text-emerald-600 max-md:opacity-100 opacity-0 group-hover:opacity-100 transition-all shrink-0 font-medium">
                         Clôturer
                       </button>
                     </div>
                   ))}
                 </div>}
           </Section>
-
-          {closedTrims.length > 0 && (
-            <Section title="Historique trims" className="shrink-0">
-              <div className="flex flex-wrap gap-1">
-                {closedTrims.map(t => (
-                  <span key={t.id} className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 font-medium flex items-center gap-1">
+          ) },
+          { key: 'histo', label: 'Historique trims', minW: 2, minH: 2, defaultSize: { w: 3, h: 2 }, content: (
+<Section title="Historique trims" className="h-full" scrollable>
+{closedTrims.length === 0 ? <p className="text-xs text-subtle/40 italic">Aucun trimestre clôturé</p> : <div className="flex flex-wrap gap-1">
+{closedTrims.map(t => (
+                  <span key={t.id} className="text-[11px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 font-medium flex items-center gap-1">
                     <Lock size={8} /> {t.trimestre || 'Trim.'}
                   </span>
                 ))}
-              </div>
-            </Section>
-          )}
-        </div>
-      </div>
-
-      {/* LOP */}
-      <div className="mt-3">
-        <Section
+</div>}
+</Section>
+          ) },
+          { key: 'lop', label: 'LOP', minW: 5, minH: 3, defaultSize: { w: 12, h: 4 }, content: (
+<Section className="h-full" scrollable
           title={`LOP — ${openActions.length} action${openActions.length !== 1 ? 's' : ''} ouverte${openActions.length !== 1 ? 's' : ''}`}
           noPad
           action={
             <button onClick={() => { setAddingAction(true); setNewActionTitre(''); setNewActionAssigne(''); setNewActionDate('') }}
-              className="flex items-center gap-1 text-[9px] text-slate-400 hover:text-slate-700 transition-colors">
+              className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-600 transition-colors">
               <Plus size={10} /> Ajouter
             </button>
           }>
@@ -1111,10 +1144,10 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
               <textarea autoFocus rows={3} value={newActionTitre} onChange={e => setNewActionTitre(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Escape') setAddingAction(false) }}
                 placeholder="Décrire l'action… (Entrée pour sauter une ligne)"
-                className="w-full text-xs bg-white border border-border rounded px-2 py-1.5 outline-none text-navy placeholder:text-subtle/50 focus:border-purple/50 resize-none leading-relaxed" />
+                className="w-full text-xs bg-card border border-border rounded px-2 py-1.5 outline-none text-navy placeholder:text-subtle/50 focus:border-purple/50 resize-none leading-relaxed" />
               <div className="flex items-center gap-2 flex-wrap">
                 <select value={newActionAssigne} onChange={e => setNewActionAssigne(e.target.value)}
-                  className="text-xs bg-white border border-border rounded px-2 py-1 outline-none text-navy focus:border-purple/50">
+                  className="text-xs bg-card border border-border rounded px-2 py-1 outline-none text-navy focus:border-purple/50">
                   <option value="">— Assigné —</option>
                   {membres.map(m => (
                     <option key={m.user_id} value={m.user_id}>
@@ -1123,9 +1156,9 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                   ))}
                 </select>
                 <input type="date" value={newActionDate} onChange={e => setNewActionDate(e.target.value)}
-                  className="text-xs bg-white border border-border rounded px-2 py-1 outline-none text-navy focus:border-purple/50" />
+                  className="text-xs bg-card border border-border rounded px-2 py-1 outline-none text-navy focus:border-purple/50" />
                 <div className="ml-auto flex items-center gap-2">
-                  <button onClick={addAction} className="flex items-center gap-1 text-[9px] font-semibold text-white bg-emerald-600 px-2 py-1 rounded hover:opacity-80">
+                  <button onClick={addAction} className="flex items-center gap-1 text-[10px] font-semibold text-white bg-emerald-500 px-2 py-1 rounded hover:opacity-80">
                     <Check size={10} /> Ajouter
                   </button>
                   <button onClick={() => setAddingAction(false)} className="text-subtle hover:text-rose-500"><X size={13} /></button>
@@ -1145,15 +1178,15 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                 <thead>
                   <tr className="border-b border-slate-100 text-left">
                     {['Action', 'Assigné', 'Créée le', 'Échéance', 'Report 1', 'Report 2', ''].map(h => (
-                      <th key={h} className="px-3 py-2 text-[9px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50">{h}</th>
+                      <th key={h} className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {openActions.map((a, i) => {
                     const isEditing = editingActionId === a.id
-                    const rowCls = cn('border-b border-slate-50 group', i % 2 === 0 ? 'bg-white' : 'bg-slate-50/60')
-                    const inputCls = 'w-full text-xs bg-white border border-purple/40 rounded px-1.5 py-0.5 outline-none text-navy focus:border-purple/70'
+                    const rowCls = cn('border-b border-slate-50 group', i % 2 === 0 ? 'bg-card' : 'bg-slate-50/60')
+                    const inputCls = 'w-full text-xs bg-card border border-purple/40 rounded px-1.5 py-0.5 outline-none text-navy focus:border-purple/70'
 
                     if (isEditing) return (
                       <tr key={a.id} className={cn(rowCls, 'bg-purple/5')}>
@@ -1174,7 +1207,7 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                             ))}
                           </select>
                         </td>
-                        <td className="px-2 py-1.5 text-[10px] text-subtle tabular-nums">{fmtDate(a.created_at)}</td>
+                        <td className="px-2 py-1.5 text-[11px] text-subtle tabular-nums">{fmtDate(a.created_at)}</td>
                         <td className="px-2 py-1.5"><input type="date" className={inputCls} value={editValues.date} onChange={e => setEditValues(v => ({ ...v, date: e.target.value }))} /></td>
                         <td className="px-2 py-1.5"><input type="date" className={inputCls} value={editValues.r1}   onChange={e => setEditValues(v => ({ ...v, r1: e.target.value }))} /></td>
                         <td className="px-2 py-1.5"><input type="date" className={inputCls} value={editValues.r2}   onChange={e => setEditValues(v => ({ ...v, r2: e.target.value }))} /></td>
@@ -1205,12 +1238,12 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                               </span>
                             ) : '—'}
                           </td>
-                          <td className="px-3 py-2 text-[10px] text-subtle tabular-nums">{fmtDate(a.created_at)}</td>
+                          <td className="px-3 py-2 text-[11px] text-subtle tabular-nums">{fmtDate(a.created_at)}</td>
                           <td className={cn('px-3 py-2 tabular-nums text-xs', dateColor(a.date_cloture_estimee))}>{a.date_cloture_estimee ? fmtDate(a.date_cloture_estimee) : '—'}</td>
                           <td className={cn('px-3 py-2 tabular-nums text-xs', dateColor(a.report_1))}>{a.report_1 ? fmtDate(a.report_1) : '—'}</td>
                           <td className={cn('px-3 py-2 tabular-nums text-xs', dateColor(a.report_2))}>{a.report_2 ? fmtDate(a.report_2) : '—'}</td>
                           <td className="px-3 py-2">
-                            <div className="flex items-center gap-2 justify-end opacity-0 group-hover:opacity-100 transition-all">
+                            <div className="flex items-center gap-2 justify-end max-md:opacity-100 opacity-0 group-hover:opacity-100 transition-all">
                               <button onClick={() => startEdit(a)} className="text-subtle hover:text-navy" title="Modifier"><Pencil size={11} /></button>
                               <button onClick={() => navigate(`/taches?tab=add&titre=${encodeURIComponent(a.titre)}`)}
                                 className="text-subtle hover:text-purple" title="Créer une tâche"><ListPlus size={13} /></button>
@@ -1219,7 +1252,7 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                                 className={cn('transition-colors', subtaskRowId === a.id ? 'text-purple' : 'text-subtle hover:text-purple')}
                                 title="Créer une sous-tâche"><CornerDownRight size={13} /></button>
                               <button onClick={() => cloturerAction(a.id)}
-                                className="text-[9px] text-subtle hover:text-emerald-600 font-medium">Clôturer</button>
+                                className="text-[10px] text-subtle hover:text-emerald-600 font-medium">Clôturer</button>
                             </div>
                           </td>
                         </tr>
@@ -1227,15 +1260,15 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
                           <tr className="bg-purple/5">
                             <td colSpan={7} className="px-3 py-2 border-b border-purple/20">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-[9px] font-bold text-purple uppercase tracking-wider">Tâche parente</span>
+                                <span className="text-[10px] font-bold text-purple uppercase tracking-wider">Tâche parente</span>
                                 <select value={subtaskParentId} onChange={e => setSubtaskParentId(e.target.value)}
-                                  className="text-xs border border-border rounded px-2 py-1 bg-white text-navy outline-none focus:border-purple/50 flex-1 min-w-[200px] max-w-sm">
+                                  className="text-xs border border-border rounded px-2 py-1 bg-card text-navy outline-none focus:border-purple/50 flex-1 min-w-[200px] max-w-sm">
                                   <option value="">— Choisir une tâche parente —</option>
                                   {racines.map(t => <option key={t.id_tache} value={t.id_tache}>{t.id_tache} — {t.titre}</option>)}
                                 </select>
                                 <button disabled={!subtaskParentId}
                                   onClick={() => { navigate(`/taches?tab=add&titre=${encodeURIComponent(a.titre)}&parent_id=${subtaskParentId}`); setSubtaskRowId(null) }}
-                                  className="flex items-center gap-1 text-[9px] font-semibold text-white bg-purple px-2 py-1 rounded disabled:opacity-40">
+                                  className="flex items-center gap-1 text-[10px] font-semibold text-white bg-purple px-2 py-1 rounded disabled:opacity-40">
                                   <CornerDownRight size={10} /> Créer sous-tâche
                                 </button>
                                 <button onClick={() => setSubtaskRowId(null)} className="text-subtle hover:text-rose-500"><X size={13} /></button>
@@ -1250,7 +1283,29 @@ export function ProduitDashboardBody({ produit }: { produit: Produit }) {
               </table>
             )}
         </Section>
-      </div>
+          ) },
+          { key: 'chart_roadmap', label: 'Roadmap', minW: 6, minH: 4, defaultSize: { w: 12, h: 6 }, content: (
+            <ChartWidget title={`Roadmap — ${produit.nom}`}>
+              <LazyRoadmapChart produit={produit} taches={taches} sprints={allSprints} />
+            </ChartWidget>
+          ) },
+          { key: 'chart_statuts', label: 'Graphe statuts', minW: 3, minH: 3, defaultSize: { w: 6, h: 5 }, content: (
+            <ChartWidget title="Répartition des statuts">
+              <LazyStatutsChart taches={taches} />
+            </ChartWidget>
+          ) },
+          { key: 'chart_epics', label: 'Graphe épics', minW: 3, minH: 3, defaultSize: { w: 6, h: 5 }, content: (
+            <ChartWidget title="Tâches par épic">
+              <LazyEpicsChart taches={taches} />
+            </ChartWidget>
+          ) },
+          { key: 'chart_tendance', label: 'Tendance sprints', minW: 4, minH: 3, defaultSize: { w: 12, h: 5 }, content: (
+            <ChartWidget title="Tendance sprint par sprint">
+              <LazyTendanceChart sprints={allSprints} />
+            </ChartWidget>
+          ) },
+        ]}
+      />
     </>
   )
 }

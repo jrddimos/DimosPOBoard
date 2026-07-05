@@ -28,12 +28,12 @@ export default function SetPasswordPage() {
     <div className="min-h-screen bg-bg flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="flex justify-center mb-8">
-          <div className="w-12 h-12 bg-navy rounded-2xl flex items-center justify-center">
+          <div className="w-12 h-12 bg-brand rounded-2xl flex items-center justify-center">
             <Zap size={24} className="text-white" />
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-border shadow-sm p-8">
+        <div className="bg-card rounded-2xl border border-border shadow-sm p-8">
           <h1 className="text-xl font-bold text-navy mb-1">Définir votre mot de passe</h1>
           <p className="text-sm text-subtle mb-6">Choisissez un mot de passe pour accéder au PO Board</p>
 

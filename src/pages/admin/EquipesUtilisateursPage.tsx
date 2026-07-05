@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils'
 import { Spinner } from '@/components/ui/Spinner'
 
 const ROLE_COLORS: Record<RoleProduit, string> = {
-  po:      'bg-slate-100 text-slate-700',
+  po:      'bg-slate-100 text-slate-600',
   dev:     'bg-emerald-50 text-emerald-700',
   lecteur: 'bg-slate-50 text-slate-500',
 }
@@ -31,7 +31,7 @@ function InlineEdit({ value, onSave, placeholder = '' }: { value: string; onSave
     <button onClick={() => { setVal(value); setEditing(true) }}
       className="flex items-center gap-1 text-sm font-semibold text-navy hover:text-indigo-600 transition-colors group">
       {value || <span className="text-subtle italic">{placeholder}</span>}
-      <Pencil size={11} className="opacity-0 group-hover:opacity-60" />
+      <Pencil size={11} className="max-md:opacity-100 opacity-0 group-hover:opacity-60" />
     </button>
   )
   return (
@@ -169,23 +169,23 @@ function PendingRow({
   const displayName = [pp.prenom, pp.nom].filter(Boolean).join(' ') || pp.display_name
 
   return (
-    <div className="bg-white">
+    <div className="bg-card">
       {/* Ligne compacte */}
       <div className="flex items-center gap-2 px-3 py-2">
-        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-[9px] font-bold shrink-0"
+        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-[10px] font-bold shrink-0"
           style={{ background: pp.couleur ?? '#4A4CC8' }}>
           {pp.trigramme ?? displayName.slice(0, 2).toUpperCase()}
         </span>
         <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
           <span className="text-xs font-semibold text-navy truncate">{displayName}</span>
-          {pp.trigramme && <span className="text-[10px] text-subtle font-mono bg-bg px-1 rounded">{pp.trigramme}</span>}
+          {pp.trigramme && <span className="text-[11px] text-subtle font-mono bg-bg px-1 rounded">{pp.trigramme}</span>}
           {pp.role_global === 'admin' && (
-            <span className="text-[10px] bg-indigo-50 text-indigo-700 font-semibold px-1.5 rounded">Admin</span>
+            <span className="text-[11px] bg-indigo-50 text-indigo-700 font-semibold px-1.5 rounded">Admin</span>
           )}
           {(pp.pending_produit_ids ?? []).map(pid => {
             const p = produitsActifs.find(x => x.id === pid)
             return p ? (
-              <span key={pid} className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white"
+              <span key={pid} className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full text-white"
                 style={{ background: p.couleur ?? '#4A4CC8' }}>
                 {p.nom}
               </span>
@@ -194,7 +194,7 @@ function PendingRow({
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
           <button onClick={onEdit}
-            className={cn('p-1.5 rounded hover:bg-bg text-subtle hover:text-navy transition-colors text-[11px]', editing && 'bg-bg text-navy')}>
+            className={cn('p-1.5 rounded hover:bg-bg text-subtle hover:text-navy transition-colors text-xs', editing && 'bg-bg text-navy')}>
             <Pencil size={11} />
           </button>
           {!inviting && (
@@ -286,7 +286,7 @@ function PendingRow({
                   return (
                     <button key={eq.id} type="button"
                       onClick={() => setForm(f => ({ ...f, equipe_ids: sel ? f.equipe_ids.filter(x => x !== eq.id) : [...f.equipe_ids, eq.id] }))}
-                      className={cn('flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border transition-all',
+                      className={cn('flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border transition-all',
                         sel ? 'text-white border-transparent' : 'border-border text-subtle hover:border-indigo-200')}
                       style={sel ? { background: eq.couleur ?? '#4A4CC8' } : undefined}>
                       {eq.nom}
@@ -308,13 +308,13 @@ function PendingRow({
                         ...f,
                         pending_produit_roles: Object.fromEntries(produitsActifs.map(p => [String(p.id), r])),
                       }))}
-                      className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-border hover:border-indigo-300 hover:text-indigo-600 text-subtle transition-colors capitalize">
+                      className="text-[11px] font-semibold px-2 py-0.5 rounded-full border border-border hover:border-indigo-300 hover:text-indigo-600 text-subtle transition-colors capitalize">
                       Tout {r}
                     </button>
                   ))}
                   <button type="button"
                     onClick={() => setForm(f => ({ ...f, pending_produit_roles: {} }))}
-                    className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-border hover:border-rose-300 hover:text-rose-600 text-subtle transition-colors">
+                    className="text-[11px] font-semibold px-2 py-0.5 rounded-full border border-border hover:border-rose-300 hover:text-rose-600 text-subtle transition-colors">
                     Aucun
                   </button>
                 </div>
@@ -602,7 +602,7 @@ export default function EquipesUtilisateursPage() {
       .filter(x => x.role !== null)
 
     return (
-      <div className="flex flex-col bg-white rounded-xl border border-border overflow-hidden hover:border-indigo-200 transition-colors">
+      <div className="flex flex-col bg-card rounded-xl border border-border overflow-hidden hover:border-indigo-200 transition-colors">
         {/* Header */}
         <div className="flex items-start gap-2.5 p-3">
           <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 mt-0.5">
@@ -620,10 +620,10 @@ export default function EquipesUtilisateursPage() {
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-sm font-semibold text-navy truncate">{displayName}</span>
               {u.role_global === 'admin' && (
-                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-full shrink-0">Admin</span>
+                <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-full shrink-0">Admin</span>
               )}
               {isMe && (
-                <span className="text-[10px] font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded-full shrink-0">Vous</span>
+                <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full shrink-0">Vous</span>
               )}
             </div>
             <div className="text-xs text-subtle">{u.role_metier || '—'}{u.trigramme ? ` · ${u.trigramme}` : ''}</div>
@@ -632,7 +632,7 @@ export default function EquipesUtilisateursPage() {
             <div className="flex flex-wrap gap-1 mt-1.5">
               {teamsForUser.map(eq => (
                 <span key={eq.id}
-                  className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold px-1.5 py-0.5 rounded-full"
                   style={{ background: (eq.couleur ?? '#4A4CC8') + '22', color: eq.couleur ?? '#4A4CC8' }}>
                   <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: eq.couleur ?? '#4A4CC8' }} />
                   {eq.nom}
@@ -643,11 +643,11 @@ export default function EquipesUtilisateursPage() {
                 </span>
               ))}
               {teamsForUser.length === 0 && (
-                <span className="text-[10px] text-subtle italic">Sans équipe</span>
+                <span className="text-[11px] text-subtle italic">Sans équipe</span>
               )}
               {teamsToAdd.length > 0 && (
                 <select value="" onChange={e => { if (e.target.value) addToEquipe(u.user_id, Number(e.target.value), userEquipeIds) }}
-                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full border border-dashed border-border bg-bg text-subtle cursor-pointer focus:outline-none hover:border-indigo-200 appearance-none">
+                  className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full border border-dashed border-border bg-bg text-subtle cursor-pointer focus:outline-none hover:border-indigo-200 appearance-none">
                   <option value="">+ équipe</option>
                   {teamsToAdd.map(e => <option key={e.id} value={e.id}>{e.nom}</option>)}
                 </select>
@@ -658,13 +658,13 @@ export default function EquipesUtilisateursPage() {
             {produitAcces.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-1.5">
                 {produitAcces.slice(0, 4).map(({ p, role }) => (
-                  <span key={p.id} className={cn('inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full', ROLE_COLORS[role!])}>
+                  <span key={p.id} className={cn('inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full', ROLE_COLORS[role!])}>
                     <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: p.couleur ?? '#4A4CC8' }} />
                     {role!.toUpperCase()}
                   </span>
                 ))}
                 {produitAcces.length > 4 && (
-                  <span className="text-[9px] text-subtle self-center">+{produitAcces.length - 4}</span>
+                  <span className="text-[10px] text-subtle self-center">+{produitAcces.length - 4}</span>
                 )}
               </div>
             )}
@@ -735,7 +735,7 @@ export default function EquipesUtilisateursPage() {
                       {editForm.trigramme || (displayName[0] ?? '?').toUpperCase()}
                     </div>
                   )}
-                  <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                  <div className="absolute inset-0 bg-black/30 max-md:opacity-100 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                     <Camera size={14} className="text-white" />
                   </div>
                 </div>
@@ -787,7 +787,7 @@ export default function EquipesUtilisateursPage() {
               {isExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
               Accès produits
               {!isExpanded && produitAcces.length > 0 && (
-                <span className="ml-auto text-[10px] text-indigo-600 font-medium">{produitAcces.length} accès</span>
+                <span className="ml-auto text-[11px] text-indigo-600 font-medium">{produitAcces.length} accès</span>
               )}
             </button>
             {isExpanded && (
@@ -873,7 +873,7 @@ export default function EquipesUtilisateursPage() {
                 return (
                   <div key={eq.id}
                     className={cn('flex items-center gap-2 p-2.5 rounded-lg border transition-all cursor-pointer',
-                      isFiltered ? 'border-indigo-300 bg-indigo-50' : 'border-border bg-white hover:border-indigo-200')}
+                      isFiltered ? 'border-indigo-300 bg-indigo-50' : 'border-border bg-card hover:border-indigo-200')}
                     onClick={() => setFilterEquipe(isFiltered ? null : eq.id)}>
                     <div className="w-3 h-3 rounded-full shrink-0" style={{ background: eq.couleur ?? '#4A4CC8' }} />
                     <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
@@ -899,7 +899,7 @@ export default function EquipesUtilisateursPage() {
 
           {/* Formulaire d'invitation */}
           {showInvite && (
-            <div className="bg-white rounded-2xl border border-indigo-200 p-5 shadow-sm">
+            <div className="bg-card rounded-2xl border border-indigo-200 p-5 shadow-sm">
               <div className="flex items-center gap-2 mb-4">
                 <UserPlus size={15} className="text-indigo-600" />
                 <span className="text-sm font-semibold text-navy">Ajouter un utilisateur</span>
@@ -914,7 +914,7 @@ export default function EquipesUtilisateursPage() {
                   <button key={opt.mode} type="button" onClick={() => setFormMode(opt.mode)}
                     className={cn(
                       'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all',
-                      formMode === opt.mode ? 'bg-white shadow text-navy' : 'text-subtle hover:text-navy'
+                      formMode === opt.mode ? 'bg-card shadow text-navy' : 'text-subtle hover:text-navy'
                     )}>
                     {opt.icon} {opt.label}
                   </button>
@@ -987,7 +987,7 @@ export default function EquipesUtilisateursPage() {
                         <button key={eq.id} type="button"
                           onClick={() => setInvEquipes(prev => sel ? prev.filter(id => id !== eq.id) : [...prev, eq.id])}
                           className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all',
-                            sel ? 'border-transparent text-white' : 'border-border bg-white text-subtle hover:border-indigo-200')}
+                            sel ? 'border-transparent text-white' : 'border-border bg-card text-subtle hover:border-indigo-200')}
                           style={sel ? { background: eq.couleur ?? '#4A4CC8' } : undefined}>
                           <span className="w-1.5 h-1.5 rounded-full shrink-0"
                             style={{ background: sel ? 'white' : (eq.couleur ?? '#4A4CC8') }} />
@@ -1023,12 +1023,12 @@ export default function EquipesUtilisateursPage() {
                       {(['po', 'dev', 'lecteur'] as RoleProduit[]).map(r => (
                         <button key={r} type="button"
                           onClick={() => setInvRoles(Object.fromEntries(produitsActifs.map(p => [p.id, r])))}
-                          className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-border hover:border-indigo-300 hover:text-indigo-600 text-subtle transition-colors capitalize">
+                          className="text-[11px] font-semibold px-2 py-0.5 rounded-full border border-border hover:border-indigo-300 hover:text-indigo-600 text-subtle transition-colors capitalize">
                           Tout {r}
                         </button>
                       ))}
                       <button type="button" onClick={() => setInvRoles({})}
-                        className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-border hover:border-rose-300 hover:text-rose-600 text-subtle transition-colors">
+                        className="text-[11px] font-semibold px-2 py-0.5 rounded-full border border-border hover:border-rose-300 hover:text-rose-600 text-subtle transition-colors">
                         Aucun
                       </button>
                     </div>
@@ -1105,7 +1105,7 @@ export default function EquipesUtilisateursPage() {
             </div>
 
             {/* Tri */}
-            <div className="flex items-center rounded-lg border border-slate-200 overflow-hidden text-[11px] font-medium">
+            <div className="flex items-center rounded-lg border border-slate-200 overflow-hidden text-xs font-medium">
               <span className="px-2 text-slate-400 border-r border-slate-200 py-1.5">
                 <ArrowUpDown size={11} />
               </span>

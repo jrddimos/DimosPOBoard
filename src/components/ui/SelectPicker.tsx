@@ -40,12 +40,12 @@ export function SelectPicker({ value, onChange, options, placeholder = '--', sea
   return (
     <div ref={ref} className={`relative ${className}`}>
       <button type="button" onClick={toggleOpen}
-        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-sm border border-border rounded-lg bg-white text-navy focus:outline-none focus:ring-1 focus:ring-indigo-300/60 focus:border-indigo-400 transition-colors">
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-sm border border-border rounded-lg bg-card text-navy focus:outline-none focus:ring-1 focus:ring-indigo-300/60 focus:border-indigo-400 transition-colors">
         <span className={selected ? 'text-navy' : 'text-subtle/50'}>{selected?.label ?? placeholder}</span>
         <ChevronDown size={13} className="text-subtle shrink-0" />
       </button>
       {open && createPortal(
-        <div ref={menuRef} className="fixed z-[10050] bg-white border border-border rounded-xl shadow-lg overflow-hidden"
+        <div ref={menuRef} className="fixed z-[10050] bg-card border border-border rounded-xl shadow-lg overflow-hidden"
           style={{ left: pos.left, top: pos.top, width: pos.width }}>
           {searchable && (
             <div className="flex items-center gap-2 px-3 py-2 border-b border-border">

@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { Input, FormGroup } from '@/components/ui/Form'
-import { Zap } from 'lucide-react'
 
 export default function LoginPage() {
   const [email, setEmail]       = useState('')
@@ -37,14 +36,14 @@ export default function LoginPage() {
     <div className="min-h-screen bg-bg flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 bg-navy rounded-2xl mb-4">
-            <Zap size={28} className="text-white" />
+          <div className="inline-flex items-center justify-center w-14 h-14 bg-brand rounded-2xl mb-4">
+            <img src="/logo.svg" alt="" className="w-8 h-8" />
           </div>
           <h1 className="text-2xl font-bold text-navy">PO Board</h1>
           <p className="text-subtle text-sm mt-1">By Roofers For Roofers</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-card border border-border p-8">
+        <div className="bg-card rounded-2xl shadow-card border border-border p-8">
           {mode === 'login' ? (
             <>
               <h2 className="text-lg font-bold text-navy mb-6">Connexion</h2>

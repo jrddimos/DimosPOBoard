@@ -27,7 +27,7 @@ export function Modal({ open, onClose, title, children, size = 'md', className }
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className={cn('bg-white rounded-2xl shadow-modal w-full max-h-[90vh] overflow-y-auto', sizes[size], className)}>
+      <div className={cn('bg-card rounded-2xl shadow-modal w-full max-h-[90vh] overflow-y-auto', sizes[size], className)}>
         <div className="flex items-center justify-between p-5 border-b border-border">
           <h2 className="text-base font-bold text-navy">{title}</h2>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-bg text-subtle hover:text-navy transition-colors">

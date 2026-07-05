@@ -18,6 +18,8 @@ import DodPage         from '@/pages/dod/DodPage'
 import MonTravailPage  from '@/pages/montravail/MonTravailPage'
 import ActivitePage    from '@/pages/activite/ActivitePage'
 import ReunionPage            from '@/pages/reunion/ReunionPage'
+import ReunionsHubPage        from '@/pages/reunion/ReunionsHubPage'
+import ReunionDetailPage      from '@/pages/reunion/ReunionDetailPage'
 import ProduitDashboardPage  from '@/pages/produit-dashboard/ProduitDashboardPage'
 import ProduitConfigPage     from '@/pages/produit-config/ProduitConfigPage'
 import PlanChargesPage       from '@/pages/plancharges/PlanChargesPage'
@@ -93,6 +95,10 @@ function AppRoutes() {
       <Route path="/dod"         element={requireProduit(<DodPage />)} />
       <Route path="/montravail"  element={<MonTravailPage />} />
       <Route path="/activite"    element={requireProduit(<ActivitePage />)} />
+      <Route path="/reunions"            element={<ReunionsHubPage />} />
+      <Route path="/reunions/po"         element={<ReunionPage />} />
+      <Route path="/reunions/:id"        element={<ReunionDetailPage />} />
+      {/* Compat : anciens liens (notifications mention_reunion) */}
       <Route path="/reunion"             element={<ReunionPage />} />
       <Route path="/plan-charges"        element={<PlanChargesPage />} />
       <Route path="/produit-dashboard"  element={requireProduit(<ProduitDashboardPage />)} />

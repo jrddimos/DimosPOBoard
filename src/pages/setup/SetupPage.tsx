@@ -63,7 +63,7 @@ export default function SetupPage() {
             <button key={t.key} onClick={() => setTab(t.key)}
               className={cn(
                 'flex items-center gap-1.5 px-4 py-1.5 rounded-md text-xs font-semibold transition-all',
-                tab === t.key ? 'bg-white shadow-sm text-navy' : 'text-subtle hover:text-navy'
+                tab === t.key ? 'bg-card shadow-sm text-navy' : 'text-subtle hover:text-navy'
               )}>
               {t.icon} {t.label}
             </button>
@@ -99,7 +99,7 @@ function InlineEdit({ value, onSave, placeholder = '' }: { value: string; onSave
     <button onClick={() => { setVal(value); setEditing(true) }}
       className="flex items-center gap-1 text-sm font-semibold text-navy hover:text-indigo-600 transition-colors group">
       {value || <span className="text-subtle italic">{placeholder}</span>}
-      <Pencil size={11} className="opacity-0 group-hover:opacity-60" />
+      <Pencil size={11} className="max-md:opacity-100 opacity-0 group-hover:opacity-60" />
     </button>
   )
   return (
@@ -262,7 +262,7 @@ function SprintsTab() {
       {/* ── Modal clôture avec US non terminées ─────────────── */}
       {closeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg flex flex-col max-h-[90vh]">
+          <div className="bg-card rounded-2xl shadow-xl w-full max-w-lg flex flex-col max-h-[90vh]">
             <div className="p-5 border-b border-border">
               <h3 className="text-base font-bold text-navy">Clôturer le sprint {selected}</h3>
               <p className="text-sm text-subtle mt-1">{unfinished.length} US non terminée(s) — que faire avec ces US ?</p>
@@ -284,7 +284,7 @@ function SprintsTab() {
                     {nextSprint && (
                       <button onClick={() => setTacheDest(p => ({ ...p, [t.id_tache]: 'next' }))}
                         className={cn('px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors',
-                          tacheDest[t.id_tache] === 'next' ? 'bg-indigo-600 text-white' : 'bg-border/60 text-subtle hover:bg-indigo-100')}>
+                          tacheDest[t.id_tache] === 'next' ? 'bg-indigo-500 text-white' : 'bg-border/60 text-subtle hover:bg-indigo-100')}>
                         {nextSprint}
                       </button>
                     )}
@@ -330,7 +330,7 @@ function SprintsTab() {
                 <div className="mb-3 p-2.5 rounded-xl bg-bg border border-border">
                   <div className="flex items-center gap-1.5 mb-2">
                     <Calendar size={11} className="text-subtle" />
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-subtle">Dates planifiées</span>
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-subtle">Dates planifiées</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <input type="date" value={plannedStart} onChange={e => setPlannedStart(e.target.value)}
@@ -343,7 +343,7 @@ function SprintsTab() {
                   <button onClick={savePlannedDates} disabled={!plannedStart || upsertSprint.isPending}
                     className="ds-btn ds-btn-sm w-full mt-1.5 disabled:opacity-40">✓ Enregistrer les dates</button>
                   {sprint?.started_at && (
-                    <p className="text-[10px] text-subtle mt-1.5">
+                    <p className="text-[11px] text-subtle mt-1.5">
                       {new Date(sprint.started_at).toLocaleDateString('fr-FR')} → {sprint.closed_at ? new Date(sprint.closed_at).toLocaleDateString('fr-FR') : '—'}
                     </p>
                   )}
@@ -352,11 +352,11 @@ function SprintsTab() {
 
               <div className="grid grid-cols-2 gap-2 mb-3">
                 <button onClick={() => action('start')} disabled={!selected || sprint?.statut === 'en_cours'}
-                  className="ds-btn text-xs py-1.5 bg-emerald-500 text-white border-emerald-500 hover:bg-emerald-600 disabled:opacity-40">
+                  className="ds-btn text-xs py-1.5 bg-emerald-500 text-white border-emerald-500 hover:bg-emerald-500 disabled:opacity-40">
                   ▶ Démarrer
                 </button>
                 <button onClick={() => action('pause')} disabled={!selected || sprint?.statut !== 'en_cours'}
-                  className="ds-btn text-xs py-1.5 bg-amber-500 text-white border-amber-500 hover:bg-amber-600 disabled:opacity-40">
+                  className="ds-btn text-xs py-1.5 bg-amber-500 text-white border-amber-500 hover:bg-amber-500 disabled:opacity-40">
                   ⏸ Pause
                 </button>
                 <button onClick={() => action('close')} disabled={!selected}
@@ -444,7 +444,7 @@ function SprintsTab() {
                           <span className="flex-1 text-navy">{item}</span>
                           {canEditObj && (
                             <button onClick={() => removeItem(item)}
-                              className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-rose-50 text-subtle hover:text-rose-600 transition-all"><X size={10} /></button>
+                              className="max-md:opacity-100 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-rose-50 text-subtle hover:text-rose-600 transition-all"><X size={10} /></button>
                           )}
                         </li>
                       ))}
@@ -484,7 +484,7 @@ function SprintsTab() {
                               canToggleCheck ? 'cursor-pointer' : 'cursor-default',
                               checks[item] ? 'bg-emerald-50 text-emerald-700' : 'bg-bg hover:bg-border/40 text-navy')}>
                             <span className={cn('w-4 h-4 rounded flex items-center justify-center border shrink-0 transition-colors',
-                              checks[item] ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-border bg-white')}>
+                              checks[item] ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-border bg-card')}>
                               {checks[item] && <Check size={10} />}
                             </span>
                             <span className={cn('flex-1', checks[item] && 'line-through opacity-70')}>{item}</span>
@@ -519,7 +519,7 @@ function InlineList({ items, onRename, onDelete, colorFn, countFn, isSystem }: {
       {items.map(item => {
         const color = colorFn(item), nb = countFn(item), sys = isSystem(item)
         return (
-          <div key={item} className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-border group">
+          <div key={item} className="flex items-center gap-3 p-2.5 bg-card rounded-xl border border-border group">
             <div className="w-6 h-6 rounded-md shrink-0" style={{ background: color }} />
             <div className="flex-1 min-w-0">
               <InlineEdit value={item} onSave={v => onRename(item, v)} placeholder={item} />
@@ -527,7 +527,7 @@ function InlineList({ items, onRename, onDelete, colorFn, countFn, isSystem }: {
             </div>
             {nb === 0 && (
               <button onClick={() => onDelete(item)}
-                className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-rose-50 text-subtle hover:text-rose-600 transition-all">
+                className="p-1.5 rounded-lg max-md:opacity-100 opacity-0 group-hover:opacity-100 hover:bg-rose-50 text-subtle hover:text-rose-600 transition-all">
                 <Trash2 size={12} />
               </button>
             )}
@@ -742,7 +742,7 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks }: {
                   <span className="flex-1 truncate text-navy">{t.titre}</span>
                   <span className="w-20 text-center truncate text-subtle">{t.epic || '—'}</span>
                   <span className="w-20 text-center shrink-0"><StatutBadge value={t.statut} /></span>
-                  <span className="w-20 text-center truncate text-subtle text-[10px]">{t.moscow || '—'}</span>
+                  <span className="w-20 text-center truncate text-subtle text-[11px]">{t.moscow || '—'}</span>
                   <span className="w-10 text-right text-subtle shrink-0">{t.effort_j ?? 0}j</span>
                 </label>
               ))
@@ -820,7 +820,7 @@ function ExportTab() {
   return (
     <div className="max-w-lg flex flex-col gap-2">
       {exports.map(item => (
-        <div key={item.table} className="flex items-center justify-between p-4 bg-white rounded-xl border border-border">
+        <div key={item.table} className="flex items-center justify-between p-4 bg-card rounded-xl border border-border">
           <div>
             <div className="font-semibold text-navy text-sm">{item.label}</div>
             <div className="text-xs text-subtle mt-0.5">{item.desc}</div>

@@ -127,11 +127,11 @@ export default function BacklogPage() {
             </div>
             <button onClick={()=>setShowFilters(v=>!v)}
               className={cn('relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all shrink-0',
-                showFilters?'bg-navy text-white border-navy':'bg-white text-subtle border-border hover:text-navy')}>
+                showFilters?'bg-brand text-white border-navy':'bg-card text-subtle border-border hover:text-navy')}>
               <SlidersHorizontal size={13}/>
               Filtres
               {!showFilters && hasFilters && (
-                <span className="absolute -top-1.5 -right-1.5 bg-indigo-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                <span className="absolute -top-1.5 -right-1.5 bg-indigo-500 text-white text-[11px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
                   {activeFilterCount}
                 </span>
               )}
@@ -202,7 +202,7 @@ export default function BacklogPage() {
           </div>}
 
           {/* ── Table ── */}
-          <div className="flex-1 bg-white border border-border rounded-xl overflow-hidden">
+          <div className="flex-1 bg-card border border-border rounded-xl overflow-hidden">
             <table className="ds-table" style={{minWidth:'860px'}}>
               <thead>
                 <tr>
@@ -255,7 +255,7 @@ export default function BacklogPage() {
                             <td className="text-subtle whitespace-nowrap">{spDisplay}</td>
                             <td>{t.moscow?<MoscowBadge value={t.moscow}/>:'—'}</td>
                             <td><StatutBadge value={t.statut}/></td>
-                            <td className="text-center text-slate-700 font-semibold whitespace-nowrap">
+                            <td className="text-center text-slate-600 font-semibold whitespace-nowrap">
                               {subs.length > 0
                                 ? <span title="Somme des sous-tâches">∑ {effJ(t)}j</span>
                                 : <>{t.effort_j??0}j</>}

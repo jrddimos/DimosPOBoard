@@ -54,7 +54,7 @@ export function GlobalSearch() {
     <div className="fixed inset-0 z-[10100] flex items-start justify-center pt-[12vh] px-4" onClick={() => setOpen(false)}>
       <div className="fixed inset-0 bg-black/40" />
       <Command
-        className="relative w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-border overflow-hidden"
+        className="relative w-full max-w-xl bg-card rounded-2xl shadow-2xl border border-border overflow-hidden"
         onClick={e => e.stopPropagation()}
         loop
       >
@@ -62,13 +62,13 @@ export function GlobalSearch() {
           <Search size={15} className="text-subtle shrink-0" />
           <Command.Input autoFocus placeholder="Rechercher une tâche, un produit, une page…"
             className="flex-1 text-sm text-navy placeholder:text-subtle/50 outline-none bg-transparent" />
-          <kbd className="text-[10px] font-mono text-subtle/60 bg-bg border border-border rounded px-1.5 py-0.5">Échap</kbd>
+          <kbd className="text-[11px] font-mono text-subtle/60 bg-bg border border-border rounded px-1.5 py-0.5">Échap</kbd>
         </div>
 
         <Command.List className="max-h-[60vh] overflow-y-auto p-2">
           <Command.Empty className="py-10 text-center text-sm text-subtle">Aucun résultat</Command.Empty>
 
-          <Command.Group heading="Pages" className="text-[10px] font-bold text-subtle/60 uppercase tracking-wider px-2 py-1.5">
+          <Command.Group heading="Pages" className="text-[11px] font-bold text-subtle/60 uppercase tracking-wider px-2 py-1.5">
             {GLOBAL_NAV.filter(i => !i.adminOnly || isAdmin).map(item => (
               <Command.Item key={item.id} value={`page ${item.label}`} onSelect={() => goto(item.href)}
                 className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-navy cursor-pointer data-[selected=true]:bg-indigo-50 data-[selected=true]:text-indigo-700">
@@ -83,7 +83,7 @@ export function GlobalSearch() {
             ))}
           </Command.Group>
 
-          <Command.Group heading="Produits" className="text-[10px] font-bold text-subtle/60 uppercase tracking-wider px-2 py-1.5 mt-1">
+          <Command.Group heading="Produits" className="text-[11px] font-bold text-subtle/60 uppercase tracking-wider px-2 py-1.5 mt-1">
             {accessibles.map(p => (
               <Command.Item key={p.id} value={`produit ${p.nom}`} onSelect={() => goto('/produit-dashboard', p.id)}
                 className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-navy cursor-pointer data-[selected=true]:bg-indigo-50 data-[selected=true]:text-indigo-700">
@@ -94,7 +94,7 @@ export function GlobalSearch() {
             ))}
           </Command.Group>
 
-          <Command.Group heading="Tâches" className="text-[10px] font-bold text-subtle/60 uppercase tracking-wider px-2 py-1.5 mt-1">
+          <Command.Group heading="Tâches" className="text-[11px] font-bold text-subtle/60 uppercase tracking-wider px-2 py-1.5 mt-1">
             {taches.filter(t => t.produit_id && accessibleIds.has(t.produit_id)).slice(0, 300).map(t => (
               <Command.Item key={t.id_tache} value={`tache ${t.id_tache} ${t.titre}`} onSelect={() => goto('/taches', t.produit_id ?? undefined)}
                 className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-navy cursor-pointer data-[selected=true]:bg-indigo-50 data-[selected=true]:text-indigo-700">

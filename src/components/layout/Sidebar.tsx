@@ -66,7 +66,7 @@ interface SidebarTheme {
 const THEMES: Record<ThemeKey, SidebarTheme> = {
   nuit: {
     id: 'nuit', label: 'Nuit', previewBg: '#0f1829', previewText: '#fff',
-    aside:           'bg-navy',
+    aside:           'bg-[#0F1829]',
     divider:         'border-white/8',
     logoText:        'text-white',
     navInactive:     'text-white/75 hover:text-white',
@@ -103,7 +103,7 @@ const THEMES: Record<ThemeKey, SidebarTheme> = {
     navDot:          'bg-indigo-400',
     navHoverBg:      'hover:bg-slate-800',
     sectionLabel:    'text-slate-400',
-    selectorBtn:     'text-slate-200 hover:bg-slate-800',
+    selectorBtn:     'text-slate-300 hover:bg-slate-800',
     selectorDropBg:  'bg-slate-800 border-slate-700',
     selectorItemCls: 'text-slate-300 hover:text-white hover:bg-slate-700',
     selectorItemActiveCls: 'text-white font-semibold bg-slate-700',
@@ -111,7 +111,7 @@ const THEMES: Record<ThemeKey, SidebarTheme> = {
     sprintText:      'text-slate-300',
     sprintBadge:     'text-emerald-400',
     footerBorder:    'border-slate-700/50',
-    profileText:     'text-slate-200',
+    profileText:     'text-slate-300',
     profileSub:      'text-indigo-400',
     notesBtn:        'text-slate-300 hover:text-white hover:bg-slate-800',
     logoutBtn:       'text-slate-400 hover:text-rose-400 hover:bg-slate-800',
@@ -120,29 +120,29 @@ const THEMES: Record<ThemeKey, SidebarTheme> = {
   },
   clair: {
     id: 'clair', label: 'Clair', previewBg: '#f8fafc', previewText: '#1e293b',
-    aside:           'bg-white border-r border-slate-200',
+    aside:           'bg-card border-r border-slate-200',
     divider:         'border-slate-200',
-    logoText:        'text-slate-900',
-    navInactive:     'text-slate-600 hover:text-slate-900',
+    logoText:        'text-navy',
+    navInactive:     'text-slate-600 hover:text-navy',
     navActive:       'bg-indigo-50 border border-indigo-100 text-indigo-700 font-semibold',
     navIconInactive: 'text-slate-400',
     navIconActive:   'text-indigo-600',
     navDot:          'bg-indigo-500',
     navHoverBg:      'hover:bg-slate-100',
     sectionLabel:    'text-slate-400',
-    selectorBtn:     'text-slate-700 hover:bg-slate-100',
-    selectorDropBg:  'bg-white border-slate-200 shadow-lg',
-    selectorItemCls: 'text-slate-500 hover:text-slate-900 hover:bg-slate-50',
-    selectorItemActiveCls: 'text-slate-900 font-semibold bg-slate-100',
+    selectorBtn:     'text-slate-600 hover:bg-slate-100',
+    selectorDropBg:  'bg-card border-slate-200 shadow-lg',
+    selectorItemCls: 'text-slate-500 hover:text-navy hover:bg-slate-50',
+    selectorItemActiveCls: 'text-navy font-semibold bg-slate-100',
     sprintChip:      'bg-slate-100 border border-slate-200',
     sprintText:      'text-slate-500',
     sprintBadge:     'text-emerald-600',
     footerBorder:    'border-slate-200',
-    profileText:     'text-slate-700',
+    profileText:     'text-slate-600',
     profileSub:      'text-indigo-500',
     notesBtn:        'text-slate-500 hover:text-slate-800 hover:bg-slate-100',
     logoutBtn:       'text-slate-400 hover:text-rose-500 hover:bg-rose-50',
-    editPanelBg:     'bg-white',
+    editPanelBg:     'bg-card',
     editPanelBorder: 'border-slate-200',
   },
 }
@@ -212,14 +212,14 @@ function QuickNotesPanel({ userId, userName, onClose, leftOffset }: {
   return createPortal((
     <>
       <div className="fixed inset-0 z-[10049]" onClick={onClose} />
-      <div className="fixed bottom-4 z-[10050] w-[360px] max-h-[70vh] bg-white shadow-2xl flex flex-col rounded-2xl border border-border overflow-hidden"
+      <div className="fixed bottom-4 z-[10050] w-[360px] max-h-[70vh] bg-card shadow-2xl flex flex-col rounded-2xl border border-border overflow-hidden"
         style={{ left: leftOffset }}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
           <div className="flex items-center gap-2.5">
             <StickyNote size={15} className="text-indigo-400" />
             <div>
               <h2 className="text-sm font-bold text-navy">Points à traiter</h2>
-              <p className="text-[10px] text-subtle">{openNotes.length} en attente · {doneNotes.length} traité{doneNotes.length !== 1 ? 's' : ''}</p>
+              <p className="text-[11px] text-subtle">{openNotes.length} en attente · {doneNotes.length} traité{doneNotes.length !== 1 ? 's' : ''}</p>
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-bg text-subtle hover:text-navy transition-colors"><X size={15} /></button>
@@ -238,20 +238,20 @@ function QuickNotesPanel({ userId, userName, onClose, leftOffset }: {
                 <div className="flex items-start gap-2.5">
                   <button onClick={() => toggle(note.id, note.done)} className="mt-0.5 w-4 h-4 rounded border border-border hover:border-emerald-400/50 hover:bg-emerald-50/50 shrink-0 transition-colors" />
                   <p className="flex-1 text-sm text-navy/85 leading-snug">{note.text}</p>
-                  <button onClick={() => remove(note.id)} className="opacity-0 group-hover/row:opacity-100 p-1 rounded hover:bg-rose-50 text-subtle hover:text-rose-600 transition-all shrink-0 mt-0.5"><X size={12} /></button>
+                  <button onClick={() => remove(note.id)} className="max-md:opacity-100 opacity-0 group-hover/row:opacity-100 p-1 rounded hover:bg-rose-50 text-subtle hover:text-rose-600 transition-all shrink-0 mt-0.5"><X size={12} /></button>
                 </div>
                 {sendingId === note.id ? (
                   <div className="mt-2 ml-6 flex flex-wrap gap-1.5">
-                    <span className="text-[10px] text-subtle/60 w-full mb-0.5">Choisir le produit :</span>
+                    <span className="text-[11px] text-subtle/60 w-full mb-0.5">Choisir le produit :</span>
                     {produitsActifs.map(p => (
                       <button key={p.id} onClick={() => sendToLop(note, p.id)} disabled={sendingLop}
-                        className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full text-white hover:opacity-80 transition-opacity disabled:opacity-50"
+                        className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full text-white hover:opacity-80 transition-opacity disabled:opacity-50"
                         style={{ background: p.couleur ?? '#4A4CC8' }}>{p.nom}</button>
                     ))}
-                    <button onClick={() => setSendingId(null)} className="text-[11px] px-2.5 py-1 rounded-full border border-border text-subtle hover:text-rose-600 transition-colors">Annuler</button>
+                    <button onClick={() => setSendingId(null)} className="text-xs px-2.5 py-1 rounded-full border border-border text-subtle hover:text-rose-600 transition-colors">Annuler</button>
                   </div>
                 ) : (
-                  <button onClick={() => setSendingId(note.id)} className="mt-1.5 ml-6 flex items-center gap-1 text-[10px] text-subtle/40 hover:text-indigo-600 opacity-0 group-hover/row:opacity-100 transition-all">
+                  <button onClick={() => setSendingId(note.id)} className="mt-1.5 ml-6 flex items-center gap-1 text-[11px] text-subtle/40 hover:text-indigo-600 max-md:opacity-100 opacity-0 group-hover/row:opacity-100 transition-all">
                     <ArrowRight size={10} /> Envoyer vers LOP produit
                   </button>
                 )}
@@ -260,7 +260,7 @@ function QuickNotesPanel({ userId, userName, onClose, leftOffset }: {
           </div>
           {doneNotes.length > 0 && (
             <details className="group/done border-t border-border/40">
-              <summary className="flex items-center gap-2 px-4 py-2 text-[10px] text-subtle/50 uppercase tracking-wider font-semibold cursor-pointer hover:text-subtle list-none select-none">
+              <summary className="flex items-center gap-2 px-4 py-2 text-[11px] text-subtle/50 uppercase tracking-wider font-semibold cursor-pointer hover:text-subtle list-none select-none">
                 <ChevronDown size={11} className="transition-transform group-open/done:rotate-0 -rotate-90" /> Traités ({doneNotes.length})
               </summary>
               <div className="divide-y divide-border/20">
@@ -268,7 +268,7 @@ function QuickNotesPanel({ userId, userName, onClose, leftOffset }: {
                   <div key={note.id} className="flex items-start gap-2.5 px-4 py-2.5 group/d hover:bg-bg/30">
                     <button onClick={() => toggle(note.id, note.done)} className="mt-0.5 w-4 h-4 rounded border border-emerald-300 bg-emerald-50 shrink-0 flex items-center justify-center"><Check size={9} className="text-emerald-600" /></button>
                     <span className="flex-1 text-xs text-subtle/40 line-through leading-snug">{note.text}</span>
-                    <button onClick={() => remove(note.id)} className="opacity-0 group-hover/d:opacity-100 p-1 rounded hover:bg-rose-50 text-subtle hover:text-rose-600 transition-all shrink-0 mt-0.5"><X size={11} /></button>
+                    <button onClick={() => remove(note.id)} className="max-md:opacity-100 opacity-0 group-hover/d:opacity-100 p-1 rounded hover:bg-rose-50 text-subtle hover:text-rose-600 transition-all shrink-0 mt-0.5"><X size={11} /></button>
                   </div>
                 ))}
               </div>
@@ -277,17 +277,17 @@ function QuickNotesPanel({ userId, userName, onClose, leftOffset }: {
         </div>
 
         <div className="px-4 py-3 border-t border-border bg-bg/50 shrink-0">
-          <div className="flex items-center gap-2 bg-white rounded-xl border border-border px-3 py-2.5 focus-within:border-indigo-300 transition-colors">
+          <div className="flex items-center gap-2 bg-card rounded-xl border border-border px-3 py-2.5 focus-within:border-indigo-300 transition-colors">
             <Plus size={13} className="text-subtle/40 shrink-0" />
             <input ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') add(); if (e.key === 'Escape') onClose() }}
               placeholder="Ajouter un point à traiter…"
               className="flex-1 text-sm text-navy placeholder:text-subtle/40 outline-none bg-transparent" />
             {input.trim() && (
-              <button onClick={add} className="text-[11px] font-semibold text-white bg-indigo-600 px-2.5 py-1 rounded-lg hover:bg-indigo-700 transition-colors shrink-0">↵</button>
+              <button onClick={add} className="text-xs font-semibold text-white bg-indigo-500 px-2.5 py-1 rounded-lg hover:bg-indigo-400 transition-colors shrink-0">↵</button>
             )}
           </div>
-          <p className="text-[10px] text-subtle/30 mt-1.5 text-center">Entrée pour ajouter · Hover pour actions · Échap pour fermer</p>
+          <p className="text-[11px] text-subtle/30 mt-1.5 text-center">Entrée pour ajouter · Hover pour actions · Échap pour fermer</p>
         </div>
       </div>
     </>
@@ -345,20 +345,20 @@ function NotificationsPanel({ userId, onClose, leftOffset }: {
   return createPortal((
     <>
       <div className="fixed inset-0 z-[10049]" onClick={onClose} />
-      <div className="fixed bottom-4 z-[10050] w-[360px] max-h-[70vh] bg-white shadow-2xl flex flex-col rounded-2xl border border-border overflow-hidden"
+      <div className="fixed bottom-4 z-[10050] w-[360px] max-h-[70vh] bg-card shadow-2xl flex flex-col rounded-2xl border border-border overflow-hidden"
         style={{ left: leftOffset }}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
           <div className="flex items-center gap-2.5">
             <Bell size={15} className="text-indigo-400" />
             <div>
               <h2 className="text-sm font-bold text-navy">Notifications</h2>
-              <p className="text-[10px] text-subtle">{unread.length} non lue{unread.length !== 1 ? 's' : ''}</p>
+              <p className="text-[11px] text-subtle">{unread.length} non lue{unread.length !== 1 ? 's' : ''}</p>
             </div>
           </div>
           <div className="flex items-center gap-1">
             {unread.length > 0 && (
               <button onClick={() => markAllRead.mutate(userId)}
-                className="text-[10px] font-semibold text-indigo-500 hover:text-indigo-700 px-2 py-1 rounded-lg hover:bg-indigo-50 transition-colors">
+                className="text-[11px] font-semibold text-indigo-500 hover:text-indigo-700 px-2 py-1 rounded-lg hover:bg-indigo-50 transition-colors">
                 Tout marquer lu
               </button>
             )}
@@ -385,10 +385,10 @@ function NotificationsPanel({ userId, onClose, leftOffset }: {
                       <p className={cn('text-sm leading-snug', n.lu ? 'text-navy/70' : 'text-navy font-semibold')}>{n.title}</p>
                     </div>
                     {n.body && <p className="text-xs text-subtle mt-0.5 truncate">{n.body}</p>}
-                    <p className="text-[10px] text-subtle/50 mt-1">{new Date(n.created_at).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+                    <p className="text-[11px] text-subtle/50 mt-1">{new Date(n.created_at).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
                   </div>
                   <button onClick={e => { e.stopPropagation(); deleteNotif.mutate({ id: n.id, user_id: userId }) }}
-                    className="opacity-0 group-hover/row:opacity-100 p-1 rounded hover:bg-rose-50 text-subtle hover:text-rose-600 transition-all shrink-0 mt-0.5">
+                    className="max-md:opacity-100 opacity-0 group-hover/row:opacity-100 p-1 rounded hover:bg-rose-50 text-subtle hover:text-rose-600 transition-all shrink-0 mt-0.5">
                     <X size={12} />
                   </button>
                 </div>
@@ -449,14 +449,14 @@ function DiscussionPanel({ produitId, produitNom, userId, isAdmin, onClose, left
   return createPortal((
     <>
       <div className="fixed inset-0 z-[10049]" onClick={onClose} />
-      <div className="fixed top-12 z-[10050] w-[520px] max-w-[calc(100vw-2rem)] h-[62vh] bg-white shadow-2xl flex flex-col rounded-2xl border border-border overflow-hidden"
+      <div className="fixed top-12 z-[10050] w-[520px] max-w-[calc(100vw-2rem)] h-[62vh] bg-card shadow-2xl flex flex-col rounded-2xl border border-border overflow-hidden"
         style={{ left: leftOffset }}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
           <div className="flex items-center gap-2.5">
             <MessageCircle size={15} className="text-indigo-400" />
             <div>
               <h2 className="text-sm font-bold text-navy">Discussion</h2>
-              <p className="text-[10px] text-subtle">{produitNom}</p>
+              <p className="text-[11px] text-subtle">{produitNom}</p>
             </div>
           </div>
           <div className="flex items-center gap-1">
@@ -486,11 +486,11 @@ function DiscussionPanel({ produitId, produitNom, userId, isAdmin, onClose, left
             </div>
             {bgUrl && (
               <div className="flex items-center gap-2">
-                <span className="text-[10px] text-subtle font-semibold uppercase tracking-wide shrink-0">Opacité</span>
+                <span className="text-[11px] text-subtle font-semibold uppercase tracking-wide shrink-0">Opacité</span>
                 <input type="range" min={0} max={1} step={0.05} defaultValue={bgOpacity}
                   onChange={e => updateBgOpacity.mutate({ produitId, opacity: Number(e.target.value) })}
                   className="flex-1 accent-indigo-500" />
-                <span className="text-[10px] text-subtle tabular-nums w-8 text-right">{Math.round(bgOpacity * 100)}%</span>
+                <span className="text-[11px] text-subtle tabular-nums w-8 text-right">{Math.round(bgOpacity * 100)}%</span>
               </div>
             )}
           </div>
@@ -515,7 +515,7 @@ function DiscussionPanel({ produitId, produitNom, userId, isAdmin, onClose, left
                 <div key={g.day} className="flex flex-col gap-2">
                   <div className="flex items-center gap-2">
                     <div className="flex-1 h-px bg-border" />
-                    <span className="text-[9px] font-semibold text-subtle uppercase tracking-wide">{g.day}</span>
+                    <span className="text-[10px] font-semibold text-subtle uppercase tracking-wide">{g.day}</span>
                     <div className="flex-1 h-px bg-border" />
                   </div>
                   {g.items.map(m => {
@@ -523,7 +523,7 @@ function DiscussionPanel({ produitId, produitNom, userId, isAdmin, onClose, left
                     const mine = m.user_id === userId
                     return (
                       <div key={m.id} className="flex items-start gap-2 group/msg bg-white/75 backdrop-blur-[2px] rounded-xl px-2.5 py-2">
-                        <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 flex items-center justify-center text-white text-[9px] font-bold"
+                        <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 flex items-center justify-center text-white text-[10px] font-bold"
                           style={{ background: auteur?.couleur ?? '#4A4CC8' }}>
                           {auteur?.avatar_url
                             ? <img src={auteur.avatar_url} alt="" className="w-full h-full object-cover" />
@@ -532,10 +532,10 @@ function DiscussionPanel({ produitId, produitNom, userId, isAdmin, onClose, left
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
                             <span className="text-xs font-semibold text-navy">{auteur?.display_name ?? auteur?.trigramme ?? 'Utilisateur'}</span>
-                            <span className="text-[9px] text-subtle/60">{new Date(m.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                            <span className="text-[10px] text-subtle/60">{new Date(m.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
                             {mine && (
                               <button onClick={() => deleteMessage.mutate({ id: m.id, produit_id: produitId })}
-                                className="ml-auto opacity-0 group-hover/msg:opacity-100 text-subtle hover:text-red transition-all"><X size={10} /></button>
+                                className="ml-auto max-md:opacity-100 opacity-0 group-hover/msg:opacity-100 text-subtle hover:text-red transition-all"><X size={10} /></button>
                             )}
                           </div>
                           <p className="text-xs text-navy/85 whitespace-pre-wrap break-words leading-snug">{m.texte}</p>
@@ -557,7 +557,7 @@ function DiscussionPanel({ produitId, produitNom, userId, isAdmin, onClose, left
               <MentionField as="textarea" value={draft} onChange={setDraft} membres={membres}
                 onEnter={submit} dropDirection="up"
                 placeholder="Écrire à l'équipe… @trg"
-                className="ds-input text-xs w-full resize-none bg-white" rows={2} />
+                className="ds-input text-xs w-full resize-none bg-card" rows={2} />
             </div>
             <button onClick={submit} disabled={!draft.trim() || addMessage.isPending}
               className="ds-btn-primary shrink-0 h-8 w-8 !p-0 flex items-center justify-center"><Send size={13} /></button>
@@ -572,8 +572,8 @@ function DiscussionPanel({ produitId, produitNom, userId, isAdmin, onClose, left
 export interface NavItem { id: string; label: string; href: string; icon: React.ReactNode; adminOnly?: boolean; writeOnly?: boolean }
 
 export const GLOBAL_NAV: NavItem[] = [
-  { id: 'dashboard',    label: 'Dashboard',              href: '/',                  icon: <LayoutDashboard size={15} /> },
-  { id: 'reunion',      label: 'Réunion PO',             href: '/reunion',           icon: <CalendarClock size={15} />   },
+  { id: 'dashboard',    label: 'Portefeuille',           href: '/',                  icon: <LayoutDashboard size={15} /> },
+  { id: 'reunion',      label: 'Réunions',               href: '/reunions',          icon: <CalendarClock size={15} />   },
   { id: 'plan-charges', label: 'Plan de charges',        href: '/plan-charges',      icon: <TrendingUp size={15} />      },
   { id: 'produits',     label: 'Produits',               href: '/produits',          icon: <Package size={15} />         },
   { id: 'metiers',      label: 'Thèmes',                 href: '/setup?tab=metiers', icon: <Briefcase size={15} />       },
@@ -663,7 +663,7 @@ function ProductSelector({ t, onClose, collapsed }: { t: SidebarTheme; onClose: 
                 produitActif?.id === p.id ? t.selectorItemActiveCls : t.selectorItemCls)}>
               <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: p.couleur ?? '#4A4CC8' }} />
               <span className="flex-1 truncate">{p.nom}</span>
-              {produitActif?.id === p.id && <span className="text-indigo-400 text-[10px]">✓</span>}
+              {produitActif?.id === p.id && <span className="text-indigo-400 text-[11px]">✓</span>}
             </button>
           ))}
         </div>
@@ -694,7 +694,7 @@ function NavRow({ item, active, t, collapsed }: { item: NavItem; active: boolean
 function SectionLabel({ children, t }: { children: React.ReactNode; t: SidebarTheme }) {
   return (
     <div className="px-2.5 pt-2 pb-1">
-      <span className={cn('text-[10px] font-semibold uppercase tracking-[0.08em] select-none', t.sectionLabel)}>
+      <span className={cn('text-[11px] font-semibold uppercase tracking-[0.08em] select-none', t.sectionLabel)}>
         {children}
       </span>
     </div>
@@ -768,13 +768,13 @@ function ProfileFooter({ t, onThemeChange, collapsed }: { t: SidebarTheme; onThe
                   {initiale}
                 </div>
               )}
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+              <div className="absolute inset-0 bg-black/40 max-md:opacity-100 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                 <Camera size={14} className="text-white" />
               </div>
             </div>
             <div className="flex-1 min-w-0">
               <div className={cn('text-xs font-semibold truncate', t.profileText)}>{displayName}</div>
-              {isAdmin && <div className={cn('text-[10px]', t.profileSub)}>Admin</div>}
+              {isAdmin && <div className={cn('text-[11px]', t.profileSub)}>Admin</div>}
             </div>
             <button onClick={() => setOpen(false)} className={cn('p-1 rounded transition-colors', t.notesBtn)}><X size={13} /></button>
           </div>
@@ -796,7 +796,7 @@ function ProfileFooter({ t, onThemeChange, collapsed }: { t: SidebarTheme; onThe
           )}
 
           {/* Couleur avatar */}
-          <div className={cn('text-[10px] uppercase tracking-widest mb-1.5', t.sectionLabel)}>Couleur avatar</div>
+          <div className={cn('text-[11px] uppercase tracking-widest mb-1.5', t.sectionLabel)}>Couleur avatar</div>
           <div className="flex flex-wrap gap-1.5 mb-4">
             {BRAND_COLORS.map(c => (
               <button key={c} type="button" onClick={() => pickColor(c)}
@@ -807,7 +807,7 @@ function ProfileFooter({ t, onThemeChange, collapsed }: { t: SidebarTheme; onThe
           </div>
 
           {/* Apparence globale de l'app */}
-          <div className={cn('text-[10px] uppercase tracking-widest mb-2', t.sectionLabel)}>Apparence</div>
+          <div className={cn('text-[11px] uppercase tracking-widest mb-2', t.sectionLabel)}>Apparence</div>
           <button onClick={toggleDark}
             className={cn('w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold mb-4 transition-colors', t.notesBtn)}>
             <span className="flex items-center gap-2">
@@ -820,13 +820,13 @@ function ProfileFooter({ t, onThemeChange, collapsed }: { t: SidebarTheme; onThe
           </button>
 
           {/* Thème sidebar */}
-          <div className={cn('text-[10px] uppercase tracking-widest mb-2', t.sectionLabel)}>Thème du menu</div>
+          <div className={cn('text-[11px] uppercase tracking-widest mb-2', t.sectionLabel)}>Thème du menu</div>
           <div className="flex gap-2">
             {(Object.values(THEMES) as SidebarTheme[]).map(theme => (
               <button key={theme.id} onClick={() => onThemeChange(theme.id)}
                 title={theme.label}
                 className={cn(
-                  'flex-1 flex flex-col items-center gap-1.5 px-2 py-2.5 rounded-xl border-2 transition-all text-[10px] font-semibold',
+                  'flex-1 flex flex-col items-center gap-1.5 px-2 py-2.5 rounded-xl border-2 transition-all text-[11px] font-semibold',
                   t.id === theme.id
                     ? 'border-indigo-400 scale-105'
                     : 'border-transparent hover:border-white/20 opacity-70 hover:opacity-100'
@@ -854,7 +854,7 @@ function ProfileFooter({ t, onThemeChange, collapsed }: { t: SidebarTheme; onThe
         <div className={cn('flex items-center gap-2 rounded-lg mb-0.5 px-2.5 py-[7px] bg-emerald-500/10 border border-emerald-500/20', collapsed && 'justify-center px-2')}>
           <Timer size={13} className="text-emerald-500 shrink-0" />
           {!collapsed && (
-            <span className="flex-1 min-w-0 text-[11px] font-semibold text-emerald-600 truncate" title={running.titre}>
+            <span className="flex-1 min-w-0 text-xs font-semibold text-emerald-600 truncate" title={running.titre}>
               {running.id_tache} · {formatElapsed(running.started_at)}
             </span>
           )}
@@ -914,7 +914,7 @@ function ProfileFooter({ t, onThemeChange, collapsed }: { t: SidebarTheme; onThe
             {profile?.avatar_url ? (
               <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-white text-[9px] font-bold" style={{ background: profile?.couleur ?? '#4A4CC8' }}>
+              <div className="w-full h-full flex items-center justify-center text-white text-[10px] font-bold" style={{ background: profile?.couleur ?? '#4A4CC8' }}>
                 {initiale}
               </div>
             )}
@@ -922,7 +922,7 @@ function ProfileFooter({ t, onThemeChange, collapsed }: { t: SidebarTheme; onThe
           {!collapsed && (
             <div className="flex-1 min-w-0 text-left">
               <div className={cn('text-[12px] font-medium truncate leading-tight', t.profileText)}>{displayName}</div>
-              {isAdmin && <div className={cn('text-[10px] leading-tight', t.profileSub)}>Admin</div>}
+              {isAdmin && <div className={cn('text-[11px] leading-tight', t.profileSub)}>Admin</div>}
             </div>
           )}
         </button>
@@ -999,7 +999,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         {/* Logo */}
         <div style={{ minHeight: 52 }} className={cn('relative flex items-center shrink-0 border-b', collapsed ? 'justify-center px-2' : 'px-4', t.divider)}>
           <div className="flex items-center gap-2.5 z-10">
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center shadow-lg shadow-indigo-500/30 bg-navy shrink-0">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center shadow-lg shadow-indigo-500/30 bg-[#1E3A5F] shrink-0">
               <img src="/logo.svg" alt="" className="w-[18px] h-[18px]" />
             </div>
           </div>
@@ -1035,7 +1035,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             <Search size={13} className="shrink-0 opacity-60" />
             {!collapsed && <>
               <span className="flex-1 text-left opacity-60">Rechercher…</span>
-              <kbd className="text-[9px] font-mono opacity-40">Ctrl K</kbd>
+              <kbd className="text-[10px] font-mono opacity-40">Ctrl K</kbd>
             </>}
           </button>
         </div>
@@ -1064,11 +1064,11 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               {!collapsed && (
                 <div className="px-2.5 mb-2 flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: produitActif.couleur ?? '#4A4CC8' }} />
-                  <span className={cn('text-[10px] font-semibold uppercase tracking-[0.08em] truncate', t.sectionLabel)}>
+                  <span className={cn('text-[11px] font-semibold uppercase tracking-[0.08em] truncate', t.sectionLabel)}>
                     {produitActif.nom}
                   </span>
                   {sprintActif && (
-                    <span className={cn('text-[10px] font-bold shrink-0', t.sprintBadge)}>
+                    <span className={cn('text-[11px] font-bold shrink-0', t.sprintBadge)}>
                       {sprintActif.numero}
                     </span>
                   )}

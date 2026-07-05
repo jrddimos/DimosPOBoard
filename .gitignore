@@ -4,3 +4,6 @@ dist
 .env.local
 *.local
 .DS_Store
+
+# Config locale Claude Code (chemins machine-spécifiques)
+.claude/

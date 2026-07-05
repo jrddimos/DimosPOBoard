@@ -6,7 +6,7 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
     <input
       ref={ref}
       className={cn(
-        'w-full px-3 py-2 text-sm border border-border rounded-lg bg-white text-navy placeholder:text-subtle/60',
+        'w-full px-3 py-2 text-sm border border-border rounded-lg bg-card text-navy placeholder:text-subtle/60',
         'focus:outline-none focus:ring-2 focus:ring-purple/30 focus:border-purple transition-colors',
         className
       )}
@@ -21,7 +21,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
     <select
       ref={ref}
       className={cn(
-        'w-full px-3 py-2 text-sm border border-border rounded-lg bg-white text-navy',
+        'w-full px-3 py-2 text-sm border border-border rounded-lg bg-card text-navy',
         'focus:outline-none focus:ring-2 focus:ring-purple/30 focus:border-purple transition-colors',
         className
       )}
@@ -38,7 +38,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
     <textarea
       ref={ref}
       className={cn(
-        'w-full px-3 py-2 text-sm border border-border rounded-lg bg-white text-navy placeholder:text-subtle/60',
+        'w-full px-3 py-2 text-sm border border-border rounded-lg bg-card text-navy placeholder:text-subtle/60',
         'focus:outline-none focus:ring-2 focus:ring-purple/30 focus:border-purple transition-colors resize-vertical',
         className
       )}

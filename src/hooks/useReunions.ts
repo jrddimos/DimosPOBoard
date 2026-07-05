@@ -142,3 +142,126 @@ export function useSauvegarderReunion() {
     },
   })
 }
+
+// ════════════════════════════════════════════════════════════════
+// Réunions multi-types (migration 0020)
+// ════════════════════════════════════════════════════════════════
+
+export type SectionKey = 'revue_produits' | 'notes' | 'jalons' | 'actions' | 'decisions' | 'risques'
+
+export interface ReunionType {
+  id: number
+  nom: string
+  couleur: string
+  sections: SectionKey[]
+  builtin: string | null
+  actif: boolean
+  ordre: number
+}
+
+export interface ActionItem { id: string; titre: string; assigne: string; done: boolean }
+export interface RisqueItem { id: string; texte: string; niveau: 'vert' | 'orange' | 'rouge' }
+export interface DecisionItem { id: string; texte: string }
+
+export interface SectionsData {
+  notes?: string
+  jalons?: string
+  actions?: ActionItem[]
+  decisions?: DecisionItem[]
+  risques?: RisqueItem[]
+}
+
+export interface ReunionGenerique extends Reunion {
+  type_id: number | null
+  titre: string | null
+  date_reunion: string | null
+  produit_id: number | null
+  participants: string[]
+  sections_data: SectionsData
+  privee: boolean
+  created_by: string | null
+}
+
+export function useReunionTypes() {
+  return useQuery({
+    queryKey: ['reunion_types'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('reunion_types').select('*').eq('actif', true).order('ordre')
+      if (error) throw error
+      return (data ?? []) as ReunionType[]
+    },
+    staleTime: 5 * 60_000,
+  })
+}
+
+export function useReunionsList() {
+  return useQuery({
+    queryKey: ['reunions_list'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('reunions')
+        .select('*')
+        .order('date_reunion', { ascending: false, nullsFirst: false })
+        .limit(200)
+      if (error) throw error
+      return (data ?? []) as ReunionGenerique[]
+    },
+  })
+}
+
+export function useReunionById(id: number | null) {
+  return useQuery({
+    queryKey: ['reunion_by_id', id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('reunions').select('*').eq('id', id!).maybeSingle()
+      if (error) throw error
+      return data as ReunionGenerique | null
+    },
+    enabled: !!id,
+  })
+}
+
+export function useCreateReunion() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: { type_id: number; titre: string; date_reunion: string; produit_id: number | null; privee?: boolean; participants?: string[] }) => {
+      const { data, error } = await supabase
+        .from('reunions')
+        .insert({ participants: [], sections_data: {}, ...payload })
+        .select()
+        .single()
+      if (error) throw error
+      return data as ReunionGenerique
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['reunions_list'] }),
+  })
+}
+
+export function useUpdateReunionGenerique() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, updates }: { id: number; updates: Partial<Pick<ReunionGenerique, 'titre' | 'animateur' | 'date_reunion' | 'produit_id' | 'participants' | 'sections_data' | 'privee'>> }) => {
+      const { data, error } = await supabase
+        .from('reunions').update(updates).eq('id', id).select().single()
+      if (error) throw error
+      return data as ReunionGenerique
+    },
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ['reunions_list'] })
+      qc.invalidateQueries({ queryKey: ['reunion_by_id', r.id] })
+    },
+  })
+}
+
+export function useDeleteReunion() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const { error } = await supabase.from('reunions').delete().eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['reunions_list'] }),
+  })
+}

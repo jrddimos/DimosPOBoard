@@ -11,7 +11,7 @@ import { useEquipes, useUtilisateurs } from '@/hooks/useEquipes'
 import { useToast } from '@/hooks/useToast'
 import { confirm } from '@/components/ui/ConfirmModal'
 import { EPIC_LIST, JALON_LIST, MOSCOW_LIST, SPRINTS_LIST, METIERS_DEFAULT } from '@/constants'
-import { Search, Lock, Plus, Copy, Trash2, Edit2, ChevronRight, ChevronDown, X, CornerDownRight, FilePlus } from 'lucide-react'
+import { Search, Lock, Plus, Copy, Trash2, ChevronRight, ChevronDown, X, CornerDownRight, FilePlus } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
 import { cn, parseCriteres, serializeCriteres, hasPendingCriteres } from '@/lib/utils'
 import type { CritereItem } from '@/lib/utils'
@@ -45,16 +45,12 @@ function PriorityPicker({ value, onChange }: { value: string; onChange: (p: stri
 }
 
 
-type TabKey = 'add'|'edit'|'dup'|'del'
-const TABS:{key:TabKey;label:string;icon:React.ReactNode}[] = [
-  {key:'add', label:'Ajouter',   icon:<Plus size={13}/>},
-  {key:'edit',label:'Modifier',  icon:<Edit2 size={13}/>},
-  {key:'dup', label:'Dupliquer', icon:<Copy size={13}/>},
-  {key:'del', label:'Supprimer', icon:<Trash2 size={13}/>},
-]
+// Liste par défaut ; la création est une vue dédiée accessible via le bouton primaire.
+// Dupliquer / Supprimer sont des actions contextuelles (panneau + sélection multiple).
+type ViewKey = 'list'|'add'
 
 function Label({children}:{children:React.ReactNode}) {
-  return <label className="text-[11px] font-bold text-navy/75 uppercase tracking-wide mb-1 block">{children}</label>
+  return <label className="text-xs font-bold text-navy/75 uppercase tracking-wide mb-1 block">{children}</label>
 }
 function Grp({label,children,col2,className}:{label:React.ReactNode;children:React.ReactNode;col2?:boolean;className?:string}) {
   return <div className={cn(col2?'col-span-2':'',className)}>
@@ -64,10 +60,10 @@ function Grp({label,children,col2,className}:{label:React.ReactNode;children:Rea
 
 export default function TachesPage() {
   const [params] = useSearchParams()
-  const [tab,setTab] = useState<TabKey>('add')
+  const [view,setView] = useState<ViewKey>('list')
   useEffect(()=>{
-    const t=params.get('tab') as TabKey
-    setTab(t&&['add','edit','dup','del'].includes(t)?t:'add')
+    // Compat anciens liens : tab=add ouvre la création, tout le reste va sur la liste
+    setView(params.get('tab')==='add'?'add':'list')
   },[params])
 
   const {data:taches=[],isLoading} = useTaches()
@@ -96,25 +92,27 @@ export default function TachesPage() {
     <Layout>
       <div className="page-topbar -mx-3 -mt-3 mb-3 px-3 md:-mx-5 md:-mt-5 md:mb-5 md:px-5">
         <PageTitle icon={<FilePlus size={15}/>} label="Tâches" />
-        <div className="flex gap-0.5 bg-bg border border-border rounded-lg p-0.5">
-          {TABS.map(t=>(
-            <button key={t.key} onClick={()=>setTab(t.key)}
-              className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all',
-                tab===t.key?'bg-white shadow-sm text-navy':'text-subtle hover:text-navy')}>
-              {t.icon}{t.label}
-            </button>
-          ))}
-        </div>
+        {canEditTasks&&(
+          <div className="ml-auto flex items-center gap-2">
+            {view==='list' ? (
+              <button onClick={()=>setView('add')} className="ds-btn-primary flex items-center gap-1.5">
+                <Plus size={13}/> Nouvelle tâche
+              </button>
+            ) : (
+              <button onClick={()=>setView('list')} className="ds-btn flex items-center gap-1.5">
+                ← Retour à la liste
+              </button>
+            )}
+          </div>
+        )}
       </div>
       {!canEditTasks ? (
         <div className="ds-card flex items-center gap-2 text-sm text-subtle">
           <Lock size={14}/> Accès en lecture seule — vous n'avez pas les droits pour créer, modifier, dupliquer ou supprimer des tâches sur ce produit.
         </div>
       ) : <>
-        {tab==='add' &&<AddTab  sprintActif={sprintActif?.numero} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} createTache={createTache} createSub={createSub} updateTache={updateTache} parents={parents} allTaches={taches} toast={toast} initTitre={params.get('titre')??''} initParentId={params.get('parent_id')??''}/>}
-        {tab==='edit'&&<EditTab taches={taches} parents={parents} allTaches={taches} closedSprints={closedSprints} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} updateTache={updateTache} createSub={createSub} toast={toast} produitId={produitActif?.id ?? null} dependances={dependances} addDependance={addDependance} removeDependance={removeDependance} userId={user?.id ?? null} initFocusId={params.get('focus')??''}/>}
-        {tab==='dup' &&<DupTab  parents={parents} closedSprints={closedSprints} createTache={createTache} taches={taches} toast={toast}/>}
-        {tab==='del' &&<DelTab  parents={parents} deleteTache={deleteTache} toast={toast}/>}
+        {view==='add' &&<AddTab  sprintActif={sprintActif?.numero} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} createTache={createTache} createSub={createSub} updateTache={updateTache} parents={parents} allTaches={taches} toast={toast} initTitre={params.get('titre')??''} initParentId={params.get('parent_id')??''}/>}
+        {view==='list'&&<EditTab taches={taches} parents={parents} allTaches={taches} closedSprints={closedSprints} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} updateTache={updateTache} createTache={createTache} deleteTache={deleteTache} createSub={createSub} toast={toast} produitId={produitActif?.id ?? null} dependances={dependances} addDependance={addDependance} removeDependance={removeDependance} userId={user?.id ?? null} initFocusId={params.get('focus')??''}/>}
       </>}
     </Layout>
   )
@@ -140,12 +138,12 @@ function SelectPicker({value,onChange,options,placeholder='--',searchable=false,
   return(
     <div className={cn('relative',className)} ref={ref}>
       <button type="button" onClick={()=>setOpen(o=>!o)}
-        className="w-full flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-slate-200 bg-white text-xs text-left hover:border-indigo-300 transition-colors">
+        className="w-full flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-slate-200 bg-card text-xs text-left hover:border-indigo-300 transition-colors">
         <span className={cn('flex-1 truncate',value?'text-navy font-medium':'text-slate-400')}>{label??placeholder}</span>
         <ChevronDown size={11} className={cn('text-slate-300 shrink-0 transition-transform',open&&'rotate-180')}/>
       </button>
       {open&&(
-        <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden" style={{minWidth:'100%',maxWidth:'320px'}}>
+        <div className="absolute left-0 top-full mt-1 z-50 bg-card border border-slate-200 rounded-xl shadow-lg overflow-hidden" style={{minWidth:'100%',maxWidth:'320px'}}>
           {searchable&&(
             <div className="px-2 pt-2 pb-1.5 border-b border-slate-100">
               <input autoFocus value={q} onChange={e=>setQ(e.target.value)}
@@ -176,7 +174,7 @@ function SelectPicker({value,onChange,options,placeholder='--',searchable=false,
 
 // ── MoSCoWPicker ──────────────────────────────────────────────
 const MOSCOW_MAP:{[k:string]:{idle:string;active:string;short:string}}={
-  'Must Have':  {idle:'bg-slate-100 text-navy border-slate-300',      active:'bg-navy text-white border-navy',              short:'Must'},
+  'Must Have':  {idle:'bg-slate-100 text-navy border-slate-300',      active:'bg-brand text-white border-navy',              short:'Must'},
   'Should Have':{idle:'bg-indigo-50 text-indigo-600 border-indigo-200',active:'bg-indigo-500 text-white border-indigo-500', short:'Should'},
   'Could Have': {idle:'bg-slate-50 text-slate-500 border-slate-200',   active:'bg-slate-400 text-white border-slate-400',   short:'Could'},
   "Won't Have": {idle:'bg-rose-50 text-rose-400 border-rose-200',      active:'bg-rose-400 text-white border-rose-400',     short:"Won't"},
@@ -295,7 +293,7 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
       {confirmNew&&editTask&&(
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
           onClick={()=>setConfirmNew(false)}>
-          <div className="bg-white rounded-2xl shadow-modal w-full max-w-sm p-6 animate-in"
+          <div className="bg-card rounded-2xl shadow-modal w-full max-w-sm p-6 animate-in"
             onClick={e=>e.stopPropagation()}>
             <div className="flex items-start justify-between mb-3">
               <h3 className="text-sm font-bold text-navy">Nouvelle tâche</h3>
@@ -408,7 +406,7 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
                 membres={membresActifs} className="ds-textarea" rows={2}/>
             </Grp>
             <div className="flex gap-2 pb-0.5 flex-wrap">
-              <button type="submit" className={cn('ds-btn-primary',isEditing&&'bg-indigo-600 border-indigo-600')} disabled={isPending}>
+              <button type="submit" className={cn('ds-btn-primary',isEditing&&'bg-indigo-500 border-indigo-600')} disabled={isPending}>
                 {isEditing ? '💾 Modifier' : '✅ Créer'}
               </button>
               {isEditing&&(
@@ -466,7 +464,7 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
                               {isExp?<ChevronDown size={11}/>:<ChevronRight size={11}/>}
                             </button>
                           )}
-                          {subs.length>0&&<span className="bg-indigo-100 text-indigo-600 px-1 rounded text-[10px] font-semibold">{subs.filter(s=>s.statut==='Fait').length}/{subs.length}</span>}
+                          {subs.length>0&&<span className="bg-indigo-100 text-indigo-600 px-1 rounded text-[11px] font-semibold">{subs.filter(s=>s.statut==='Fait').length}/{subs.length}</span>}
                         </div>
                       </td>
                       <td className="max-w-[280px]"><div className="truncate font-medium">{t.titre}</div></td>
@@ -501,10 +499,11 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
   )
 }
 
-function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,updateTache,createSub,toast,allTaches,produitId,dependances,addDependance,removeDependance,userId,initFocusId}:{
+function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,updateTache,createTache,deleteTache,createSub,toast,allTaches,produitId,dependances,addDependance,removeDependance,userId,initFocusId}:{
   taches:Tache[];parents:Tache[];allTaches:Tache[];closedSprints:string[];equipeNoms:string[]
   membresActifs:UserProfile[];equipes:Equipe[]
-  updateTache:ReturnType<typeof useUpdateTache>;createSub:ReturnType<typeof useCreateSousTache>;toast:ReturnType<typeof useToast>
+  updateTache:ReturnType<typeof useUpdateTache>;createTache:ReturnType<typeof useCreateTache>;deleteTache:ReturnType<typeof useDeleteTache>
+  createSub:ReturnType<typeof useCreateSousTache>;toast:ReturnType<typeof useToast>
   produitId:number|null;dependances:import('@/hooks/useTacheDependances').TacheDependance[]
   addDependance:ReturnType<typeof useAddDependance>;removeDependance:ReturnType<typeof useRemoveDependance>
   userId:string|null;initFocusId?:string
@@ -518,6 +517,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
   const [expanded,setExpanded]=useState<string[]>([])
   // Bulk edit : champs à appliquer sur la sélection (vide = "ne pas toucher")
   const [bulk,setBulk]=useState<Record<string,string>>({statut:'',epic:'',jalon:'',sprint_debut:'',moscow:'',equipe:'',assigne_a:'',metier:'',priorite:''})
+  const [dupTarget,setDupTarget]=useState('')
 
   const childMap:Record<string,Tache[]>={}
   taches.filter(t=>t.parent_id).forEach(c=>{if(!childMap[c.parent_id!]) childMap[c.parent_id!]=[]; childMap[c.parent_id!].push(c)})
@@ -595,6 +595,26 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
     setBulk({statut:'',epic:'',jalon:'',sprint_debut:'',moscow:'',equipe:'',assigne_a:'',metier:'',priorite:''})
   }
 
+  // Duplique des US parentes (avec leurs sous-tâches) vers un sprint cible ('' = backlog)
+  async function duplicateIds(ids:string[],target:string){
+    let count=0
+    for(const id of ids){
+      const t=parents.find(p=>p.id_tache===id); if(!t) continue
+      const newT=await createTache.mutateAsync({...t,id:undefined,id_tache:undefined,sprint:target||'',sprint_debut:target||'',sprint_fin:target||'',statut:'À faire',iteration:(t.iteration??1)+1,commentaire:`Dupliqué depuis ${t.id_tache}`} as Partial<Tache>)
+      count++
+      for(const s of (childMap[t.id_tache]??[])) await createTache.mutateAsync({...s,id:undefined,id_tache:undefined,parent_id:newT.id_tache,sprint:target||'',statut:'À faire',iteration:(s.iteration??1)+1} as Partial<Tache>)
+    }
+    toast(`✅ ${count} US dupliquée(s) vers ${target||'le backlog'}`)
+  }
+
+  async function deleteIds(ids:string[]):Promise<boolean>{
+    const ok=await confirm({title:`Supprimer ${ids.length>1?`${ids.length} US`:ids[0]} ?`,message:'Action irréversible. Les tâches et leurs sous-tâches seront supprimées.',confirmLabel:'Supprimer',variant:'danger'})
+    if(!ok) return false
+    for(const id of ids) await deleteTache.mutateAsync(id)
+    toast(`✅ ${ids.length} US supprimée(s)`)
+    return true
+  }
+
   return (
     <div className="flex gap-4">
       <div className="flex-1 min-w-0 flex flex-col gap-3">
@@ -639,6 +659,17 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                 ✓ Appliquer
               </button>
             </div>
+            <div className="flex flex-wrap gap-2 items-center pt-2 border-t border-indigo-200/60">
+              <span className="text-[11px] font-semibold text-subtle uppercase tracking-wide">Autres actions</span>
+              <SelectPicker value={dupTarget} onChange={setDupTarget} className="w-32"
+                options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="Backlog"/>
+              <button onClick={async()=>{await duplicateIds(selected,dupTarget);setSelected([])}}
+                disabled={createTache.isPending}
+                className="ds-btn ds-btn-sm flex items-center gap-1"><Copy size={11}/> Dupliquer</button>
+              <button onClick={async()=>{if(await deleteIds(selected)) setSelected([])}}
+                disabled={deleteTache.isPending}
+                className="ds-btn-danger ds-btn-sm flex items-center gap-1 ml-auto"><Trash2 size={11}/> Supprimer</button>
+            </div>
           </div>
         )}
         {/* ── Vue mobile : liste de cartes ── */}
@@ -648,12 +679,12 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
             const blockers=isBloqueeParDependance(t.id_tache,dependances,allTaches)
             return (
               <div key={t.id_tache} onClick={()=>openPanel(t)}
-                className={cn('bg-white border rounded-xl p-3 cursor-pointer',panelId===t.id_tache?'border-indigo-300 ring-1 ring-indigo-100':'border-border')}>
+                className={cn('bg-card border rounded-xl p-3 cursor-pointer',panelId===t.id_tache?'border-indigo-300 ring-1 ring-indigo-100':'border-border')}>
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="text-xs font-semibold text-indigo-600 shrink-0">{t.id_tache}</span>
-                  <EpicBadge value={t.epic??''} className="text-[10px]"/>
-                  {subs.length>0&&<span className="bg-indigo-100 text-indigo-600 px-1 rounded text-[10px] font-semibold shrink-0">{subs.filter(s=>s.statut==='Fait').length}/{subs.length}</span>}
-                  {blockers.length>0&&<span className="ml-auto text-[9px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full shrink-0">⛔ {blockers.length}</span>}
+                  <EpicBadge value={t.epic??''} className="text-[11px]"/>
+                  {subs.length>0&&<span className="bg-indigo-100 text-indigo-600 px-1 rounded text-[11px] font-semibold shrink-0">{subs.filter(s=>s.statut==='Fait').length}/{subs.length}</span>}
+                  {blockers.length>0&&<span className="ml-auto text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full shrink-0">⛔ {blockers.length}</span>}
                 </div>
                 <p className="text-sm font-medium text-navy leading-snug mb-2">{t.titre}</p>
                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -661,8 +692,8 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                   {t.priorite&&<PrioBadge value={t.priorite}/>}
                   {t.moscow&&<MoscowBadge value={t.moscow}/>}
                   {t.jalon&&<JalonBadge value={t.jalon}/>}
-                  {t.assigne_a&&<span className="text-[10px] font-semibold text-navy bg-bg px-1.5 py-0.5 rounded-full">{t.assigne_a}</span>}
-                  {(t.sprint_debut||t.sprint)&&<span className="text-[10px] text-subtle ml-auto">{t.sprint_debut||t.sprint}</span>}
+                  {t.assigne_a&&<span className="text-[11px] font-semibold text-navy bg-bg px-1.5 py-0.5 rounded-full">{t.assigne_a}</span>}
+                  {(t.sprint_debut||t.sprint)&&<span className="text-[11px] text-subtle ml-auto">{t.sprint_debut||t.sprint}</span>}
                 </div>
               </div>
             )
@@ -673,7 +704,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
         </div>
 
         {/* ── Vue desktop : tableau ── */}
-        <div className="hidden md:block bg-white border border-border rounded-xl overflow-x-auto">
+        <div className="hidden md:block bg-card border border-border rounded-xl overflow-x-auto">
           <table className="ds-table" style={{minWidth:'1400px'}}>
             <thead><tr>
               <th className="w-8 shrink-0"><input type="checkbox" className="accent-indigo-500"
@@ -726,7 +757,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                           {(()=>{const blockers=isBloqueeParDependance(t.id_tache,dependances,allTaches)
                             return blockers.length>0 && (
                               <span title={`Bloquée par : ${blockers.join(', ')}`}
-                                className="text-[9px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                className="text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
                                 ⛔ {blockers.length}
                               </span>
                             )})()}
@@ -765,7 +796,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
 
       {panelTask&&(
         <>
-          <div className="fixed inset-0 z-40 bg-navy/40" onClick={()=>setPanelId(null)}/>
+          <div className="fixed inset-0 z-40 bg-brand/40" onClick={()=>setPanelId(null)}/>
           <div className="fixed inset-x-0 bottom-0 z-50 animate-in md:inset-x-auto md:left-auto md:right-4 md:top-4 md:bottom-4 md:w-3/5 md:min-w-[380px] md:max-w-[860px]">
           <div className="ds-card max-h-[80vh] md:max-h-full md:h-full overflow-y-auto rounded-b-none md:rounded-xl shadow-2xl">
             {/* Header */}
@@ -820,7 +851,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                   {panelTask && (childMap[panelTask.id_tache]??[]).length > 0 ? (
                     <div className="ds-input text-xs bg-slate-50 text-navy font-semibold flex items-center gap-1.5 cursor-not-allowed">
                       <span>∑ {(childMap[panelTask.id_tache]??[]).reduce((s,c)=>s+(c.effort_j??0),0)}j</span>
-                      <span className="text-[10px] text-slate-400 font-normal">{(childMap[panelTask.id_tache]??[]).length} ss</span>
+                      <span className="text-[11px] text-slate-400 font-normal">{(childMap[panelTask.id_tache]??[]).length} ss</span>
                     </div>
                   ) : (
                     <input type="number" value={Number(editForm.effort_j??0)} onChange={setF('effort_j')} className="ds-input text-xs" min={0} step={0.5}/>
@@ -888,7 +919,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                 <Grp label="Dépendances" className="mt-4 pt-3 border-t-2 border-slate-300">
                   <div className="flex flex-col gap-2">
                     <div>
-                      <div className="text-[10px] text-navy/70 font-bold uppercase tracking-wide mb-1">Bloquée par</div>
+                      <div className="text-[11px] text-navy/70 font-bold uppercase tracking-wide mb-1">Bloquée par</div>
                       {dependances.filter(d=>d.bloquee_id===panelTask.id_tache).length===0 ? (
                         <p className="text-xs text-subtle italic">Aucune</p>
                       ) : (
@@ -909,7 +940,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                       )}
                     </div>
                     <div>
-                      <div className="text-[10px] text-navy/70 font-bold uppercase tracking-wide mb-1">Bloque</div>
+                      <div className="text-[11px] text-navy/70 font-bold uppercase tracking-wide mb-1">Bloque</div>
                       {dependances.filter(d=>d.bloque_id===panelTask.id_tache).length===0 ? (
                         <p className="text-xs text-subtle italic">Aucune</p>
                       ) : (
@@ -946,116 +977,20 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
             </div>
             <div className="flex gap-2 mt-3 pt-3 border-t-2 border-slate-300">
               <button onClick={savePanel} className="ds-btn-primary flex-1" disabled={updateTache.isPending}>✓ Sauvegarder</button>
+              {!panelTask.parent_id&&(
+                <button onClick={()=>duplicateIds([panelTask.id_tache],'')} disabled={createTache.isPending}
+                  title="Dupliquer vers le backlog (avec sous-tâches)"
+                  className="ds-btn flex items-center gap-1"><Copy size={12}/> Dupliquer</button>
+              )}
+              <button onClick={async()=>{if(await deleteIds([panelTask.id_tache])) setPanelId(null)}}
+                disabled={deleteTache.isPending} title="Supprimer la tâche"
+                className="ds-btn-danger"><Trash2 size={12}/></button>
               <button onClick={()=>setPanelId(null)} className="ds-btn">Annuler</button>
             </div>
           </div>
           </div>
         </>
       )}
-    </div>
-  )
-}
-
-function DupTab({parents,closedSprints,createTache,taches,toast}:{
-  parents:Tache[];closedSprints:string[];createTache:ReturnType<typeof useCreateTache>
-  taches:Tache[];toast:ReturnType<typeof useToast>
-}) {
-  const [selected,setSelected]=useState<string[]>([])
-  const [targetSprint,setTargetSprint]=useState('')
-  const [withSubs,setWithSubs]=useState(true)
-  const [search,setSearch]=useState('')
-  const childMap:Record<string,Tache[]>={}
-  taches.filter(t=>t.parent_id).forEach(c=>{if(!childMap[c.parent_id!]) childMap[c.parent_id!]=[]; childMap[c.parent_id!].push(c)})
-  const filtered=parents.filter(t=>!search||t.titre.toLowerCase().includes(search.toLowerCase())||t.id_tache.toLowerCase().includes(search.toLowerCase()))
-
-  async function doDuplicate(){
-    if(!selected.length){toast('Sélectionnez au moins une US','error');return}
-    let count=0
-    for(const id of selected){
-      const t=parents.find(p=>p.id_tache===id); if(!t) continue
-      const newT=await createTache.mutateAsync({...t,id:undefined,id_tache:undefined,sprint:targetSprint||'',sprint_debut:targetSprint||'',sprint_fin:targetSprint||'',statut:'À faire',iteration:(t.iteration??1)+1,commentaire:`Dupliqué depuis ${t.id_tache}`} as Partial<Tache>)
-      count++
-      if(withSubs){for(const s of (childMap[t.id_tache]??[])) await createTache.mutateAsync({...s,id:undefined,id_tache:undefined,parent_id:newT.id_tache,sprint:targetSprint||'',statut:'À faire',iteration:(s.iteration??1)+1} as Partial<Tache>)}
-    }
-    toast(`✅ ${count} US dupliquée(s)`);setSelected([])
-  }
-
-  return (
-    <div className="flex flex-col gap-4 max-w-2xl">
-      <div className="ds-card flex items-center gap-4 flex-wrap">
-        <div className="flex items-center gap-2">
-          <span className="ds-label">Vers</span>
-          <SelectPicker value={targetSprint} onChange={setTargetSprint}
-            options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="Backlog" className="w-40"/>
-        </div>
-        <label className="flex items-center gap-2 text-xs cursor-pointer">
-          <input type="checkbox" checked={withSubs} onChange={e=>setWithSubs(e.target.checked)} className="accent-indigo-500"/>
-          Avec sous-tâches
-        </label>
-        <button onClick={doDuplicate} className="ds-btn-primary ml-auto" disabled={createTache.isPending||!selected.length}>
-          ⎘ Dupliquer ({selected.length})
-        </button>
-      </div>
-      <div className="ds-searchbar"><Search size={13} className="text-subtle"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher…"/></div>
-      <div className="bg-white border border-border rounded-xl overflow-hidden">
-        <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-bg">
-          <input type="checkbox" className="accent-indigo-500" checked={selected.length===filtered.length&&filtered.length>0}
-            onChange={e=>setSelected(e.target.checked?filtered.map(t=>t.id_tache):[])}/>
-          <span className="text-xs font-semibold text-subtle">Tout sélectionner ({filtered.length})</span>
-        </div>
-        {filtered.map(t=>{
-          const subs=childMap[t.id_tache]??[]
-          return (
-            <label key={t.id_tache} className={cn('flex items-center gap-3 px-4 py-2.5 border-b border-border/50 cursor-pointer hover:bg-bg/50',selected.includes(t.id_tache)&&'bg-indigo-50')}>
-              <input type="checkbox" checked={selected.includes(t.id_tache)} className="accent-indigo-500"
-                onChange={e=>setSelected(prev=>e.target.checked?[...prev,t.id_tache]:prev.filter(x=>x!==t.id_tache))}/>
-              <span className="text-xs font-semibold text-indigo-600 w-16 shrink-0">{t.id_tache}</span>
-              <span className="text-xs flex-1 truncate">{t.titre}</span>
-              <StatutBadge value={t.statut}/>
-              {subs.length>0&&<span className="text-xs text-subtle">{subs.length} ss</span>}
-              {closedSprints.includes(t.sprint??'')&&<Lock size={10} className="text-subtle"/>}
-            </label>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-function DelTab({parents,deleteTache,toast}:{parents:Tache[];deleteTache:ReturnType<typeof useDeleteTache>;toast:ReturnType<typeof useToast>}) {
-  const [selected,setSelected]=useState<string[]>([])
-  const [search,setSearch]=useState('')
-  const filtered=parents.filter(t=>!search||t.titre.toLowerCase().includes(search.toLowerCase())||t.id_tache.toLowerCase().includes(search.toLowerCase()))
-
-  async function doDelete(){
-    if(!selected.length){toast('Sélectionnez au moins une US','error');return}
-    const ok = await confirm({title:`Supprimer ${selected.length} US ?`,message:'Action irréversible. Les tâches et sous-tâches seront supprimées.',confirmLabel:'Supprimer',variant:'danger'}); if(!ok) return
-    for(const id of selected) await deleteTache.mutateAsync(id)
-    toast(`✅ ${selected.length} US supprimée(s)`);setSelected([])
-  }
-
-  return (
-    <div className="flex flex-col gap-4 max-w-2xl">
-      <div className="flex items-center gap-3">
-        <div className="ds-searchbar flex-1"><Search size={13} className="text-subtle"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher…"/></div>
-        <button onClick={doDelete} className="ds-btn-danger" disabled={deleteTache.isPending||!selected.length}>🗑 Supprimer ({selected.length})</button>
-      </div>
-      <div className="bg-white border border-border rounded-xl overflow-hidden">
-        <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-bg">
-          <input type="checkbox" className="accent-red" checked={selected.length===filtered.length&&filtered.length>0}
-            onChange={e=>setSelected(e.target.checked?filtered.map(t=>t.id_tache):[])}/>
-          <span className="text-xs font-semibold text-subtle">Tout sélectionner ({filtered.length})</span>
-        </div>
-        {filtered.map(t=>(
-          <label key={t.id_tache} className={cn('flex items-center gap-3 px-4 py-2.5 border-b border-border/50 cursor-pointer hover:bg-bg/50',selected.includes(t.id_tache)&&'bg-red/5')}>
-            <input type="checkbox" checked={selected.includes(t.id_tache)} className="accent-red"
-              onChange={e=>setSelected(prev=>e.target.checked?[...prev,t.id_tache]:prev.filter(x=>x!==t.id_tache))}/>
-            <span className="text-xs font-semibold text-indigo-600 w-16 shrink-0">{t.id_tache}</span>
-            <span className="text-xs flex-1 truncate">{t.titre}</span>
-            <EpicBadge value={t.epic??''}/><StatutBadge value={t.statut}/>
-          </label>
-        ))}
-      </div>
     </div>
   )
 }

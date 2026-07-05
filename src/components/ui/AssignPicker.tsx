@@ -37,12 +37,12 @@ export function AssignPicker({ value, membres, onAssign, disabled }: {
         </button>
       )}
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-lg py-1 min-w-[160px]">
+        <div className="absolute left-0 top-full mt-1 z-50 bg-card border border-slate-200 rounded-xl shadow-lg py-1 min-w-[160px]">
           {actifs.map(m => (
             <button type="button" key={m.user_id} onClick={() => { onAssign(m.trigramme!); setOpen(false) }}
               className={cn('w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-slate-50 text-navy text-left transition-colors',
                 value === m.trigramme && 'font-semibold text-indigo-600')}>
-              <span className="w-5 h-5 rounded-full bg-indigo-50 text-indigo-700 font-bold flex items-center justify-center text-[9px] shrink-0">
+              <span className="w-5 h-5 rounded-full bg-indigo-50 text-indigo-700 font-bold flex items-center justify-center text-[10px] shrink-0">
                 {m.trigramme}
               </span>
               {m.prenom ?? ''} {m.nom ?? ''}

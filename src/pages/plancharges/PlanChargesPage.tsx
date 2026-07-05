@@ -351,7 +351,7 @@ export default function PlanChargesPage() {
         />
       )}
 
-      <div className="flex items-center flex-wrap gap-4 mt-3 text-[10px] text-subtle">
+      <div className="flex items-center flex-wrap gap-4 mt-3 text-[11px] text-subtle">
         <span className="flex items-center gap-1.5">
           <span className="inline-block w-2.5 h-3 rounded-t-sm bg-indigo-500" />
           hauteur de barre = % de charge de la semaine
@@ -375,12 +375,12 @@ export default function PlanChargesPage() {
       {fillModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20"
           onClick={e => { if (e.target === e.currentTarget) setFillModal(null) }}>
-          <div className="bg-white rounded-xl shadow-xl border border-border w-72 p-4">
+          <div className="bg-card rounded-xl shadow-xl border border-border w-72 p-4">
             <div className="mb-3">
-              <div className="text-[11px] font-bold text-navy mb-0.5">
+              <div className="text-xs font-bold text-navy mb-0.5">
                 Remplir {fillModal.semaines.length} semaine{fillModal.semaines.length > 1 ? 's' : ''}
               </div>
-              <div className="text-[10px] text-subtle">
+              <div className="text-[11px] text-subtle">
                 S{String(fillModal.semaines[0]).padStart(2,'0')}
                 {fillModal.semaines.length > 1 && ` → S${String(fillModal.semaines[fillModal.semaines.length-1]).padStart(2,'0')}`}
               </div>

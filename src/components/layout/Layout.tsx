@@ -5,7 +5,6 @@ import { ToastContainer } from '@/components/ui/Toast'
 import { ConfirmProvider } from '@/components/ui/ConfirmModal'
 import { useDarkModeStore } from '@/hooks/useDarkMode'
 import { Menu } from 'lucide-react'
-import { Zap } from 'lucide-react'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -22,14 +21,14 @@ export function Layout({ children, title, actions }: LayoutProps) {
   }, [dark])
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#E3E6EF] dark:bg-[#0B1120] transition-colors print:h-auto print:overflow-visible print:block">
+    <div className="flex h-screen overflow-hidden bg-page transition-colors print:h-auto print:overflow-visible print:block">
       <div className="contents print:hidden">
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       </div>
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden print:overflow-visible print:block">
         {/* Barre mobile */}
-        <div className="md:hidden print:hidden flex items-center gap-3 px-4 py-3 bg-navy shrink-0">
+        <div className="md:hidden print:hidden flex items-center gap-3 px-4 py-3 bg-brand shrink-0">
           <button
             onClick={() => setSidebarOpen(true)}
             className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors"
@@ -37,8 +36,8 @@ export function Layout({ children, title, actions }: LayoutProps) {
             <Menu size={18} />
           </button>
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-indigo-500 rounded-md flex items-center justify-center">
-              <Zap size={12} className="text-white" />
+            <div className="w-6 h-6 bg-[#1E3A5F] rounded-md flex items-center justify-center">
+              <img src="/logo.svg" alt="" className="w-4 h-4" />
             </div>
             <span className="text-white font-bold text-sm">PO Board</span>
           </div>

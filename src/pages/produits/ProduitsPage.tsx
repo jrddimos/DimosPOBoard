@@ -78,7 +78,7 @@ function ProduitCard({ p, isAdmin, isActif, roleLabel, roleColor, onEnterConfig,
 
   return (
     <div className={cn(
-      'group bg-white rounded-2xl border overflow-hidden transition-all',
+      'group bg-card rounded-2xl border overflow-hidden transition-all',
       p.actif ? 'cursor-pointer' : 'cursor-default opacity-60 grayscale-[40%]',
       isActif ? 'border-indigo-300 ring-2 ring-indigo-100 shadow-md' : 'border-border hover:shadow-md hover:-translate-y-0.5',
       p.is_template && 'ring-1 ring-amber-200',
@@ -92,15 +92,15 @@ function ProduitCard({ p, isAdmin, isActif, roleLabel, roleColor, onEnterConfig,
             <div className="flex items-center gap-1.5 mb-0.5">
               <span className="font-bold text-navy text-sm truncate">{p.nom}</span>
               {p.is_template && (
-                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded-full text-[10px] font-bold shrink-0">
+                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded-full text-[11px] font-bold shrink-0">
                   <Star size={8} className="fill-amber-400 stroke-amber-500" /> Modèle
                 </span>
               )}
               {isActif && (
-                <span className="text-[10px] px-1.5 py-0.5 bg-indigo-50 text-indigo-700 font-bold rounded-full shrink-0">Actif</span>
+                <span className="text-[11px] px-1.5 py-0.5 bg-indigo-50 text-indigo-700 font-bold rounded-full shrink-0">Actif</span>
               )}
               {!p.actif && (
-                <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-500 font-bold rounded-full shrink-0">Inactif</span>
+                <span className="text-[11px] px-1.5 py-0.5 bg-slate-100 text-slate-500 font-bold rounded-full shrink-0">Inactif</span>
               )}
             </div>
             {p.description && (
@@ -126,7 +126,7 @@ function ProduitCard({ p, isAdmin, isActif, roleLabel, roleColor, onEnterConfig,
                 )}
                 {p.actif && (
                   <button onClick={onEdit}
-                    className="p-1.5 rounded-lg hover:bg-slate-100 text-subtle hover:text-slate-700 transition-colors">
+                    className="p-1.5 rounded-lg hover:bg-slate-100 text-subtle hover:text-slate-600 transition-colors">
                     <Settings2 size={13} />
                   </button>
                 )}
@@ -160,15 +160,15 @@ function ProduitCard({ p, isAdmin, isActif, roleLabel, roleColor, onEnterConfig,
         {(p.theme || p.niveau_risque || p.priorite_strategique) && (
           <div className="flex flex-wrap gap-1 mb-3">
             {p.theme && (
-              <span className="text-[10px] px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded-full font-medium">{p.theme}</span>
+              <span className="text-[11px] px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded-full font-medium">{p.theme}</span>
             )}
             {p.niveau_risque && (
-              <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full font-medium flex items-center gap-0.5', RISQUE_COLORS[p.niveau_risque] ?? 'bg-slate-100 text-slate-600')}>
+              <span className={cn('text-[11px] px-1.5 py-0.5 rounded-full font-medium flex items-center gap-0.5', RISQUE_COLORS[p.niveau_risque] ?? 'bg-slate-100 text-slate-600')}>
                 <AlertTriangle size={8} /> {p.niveau_risque}
               </span>
             )}
             {p.priorite_strategique && (
-              <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded-full font-medium">
+              <span className="text-[11px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded-full font-medium">
                 {'★'.repeat(p.priorite_strategique)} P{p.priorite_strategique}
               </span>
             )}
@@ -181,20 +181,20 @@ function ProduitCard({ p, isAdmin, isActif, roleLabel, roleColor, onEnterConfig,
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 {displayTrim.trimestre && (
-                  <span className="text-[10px] text-subtle font-medium">{displayTrim.trimestre}</span>
+                  <span className="text-[11px] text-subtle font-medium">{displayTrim.trimestre}</span>
                 )}
                 {displayTrim.cloture && (
-                  <span className="text-[10px] text-navy/50 font-medium">(Clôturé)</span>
+                  <span className="text-[11px] text-navy/50 font-medium">(Clôturé)</span>
                 )}
               </div>
               <div className="flex items-center gap-1.5">
                 {displayTrim.statut && (
-                  <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full font-semibold', TRIM_STATUT_COLORS[displayTrim.statut])}>
+                  <span className={cn('text-[11px] px-1.5 py-0.5 rounded-full font-semibold', TRIM_STATUT_COLORS[displayTrim.statut])}>
                     {displayTrim.statut}
                   </span>
                 )}
                 {trimPct !== null && (
-                  <span className="text-[10px] font-bold text-navy tabular-nums">{trimPct} %</span>
+                  <span className="text-[11px] font-bold text-navy tabular-nums">{trimPct} %</span>
                 )}
               </div>
             </div>
@@ -210,7 +210,7 @@ function ProduitCard({ p, isAdmin, isActif, roleLabel, roleColor, onEnterConfig,
         {hasBudget && (
           <div className="mb-3 bg-slate-50 rounded-xl border border-slate-200 px-3 py-2 space-y-1.5">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide">Prév.</span>
+              <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wide">Prév.</span>
               <span className="text-xs font-bold text-navy tabular-nums">
                 {totalPrevEtp > 0
                   ? <>{totalPrevEtp.toFixed(1)} ETP <span className="font-normal text-subtle">·</span> {totalPrevJ} j</>
@@ -218,7 +218,7 @@ function ProduitCard({ p, isAdmin, isActif, roleLabel, roleColor, onEnterConfig,
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-[10px] text-emerald-600 font-semibold uppercase tracking-wide">Conso.</span>
+              <span className="text-[11px] text-emerald-600 font-semibold uppercase tracking-wide">Conso.</span>
               <span className={cn('text-xs font-bold tabular-nums', totalRealEtp > 0 ? 'text-emerald-600' : 'text-subtle')}>
                 {totalRealEtp > 0
                   ? <>{totalRealEtp.toFixed(1)} ETP <span className="font-normal text-emerald-300">·</span> {totalRealJ} j</>
@@ -227,7 +227,7 @@ function ProduitCard({ p, isAdmin, isActif, roleLabel, roleColor, onEnterConfig,
             </div>
             {totalPrevEtp > 0 && totalRealEtp > 0 && (
               <div className="flex items-center justify-between border-t border-slate-200 pt-1.5">
-                <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide">Écart</span>
+                <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wide">Écart</span>
                 <span className={cn('text-xs font-bold tabular-nums flex items-center gap-0.5',
                   ecartEtp > 0 ? 'text-rose-600' : ecartEtp < 0 ? 'text-emerald-600' : 'text-subtle')}>
                   {ecartEtp > 0 ? <TrendingUp size={9} /> : ecartEtp < 0 ? <TrendingDown size={9} /> : null}
@@ -243,16 +243,16 @@ function ProduitCard({ p, isAdmin, isActif, roleLabel, roleColor, onEnterConfig,
         {/* Footer */}
         <div className="flex items-center justify-between pt-2 border-t border-border/50">
           <div className="flex items-center gap-2">
-            <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded-full', roleColor)}>
+            <span className={cn('text-[11px] font-semibold px-1.5 py-0.5 rounded-full', roleColor)}>
               {roleLabel}
             </span>
             {nbTrims > 0 && (
-              <span className="text-[10px] text-subtle">
+              <span className="text-[11px] text-subtle">
                 {nbTrims} trim.{nbCloture > 0 && ` · ${nbCloture} clôt.`}
               </span>
             )}
             {p.date_lancement_cible && (
-              <span className={cn('text-[10px] font-medium flex items-center gap-0.5', enRetard ? 'text-rose-600' : 'text-subtle')}>
+              <span className={cn('text-[11px] font-medium flex items-center gap-0.5', enRetard ? 'text-rose-600' : 'text-subtle')}>
                 {enRetard
                   ? <><AlertTriangle size={9} /> +{diffJours}j</>
                   : <><Calendar size={9} /> {new Date(p.date_lancement_cible).toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' })}</>
@@ -261,7 +261,7 @@ function ProduitCard({ p, isAdmin, isActif, roleLabel, roleColor, onEnterConfig,
             )}
           </div>
           <div className="flex items-center gap-0.5 text-subtle group-hover:text-indigo-600 transition-colors">
-            <span className="text-[10px] font-medium">Paramètres</span>
+            <span className="text-[11px] font-medium">Paramètres</span>
             <ChevronRight size={12} />
           </div>
         </div>
@@ -279,7 +279,7 @@ function ProduitFormCard({ initial, onSave, onCancel, loading }: {
   const [couleur, setCouleur] = useState(initial?.couleur ?? BRAND_COLORS[0])
 
   return (
-    <div className="bg-white rounded-2xl border border-indigo-200 p-5 shadow-sm">
+    <div className="bg-card rounded-2xl border border-indigo-200 p-5 shadow-sm">
       <div className="h-2 -mx-5 -mt-5 mb-5 rounded-t-2xl" style={{ background: couleur }} />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
         <div>
@@ -374,7 +374,7 @@ function CreateModal({ produits, onClose, onCreate, onDuplicate, loading }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+      <div className="bg-card rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
         <div className="h-2" style={{ background: couleur }} />
         <div className="p-6">
           <div className="flex items-center justify-between mb-5">
@@ -401,7 +401,7 @@ function CreateModal({ produits, onClose, onCreate, onDuplicate, loading }: {
                   )}>
                   {opt.icon}
                   <span className="font-semibold">{opt.label}</span>
-                  <span className="text-[10px] opacity-70">{opt.desc}</span>
+                  <span className="text-[11px] opacity-70">{opt.desc}</span>
                 </button>
               ))}
             </div>
@@ -490,11 +490,11 @@ function RagDefaultsPanel({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="bg-white border border-border rounded-2xl p-5 mb-5">
+    <div className="bg-card border border-border rounded-2xl p-5 mb-5">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-xs font-bold text-navy uppercase tracking-wider">Paramètres qualité par défaut</h2>
-          <p className="text-[10px] text-subtle mt-0.5">Seuils appliqués à tous les produits sans config spécifique</p>
+          <p className="text-[11px] text-subtle mt-0.5">Seuils appliqués à tous les produits sans config spécifique</p>
         </div>
         <button onClick={onClose} className="text-subtle hover:text-navy transition-colors">
           <X size={14} />
@@ -509,17 +509,17 @@ function RagDefaultsPanel({ onClose }: { onClose: () => void }) {
           <div key={key} className="bg-slate-50 rounded-xl border border-slate-200 p-3 space-y-2">
             <div>
               <div className="text-xs font-semibold text-navy">{label}</div>
-              <div className="text-[10px] text-subtle">{hint}</div>
+              <div className="text-[11px] text-subtle">{hint}</div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-[9px] text-amber-600 font-bold uppercase tracking-wide block mb-0.5">Attention ≥</label>
+                <label className="text-[10px] text-amber-600 font-bold uppercase tracking-wide block mb-0.5">Attention ≥</label>
                 <input type="number" min="0" step="1" value={config[key].amber}
                   onChange={e => setConfig(c => ({ ...c, [key]: { ...c[key], amber: Number(e.target.value) } }))}
                   className="ds-input text-xs text-center w-full" />
               </div>
               <div>
-                <label className="text-[9px] text-rose-600 font-bold uppercase tracking-wide block mb-0.5">Critique ≥</label>
+                <label className="text-[10px] text-rose-600 font-bold uppercase tracking-wide block mb-0.5">Critique ≥</label>
                 <input type="number" min="0" step="1" value={config[key].red}
                   onChange={e => setConfig(c => ({ ...c, [key]: { ...c[key], red: Number(e.target.value) } }))}
                   className="ds-input text-xs text-center w-full" />
@@ -612,7 +612,7 @@ export default function ProduitsPage() {
   function roleColor(pid: number) {
     if (isAdmin) return 'bg-indigo-50 text-indigo-700'
     const r = getRoleForProduit(pid)
-    if (r === 'po')      return 'bg-slate-100 text-slate-700'
+    if (r === 'po')      return 'bg-slate-100 text-slate-600'
     if (r === 'dev')     return 'bg-emerald-50 text-emerald-700'
     if (r === 'lecteur') return 'bg-slate-50 text-slate-500'
     return ''
@@ -702,7 +702,7 @@ export default function ProduitsPage() {
         </div>
 
         {/* Tri */}
-        <div className="flex items-center rounded-lg border border-slate-200 overflow-hidden text-[11px] font-medium">
+        <div className="flex items-center rounded-lg border border-slate-200 overflow-hidden text-xs font-medium">
           <span className="px-2 text-slate-400 border-r border-slate-200 py-1.5">
             <ArrowUpDown size={11} />
           </span>
@@ -724,7 +724,7 @@ export default function ProduitsPage() {
           <button onClick={() => setShowRagDefaults(v => !v)}
             className={cn('flex items-center gap-1.5 text-xs px-2 py-1 rounded-lg border transition-colors',
               showRagDefaults
-                ? 'bg-slate-100 text-slate-700 border-slate-200'
+                ? 'bg-slate-100 text-slate-600 border-slate-200'
                 : 'text-subtle hover:text-navy border-transparent hover:border-border hover:bg-slate-50')}>
             <SlidersHorizontal size={12} /> Qualité par défaut
           </button>
@@ -809,7 +809,7 @@ export default function ProduitsPage() {
             <span className="text-xs font-semibold uppercase tracking-wider">
               Archivés ({produitsInactifs.length})
             </span>
-            <span className="text-[10px] text-subtle/60">— désactivés, masqués de toutes les vues</span>
+            <span className="text-[11px] text-subtle/60">— désactivés, masqués de toutes les vues</span>
           </button>
 
           {showArchives && (

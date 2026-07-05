@@ -26,7 +26,7 @@ const STATUT_COLORS: Record<Statut, string> = {
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white border border-white rounded-2xl overflow-hidden shadow-md">
+    <div className="bg-card border border-white rounded-2xl overflow-hidden shadow-md">
       <div className="px-4 py-3 border-b border-border bg-slate-50">
         <span className="text-xs font-bold text-navy uppercase tracking-wider">{title}</span>
       </div>
@@ -44,7 +44,7 @@ function ChartTooltip({ active, payload, label, valueFormatter }: {
   if (!active || !payload?.length) return null
   const fmt = valueFormatter ?? ((v: number) => `${v}`)
   return (
-    <div className="bg-white rounded-xl shadow-lg border border-border px-3 py-2 text-xs min-w-[120px]">
+    <div className="bg-card rounded-xl shadow-lg border border-border px-3 py-2 text-xs min-w-[120px]">
       {label && <div className="font-semibold text-navy mb-1">{label}</div>}
       <div className="flex flex-col gap-1">
         {payload.filter(p => p.value !== null).map(p => (
@@ -115,7 +115,7 @@ function VerticalBarChart({ data, colorFor, valueFormatter }: {
 }
 
 // ── Barre verticale empilée (répartition statuts, un seul produit) ──
-function VerticalStackedStatutChart({ taches }: { taches: Tache[] }) {
+export function VerticalStackedStatutChart({ taches }: { taches: Tache[] }) {
   const total = taches.length
   const data = [{ label: 'Statuts', ...Object.fromEntries(STATUT_ORDER.map(s => [s, taches.filter(t => t.statut === s).length])) }]
   if (total === 0) return <p className="text-xs text-subtle italic">Aucune tâche pour ce produit.</p>
@@ -131,7 +131,7 @@ function VerticalStackedStatutChart({ taches }: { taches: Tache[] }) {
               payload={payload?.map(p => ({ name: p.dataKey as string, value: p.value as number, color: STATUT_COLORS[p.dataKey as Statut] }))} />
           )} />
         <Legend
-          formatter={(value: string) => <span className="text-[10px] text-slate-500">{value}</span>}
+          formatter={(value: string) => <span className="text-[11px] text-slate-500">{value}</span>}
           iconType="circle" iconSize={8} wrapperStyle={{ paddingTop: 8 }} />
         {STATUT_ORDER.map(s => (
           <Bar key={s} dataKey={s} stackId="statut" fill={STATUT_COLORS[s]} stroke="#fff" strokeWidth={2} maxBarSize={64} isAnimationActive />
@@ -171,7 +171,7 @@ function StackedStatutRows({ rows }: { rows: { label: string; taches: Tache[] }[
       })}
       <div className="flex items-center gap-4 flex-wrap mt-1.5 pt-3 border-t border-slate-100">
         {STATUT_ORDER.map(s => (
-          <span key={s} className="flex items-center gap-1.5 text-[10px] text-slate-500 font-medium">
+          <span key={s} className="flex items-center gap-1.5 text-[11px] text-slate-500 font-medium">
             <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: STATUT_COLORS[s] }} />
             {s}
           </span>
@@ -207,7 +207,7 @@ function TrendLineChart({ categories, series, valueFormatter }: {
               payload={payload?.map(p => ({ name: series.find(s => s.id === p.dataKey)?.label ?? String(p.dataKey), value: p.value as number, color: p.color as string }))} />
           )} />
         {series.length > 1 && <Legend
-          formatter={(value: string) => <span className="text-[10px] text-slate-500">{series.find(s => s.id === value)?.label ?? value}</span>}
+          formatter={(value: string) => <span className="text-[11px] text-slate-500">{series.find(s => s.id === value)?.label ?? value}</span>}
           iconType="circle" iconSize={8} wrapperStyle={{ paddingTop: 8 }} />}
         {series.map(s => (
           <Line key={s.id} type="monotone" dataKey={s.id} name={s.id} stroke={s.color} strokeWidth={2}
@@ -231,22 +231,31 @@ const TRIM_METRIC_LABEL: Record<TrimMetric, string> = {
   invest: 'Budget Invest consommé (%)', achats: 'Budget Achats consommé (%)',
 }
 
-// ── Vue Multi-produits ─────────────────────────────────────────
-export function PortfolioCharts({ produits, metricsMap, scope, allTaches }: {
-  produits: Produit[]; metricsMap: Map<number, ProduitMetrics>; scope: MultiScope; allTaches: Tache[]
+// ── Graphiques portefeuille (widgets du cockpit) ─────────────────
+export function PortfolioAvancementChart({ produits, metricsMap, scope }: {
+  produits: Produit[]; metricsMap: Map<number, ProduitMetrics>; scope: MultiScope
 }) {
-  const [trimMetric, setTrimMetric] = useState<TrimMetric>('avancement')
-
   if (produits.length === 0) return null
-
   const colorByNom = new Map(produits.map(p => [p.nom, p.couleur ?? '#4A4CC8']))
   const avancementData = produits.map(p => {
     const m = metricsMap.get(p.id)
     const s = m ? scopedMetrics(m, scope) : null
     return { label: p.nom, value: s?.backlogPct ?? 0 }
   }).sort((a, b) => b.value - a.value)
+  return <HorizontalBarChart data={avancementData} colorFor={l => colorByNom.get(l) ?? '#4A4CC8'} valueFormatter={v => `${v}%`} />
+}
 
+export function PortfolioStatutsChart({ produits, allTaches }: {
+  produits: Produit[]; allTaches: Tache[]
+}) {
+  if (produits.length === 0) return null
   const statutRows = produits.map(p => ({ label: p.nom, taches: allTaches.filter(t => t.produit_id === p.id) }))
+  return <StackedStatutRows rows={statutRows} />
+}
+
+export function PortfolioTendanceChart({ produits }: { produits: Produit[] }) {
+  const [trimMetric, setTrimMetric] = useState<TrimMetric>('avancement')
+  if (produits.length === 0) return null
 
   const trimIds = new Set<string>()
   produits.forEach(p => (p.objectifs_trimestriels ?? []).forEach(t => trimIds.add(t.trimestre)))
@@ -267,27 +276,17 @@ export function PortfolioCharts({ produits, metricsMap, scope, allTaches }: {
   }))
 
   return (
-    <div className="flex flex-col gap-4">
-      <ChartCard title="Avancement par produit">
-        <HorizontalBarChart data={avancementData} colorFor={l => colorByNom.get(l) ?? '#4A4CC8'} valueFormatter={v => `${v}%`} />
-      </ChartCard>
-
-      <ChartCard title="Répartition des statuts par produit">
-        <StackedStatutRows rows={statutRows} />
-      </ChartCard>
-
-      <ChartCard title="Tendance trimestrielle — comparaison produits">
-        <div className="mb-4">
-          <ToggleGroup value={trimMetric} onChange={setTrimMetric} options={[
-            { key: 'avancement', label: 'Avancement' },
-            { key: 'etp',        label: 'Budget ETP' },
-            { key: 'invest',     label: 'Invest' },
-            { key: 'achats',     label: 'Achats' },
-          ]} />
-        </div>
-        <TrendLineChart categories={categories} series={trimSeries} valueFormatter={v => `${v}%`} />
-        <p className="text-[10px] text-slate-400 mt-2">{TRIM_METRIC_LABEL[trimMetric]}, par trimestre.</p>
-      </ChartCard>
+    <div>
+      <div className="mb-3">
+        <ToggleGroup value={trimMetric} onChange={setTrimMetric} options={[
+          { key: 'avancement', label: 'Avancement' },
+          { key: 'etp',        label: 'Budget ETP' },
+          { key: 'invest',     label: 'Invest' },
+          { key: 'achats',     label: 'Achats' },
+        ]} />
+      </div>
+      <TrendLineChart categories={categories} series={trimSeries} valueFormatter={v => `${v}%`} />
+      <p className="text-[11px] text-slate-400 mt-2">{TRIM_METRIC_LABEL[trimMetric]}, par trimestre.</p>
     </div>
   )
 }
@@ -299,50 +298,41 @@ const SPRINT_METRIC_CFG: Record<SprintMetric, { label: string; color: string; ge
   us:         { label: 'US terminées',       color: '#10B981', get: s => s.stats?.fait ?? null,   fmt: v => `${v}` },
 }
 
-// ── Vue Par produit ──────────────────────────────────────────────
-export function ProduitTrendCharts({ produit, taches, sprints }: { produit: Produit; taches: Tache[]; sprints: Sprint[] }) {
-  const [sprintMetric, setSprintMetric] = useState<SprintMetric>('avancement')
 
+// ── Briques par produit (widgets du dashboard produit) ───────────
+export function ProduitEpicsChart({ taches }: { taches: Tache[] }) {
   const byEpic = new Map<string, number>()
   taches.forEach(t => { if (t.epic) byEpic.set(t.epic, (byEpic.get(t.epic) ?? 0) + 1) })
   const epicData = [...byEpic.entries()].map(([epic, n]) => ({ label: epicShortName(epic), fullEpic: epic, value: n })).sort((a, b) => b.value - a.value)
   const epicColorByLabel = new Map(epicData.map(e => [e.label, EPIC_COLORS[e.fullEpic] ?? '#6366F1']))
+  if (epicData.length === 0) return <p className="text-xs text-subtle/40 italic p-2">Aucun épic dans les tâches</p>
+  return <VerticalBarChart data={epicData} colorFor={l => epicColorByLabel.get(l) ?? '#6366F1'} />
+}
 
+export function ProduitTendanceSprintChart({ sprints }: { sprints: Sprint[] }) {
+  const [sprintMetric, setSprintMetric] = useState<SprintMetric>('avancement')
   const sprintsWithStats = sprints.filter(s => s.stats)
   const cfg = SPRINT_METRIC_CFG[sprintMetric]
   const sprintSeries: LineSeries[] = [{
     id: 'sprint', label: cfg.label, color: cfg.color,
     points: sprintsWithStats.map(s => ({ x: s.numero, y: cfg.get(s) })),
   }]
-
+  if (sprintsWithStats.length === 0) return <p className="text-xs text-subtle/40 italic p-2">Aucun sprint clôturé avec statistiques</p>
   return (
-    <div className="flex flex-col gap-4">
-      <RoadmapChart produit={produit} taches={taches} sprints={sprints} />
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-        <ChartCard title={`Répartition des statuts — ${produit.nom}`}>
-          <VerticalStackedStatutChart taches={taches} />
-        </ChartCard>
-
-        <ChartCard title={`Tâches par Epic — ${produit.nom}`}>
-          <VerticalBarChart data={epicData} colorFor={l => epicColorByLabel.get(l) ?? '#6366F1'} />
-        </ChartCard>
+    <div>
+      <div className="mb-3">
+        <ToggleGroup value={sprintMetric} onChange={setSprintMetric} options={[
+          { key: 'avancement', label: 'Avancement' },
+          { key: 'effort',     label: 'Effort réalisé' },
+          { key: 'us',         label: 'US terminées' },
+        ]} />
       </div>
-
-      <ChartCard title={`Tendance sprint par sprint — ${produit.nom}`}>
-        <div className="mb-4">
-          <ToggleGroup value={sprintMetric} onChange={setSprintMetric} options={[
-            { key: 'avancement', label: 'Avancement' },
-            { key: 'effort',     label: 'Effort réalisé' },
-            { key: 'us',         label: 'US terminées' },
-          ]} />
-        </div>
-        <TrendLineChart categories={sprintsWithStats.map(s => s.numero)} series={sprintSeries} valueFormatter={cfg.fmt} />
-      </ChartCard>
+      <TrendLineChart categories={sprintsWithStats.map(s => s.numero)} series={sprintSeries} valueFormatter={cfg.fmt} />
     </div>
   )
 }
 
+// ── Vue Par produit ──────────────────────────────────────────────
 // ── Roadmap maison (Epics ou Jalons dans le temps) ────────────────
 // Même vocabulaire visuel que Plan de charges : barres pastel arrondies,
 // remplissage = avancement, marqueur "aujourd'hui".
@@ -412,7 +402,7 @@ const ROADMAP_COLUMNS = [
   },
 ]
 
-function RoadmapChart({ produit, taches, sprints }: { produit: Produit; taches: Tache[]; sprints: Sprint[] }) {
+export function RoadmapChart({ produit, taches, sprints }: { produit: Produit; taches: Tache[]; sprints: Sprint[] }) {
   const [mode, setMode] = useState<RoadmapMode>('epic')
   const sprintDates = useMemo(() => buildSprintDateIndex(sprints), [sprints])
   const rows = useMemo(() => buildRoadmapRows(taches, sprintDates, mode), [taches, sprintDates, mode])
