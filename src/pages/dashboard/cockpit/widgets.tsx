@@ -9,7 +9,7 @@ import { getISOWeek } from '@/lib/utils'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip } from 'recharts'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { cn } from '@/lib/utils'
-import { scopedMetrics } from '@/utils/produitMetrics'
+import { scopedMetrics, getQuarterStart, getQuarterEnd } from '@/utils/produitMetrics'
 import type { MultiScope, ProduitMetrics, Rag } from '@/utils/produitMetrics'
 import type { Produit } from '@/hooks/useProduits'
 import type { Tache } from '@/types'
@@ -19,7 +19,7 @@ import {
   BarChart3, Rows3, LineChart, Map as MapIcon, Users,
 } from 'lucide-react'
 import { SPRINTS_LIST } from '@/constants'
-import { PortfolioAvancementChart, PortfolioStatutsChart, PortfolioTendanceChart } from '@/pages/dashboard/DashboardCharts'
+import { PortfolioAvancementChart, PortfolioStatutsChart, PortfolioTendanceChart, BurndownSparkline } from '@/pages/dashboard/DashboardCharts'
 
 // ── Contexte passé à chaque widget ────────────────────────────────
 export interface WidgetCtx {
@@ -27,6 +27,7 @@ export interface WidgetCtx {
   metricsMap: Map<number, ProduitMetrics>
   scope: MultiScope
   allTaches: Tache[]
+  faitDoneMap: Map<string, string>
   membres: UserProfile[]
   userTrigramme: string | null
   navigate: (to: string) => void
@@ -158,7 +159,7 @@ function HeatmapWidget(ctx: WidgetCtx) {
 }
 
 function AvancementWidget(ctx: WidgetCtx) {
-  const { produits, metricsMap, scope, openProduct } = ctx
+  const { produits, metricsMap, scope, openProduct, allTaches, faitDoneMap } = ctx
   if (!produits.length) return <EmptyHint>Aucun produit dans le périmètre</EmptyHint>
   return (
     <div className="flex flex-col gap-2.5">
@@ -169,6 +170,22 @@ function AvancementWidget(ctx: WidgetCtx) {
         const cursor = scopeCursor(m, scope)
         const behind = cursor !== null && pct < cursor - 5
         const ahead  = cursor !== null && pct >= cursor
+
+        // Burn-up trimestre (uniquement en scope 'trim', pas de sens en global)
+        const quarterStart = scope === 'trim' && m.trimLabel ? getQuarterStart(m.trimLabel) : null
+        const quarterEnd   = scope === 'trim' && m.trimLabel ? getQuarterEnd(m.trimLabel) : null
+        const trims        = p.objectifs_trimestriels ?? []
+        const currentTrim  = [...trims].reverse().find(t => !!t.lance && !t.pause && !t.cloture) ?? null
+        const trimSprintSet = new Set<string>(currentTrim?.sprints_ids ?? [])
+        const doneDates = scope === 'trim'
+          ? allTaches
+              .filter(t => t.produit_id === p.id && t.statut === 'Fait' && t.sprint && trimSprintSet.has(t.sprint))
+              .map(t => {
+                const iso = faitDoneMap.get(`${p.id}:${t.id_tache}`)
+                return iso ? new Date(iso) : (quarterStart ?? new Date())
+              })
+          : []
+
         return (
           <button key={p.id} onClick={() => openProduct(p)} className="text-left group">
             <div className="flex justify-between items-baseline mb-1">
@@ -178,14 +195,19 @@ function AvancementWidget(ctx: WidgetCtx) {
                 {pct}%{cursor !== null && <span className="text-subtle font-normal"> / {cursor}%</span>}
               </span>
             </div>
-            <div className="relative h-2 rounded-full bg-bg overflow-visible">
-              <div className={cn('h-2 rounded-full transition-all',
-                ahead ? 'bg-emerald-400' : behind ? 'bg-rose-400' : 'bg-amber-400')}
-                style={{ width: `${Math.min(100, pct)}%` }} />
-              {cursor !== null && (
-                <Tooltip content={`Curseur temps : ${cursor}%`}>
-                  <span className="absolute -top-1 w-0.5 h-4 bg-navy rounded-full cursor-help" style={{ left: `${Math.min(100, cursor)}%` }} />
-                </Tooltip>
+            <div className="flex items-center gap-2">
+              <div className="relative h-2 rounded-full bg-bg overflow-visible flex-1">
+                <div className={cn('h-2 rounded-full transition-all',
+                  ahead ? 'bg-emerald-400' : behind ? 'bg-rose-400' : 'bg-amber-400')}
+                  style={{ width: `${Math.min(100, pct)}%` }} />
+                {cursor !== null && (
+                  <Tooltip content={`Curseur temps : ${cursor}%`}>
+                    <span className="absolute -top-1 w-0.5 h-4 bg-navy rounded-full cursor-help" style={{ left: `${Math.min(100, cursor)}%` }} />
+                  </Tooltip>
+                )}
+              </div>
+              {scope === 'trim' && (
+                <BurndownSparkline quarterStart={quarterStart} quarterEnd={quarterEnd} objectif={m.totalUSTrim} doneDates={doneDates} />
               )}
             </div>
           </button>

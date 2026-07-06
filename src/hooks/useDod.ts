@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useProduit } from '@/contexts/ProduitContext'
+import { naturalCompare } from '@/lib/utils'
 
 export interface DodItem {
   id:          number
@@ -26,10 +27,10 @@ export function useDod() {
         .from('dod')
         .select('*')
         .eq('produit_id', produitId)
-        .order('ordre')
-        .order('code')
       if (error) throw error
-      return (data ?? []) as DodItem[]
+      // Tri naturel par code (F1.1, F1.2, F2.1, F9.12, F10.1…) : le champ
+      // "ordre" ne sert plus que de départage en cas de codes identiques.
+      return ((data ?? []) as DodItem[]).sort((a, b) => naturalCompare(a.code, b.code) || a.ordre - b.ordre)
     },
     staleTime: 30_000,
     enabled: !!produitId,

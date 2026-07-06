@@ -33,6 +33,42 @@ export function useActivityLog(produitId: number | null) {
   })
 }
 
+// ── Historique des passages à "Fait" (pour les courbes de burn-up) ──
+export interface FaitTransition { produit_id: number; target: string; created_at: string }
+
+async function fetchFaitTransitions(sinceISO: string, produitId?: number): Promise<FaitTransition[]> {
+  let q = supabase
+    .from('activite')
+    .select('produit_id, target, created_at')
+    .eq('field', 'statut')
+    .eq('new_value', 'Fait')
+    .gte('created_at', sinceISO)
+    .order('created_at')
+  if (produitId) q = q.eq('produit_id', produitId)
+  const { data, error } = await q
+  if (error) throw error
+  return (data ?? []) as FaitTransition[]
+}
+
+// Une seule requête, tous produits confondus — pour les mini-graphiques du Portefeuille.
+export function useAllFaitTransitions(sinceISO: string) {
+  return useQuery({
+    queryKey: ['activite-fait-all', sinceISO],
+    queryFn: () => fetchFaitTransitions(sinceISO),
+    staleTime: 60_000,
+  })
+}
+
+// Scopée à un produit — pour le graphique détaillé du dashboard produit.
+export function useFaitTransitions(produitId: number | null, sinceISO: string | null) {
+  return useQuery({
+    queryKey: ['activite-fait', produitId, sinceISO],
+    queryFn: () => fetchFaitTransitions(sinceISO!, produitId!),
+    enabled: !!produitId && !!sinceISO,
+    staleTime: 60_000,
+  })
+}
+
 export function useClearActivityLog() {
   const qc = useQueryClient()
   return useMutation({

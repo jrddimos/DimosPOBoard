@@ -25,6 +25,7 @@ function mkTache(overrides: Partial<Tache> = {}): Tache {
     jalon: null, sprint_debut: null, sprint_fin: null, sprint: null, iteration: 1,
     moscow: null, priorite: null, statut: 'À faire', effort_j: 1, effort_realise_j: null,
     equipe: null, metier: null, assigne_a: null, type_tache: null, parent_id: null, famille_id: null,
+    ordre_kanban: null,
     created_at: '2026-01-01T00:00:00Z', updated_at: null,
     ...overrides,
   }
@@ -98,6 +99,7 @@ describe('computeProduitMetrics', () => {
       lance: true, pause: false, cloture: false, jours_ouvres: undefined,
       budget_invest_details: undefined, realise_invest_details: undefined,
       budget_achats_details: undefined, realise_achats_details: undefined,
+      budget_etp_detail: undefined, realise_etp_detail: undefined,
     }
     const produit = mkProduit({ objectifs_trimestriels: [trim] })
     const taches = [

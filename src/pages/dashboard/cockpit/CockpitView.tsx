@@ -36,6 +36,7 @@ interface CockpitViewProps {
   metricsMap: Map<number, ProduitMetrics>
   scope: MultiScope
   allTaches: Tache[]
+  faitDoneMap: Map<string, string>
   navigate: (to: string) => void
   openProduct: (p: Produit) => void
   fmtDate: (d: Date) => string
@@ -136,12 +137,13 @@ export default function CockpitView(props: CockpitViewProps) {
     metricsMap: props.metricsMap,
     scope: props.scope,
     allTaches: props.allTaches,
+    faitDoneMap: props.faitDoneMap,
     membres,
     userTrigramme: monMembre?.trigramme ?? null,
     navigate: props.navigate,
     openProduct: props.openProduct,
     fmtDate: props.fmtDate,
-  }), [props.produits, props.metricsMap, props.scope, props.allTaches, membres, monMembre?.trigramme])
+  }), [props.produits, props.metricsMap, props.scope, props.allTaches, props.faitDoneMap, membres, monMembre?.trigramme])
 
   const { width, containerRef, mounted } = useContainerWidth()
 
@@ -289,22 +291,30 @@ export default function CockpitView(props: CockpitViewProps) {
               const def = WIDGET_BY_KEY.get(item.i)
               if (!def) return <div key={item.i} className="hidden" />
               return (
-                <div key={item.i} className={cn(
-                  'bg-card border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden transition-shadow',
-                  editing && 'ring-1 ring-indigo-200 shadow-md')}>
-                  <div className={cn('flex items-center gap-2 px-3.5 pt-3 pb-2 shrink-0', editing && 'widget-drag cursor-grab active:cursor-grabbing')}>
-                    {editing && <GripVertical size={13} className="text-subtle/50 shrink-0" />}
-                    <span className="text-indigo-500 shrink-0">{def.icon}</span>
-                    <span className="text-xs font-bold text-navy uppercase tracking-wide truncate">{def.label}</span>
-                    {editing && (
-                      <button onClick={() => removeWidget(item.i)} onMouseDown={e => e.stopPropagation()}
-                        className="ml-auto p-1 rounded hover:bg-rose-50 text-subtle hover:text-rose-600 transition-colors shrink-0">
-                        <X size={12} />
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex-1 min-h-0 overflow-y-auto px-3.5 pb-3">
-                    {def.render(ctx)}
+                // Le wrapper extérieur (= .react-grid-item, reçoit la poignée de
+                // redimensionnement injectée dans son coin bas-droit) reste sans
+                // overflow/rounded : combinés, ces deux propriétés rognaient la
+                // zone cliquable de la poignée pile dans le coin arrondi.
+                // Le rendu visuel (fond, bordure, coins arrondis, scroll) est
+                // reporté sur ce conteneur interne qui remplit tout l'espace.
+                <div key={item.i} className="h-full">
+                  <div className={cn(
+                    'bg-card border border-border rounded-2xl shadow-sm h-full flex flex-col overflow-hidden transition-shadow',
+                    editing && 'ring-1 ring-indigo-200 shadow-md')}>
+                    <div className={cn('flex items-center gap-2 px-3.5 pt-3 pb-2 shrink-0', editing && 'widget-drag cursor-grab active:cursor-grabbing')}>
+                      {editing && <GripVertical size={13} className="text-subtle/50 shrink-0" />}
+                      <span className="text-indigo-500 shrink-0">{def.icon}</span>
+                      <span className="text-xs font-bold text-navy uppercase tracking-wide truncate">{def.label}</span>
+                      {editing && (
+                        <button onClick={() => removeWidget(item.i)} onMouseDown={e => e.stopPropagation()}
+                          className="ml-auto p-1 rounded hover:bg-rose-50 text-subtle hover:text-rose-600 transition-colors shrink-0">
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex-1 min-h-0 overflow-y-auto px-3.5 pb-3">
+                      {def.render(ctx)}
+                    </div>
                   </div>
                 </div>
               )

@@ -19,9 +19,9 @@ import { useToast } from '@/hooks/useToast'
 import { supabase } from '@/lib/supabase'
 import { BRAND_COLORS } from '@/constants'
 import {
-  LayoutDashboard, List, Kanban, FilePlus, Settings,
+  LayoutDashboard, Kanban, FilePlus, Settings,
   ChevronDown, LogOut, ClipboardCheck, User, Clock, X,
-  Users, Package, Briefcase, CalendarClock, BarChart3, Euro, Camera, TrendingUp,
+  Package, CalendarClock, BarChart3, Camera, TrendingUp,
   StickyNote, Plus, Check, ArrowRight, ChevronRight, ChevronLeft, Sun, Moon, Layers, Bell, Search, Square, Timer,
   SlidersHorizontal, MessageCircle, Send,
 } from 'lucide-react'
@@ -576,16 +576,12 @@ export const GLOBAL_NAV: NavItem[] = [
   { id: 'reunion',      label: 'Réunions',               href: '/reunions',          icon: <CalendarClock size={15} />   },
   { id: 'plan-charges', label: 'Plan de charges',        href: '/plan-charges',      icon: <TrendingUp size={15} />      },
   { id: 'produits',     label: 'Produits',               href: '/produits',          icon: <Package size={15} />         },
-  { id: 'metiers',      label: 'Thèmes',                 href: '/setup?tab=metiers', icon: <Briefcase size={15} />       },
-  { id: 'equipes',      label: 'Équipes & Utilisateurs', href: '/admin/equipes',     icon: <Users size={15} />, adminOnly: true },
-  { id: 'finance',      label: 'Finance',                href: '/admin/finance',     icon: <Euro size={15} />,  adminOnly: true },
 ]
 
 export const PRODUCT_NAV: NavItem[] = [
   { id: 'produit-dashboard', label: 'Dashboard',    href: '/produit-dashboard',  icon: <BarChart3 size={15} />      },
   { id: 'sprint',            label: 'Sprint Board', href: '/sprint',             icon: <Kanban size={15} />         },
-  { id: 'taches',            label: 'Tâches',       href: '/taches',             icon: <FilePlus size={15} />       },
-  { id: 'backlog',           label: 'Backlog',       href: '/backlog',            icon: <List size={15} />           },
+  { id: 'taches',            label: 'Tâches Backlog', href: '/taches',           icon: <FilePlus size={15} />       },
   { id: 'dod',               label: 'DoD',          href: '/dod',                icon: <ClipboardCheck size={15} /> },
   { id: 'activite',          label: 'Activité',     href: '/activite',           icon: <Clock size={15} />          },
   { id: 'produit-config',    label: 'Configuration', href: '/produit-config',    icon: <SlidersHorizontal size={15} />, writeOnly: true },
@@ -687,17 +683,6 @@ function NavRow({ item, active, t, collapsed }: { item: NavItem; active: boolean
       {!collapsed && item.label}
       {!collapsed && active && <span className={cn('ml-auto w-1.5 h-1.5 rounded-full shrink-0', t.navDot)} />}
     </NavLink>
-  )
-}
-
-// ── Section label ─────────────────────────────────────────────
-function SectionLabel({ children, t }: { children: React.ReactNode; t: SidebarTheme }) {
-  return (
-    <div className="px-2.5 pt-2 pb-1">
-      <span className={cn('text-[11px] font-semibold uppercase tracking-[0.08em] select-none', t.sectionLabel)}>
-        {children}
-      </span>
-    </div>
   )
 }
 
@@ -1043,7 +1028,17 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           <div className={cn('mx-2.5 mb-1.5 h-px', t.divider)} />
 
           {/* Section Global */}
-          {!collapsed && <SectionLabel t={t}>Global</SectionLabel>}
+          {!collapsed && (
+            <div className="px-2.5 pt-2 pb-1 flex items-center gap-2">
+              <span className={cn('text-[11px] font-semibold uppercase tracking-[0.08em] select-none flex-1', t.sectionLabel)}>
+                Global
+              </span>
+              <button onClick={() => navigate('/setup?tab=metiers')} title="Réglages"
+                className={cn('p-1 rounded-md transition-colors shrink-0', t.notesBtn)}>
+                <Settings size={13} />
+              </button>
+            </div>
+          )}
           <div className={cn('flex flex-col gap-0.5', collapsed ? 'mt-2' : 'mt-1')}>
             {globalItems.map(item => <NavRow key={item.id} item={item} active={activeId === item.id} t={t} collapsed={collapsed} />)}
           </div>
@@ -1064,13 +1059,13 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                       {sprintActif.numero}
                     </span>
                   )}
-                  <button onClick={() => navigate('/setup?tab=sprints')} title="Setup produit"
-                    className={cn('ml-auto p-1 rounded-md transition-colors shrink-0', t.notesBtn)}>
-                    <Settings size={13} />
-                  </button>
                   <button onClick={() => setShowDiscussion(true)} title="Discussion produit"
-                    className={cn('p-1 rounded-md transition-colors shrink-0', t.notesBtn)}>
+                    className={cn('ml-auto p-1 rounded-md transition-colors shrink-0', t.notesBtn)}>
                     <MessageCircle size={13} />
+                  </button>
+                  <button onClick={() => navigate('/setup?tab=sprints')} title="Setup produit"
+                    className={cn('p-1 rounded-md transition-colors shrink-0', t.notesBtn)}>
+                    <Settings size={13} />
                   </button>
                 </div>
               )}

@@ -1,7 +1,5 @@
 import { useState, useRef } from 'react'
-import { Layout } from '@/components/layout/Layout'
 import { useToast } from '@/hooks/useToast'
-import { ToastContainer } from '@/components/ui/Toast'
 import { useEquipes, useUtilisateurs, useCreateEquipe, useUpdateEquipe, useDeleteEquipe } from '@/hooks/useEquipes'
 import { useAllRoles, useInviteUser, useSetRoleGlobal, useUpdateProfile, useSetUserEquipes, useUploadAvatar, useUpsertRoleProduit, useDeleteRoleProduit, useDeleteUser, usePendingProfiles, useCreatePendingProfile, useDeletePendingProfile, useSendInvitationToPending, useUpdatePendingProfile } from '@/hooks/useUserManagement'
 import type { PendingProfile } from '@/hooks/useUserManagement'
@@ -404,7 +402,7 @@ export default function EquipesUtilisateursPage() {
   const [invRoles,   setInvRoles]   = useState<Record<number, RoleProduit | 'none'>>({})
   const [editForm,   setEditForm]   = useState({ trigramme: '', prenom: '', nom: '', role_metier: '', couleur: BRAND_COLORS[0] })
 
-  if (loadEq || loadU) return <Layout><Spinner /></Layout>
+  if (loadEq || loadU) return <div className="flex items-center justify-center h-40"><Spinner /></div>
 
   const produitsActifs = produits.filter(p => p.actif)
   const equipesActives = equipes.filter(e => e.actif)
@@ -819,16 +817,10 @@ export default function EquipesUtilisateursPage() {
   }
 
   return (
-    <Layout>
-      <ToastContainer />
-
-      {/* Topbar */}
-      <div className="page-topbar -mx-3 -mt-3 mb-6 px-3 md:-mx-5 md:-mt-5 md:px-5">
-        <div className="flex items-center gap-2">
-          <Users size={16} className="text-navy" />
-          <h1 className="text-sm font-semibold text-navy">Équipes & Utilisateurs</h1>
-        </div>
-        <button onClick={openInvite} className="ml-auto ds-btn-primary ds-btn-sm flex items-center gap-1.5">
+    <div>
+      {/* Barre d'actions locale (le titre est déjà porté par l'onglet "Équipes & Utilisateurs") */}
+      <div className="flex items-center justify-end mb-4">
+        <button onClick={openInvite} className="ds-btn-primary ds-btn-sm flex items-center gap-1.5">
           <UserPlus size={13} /> Inviter un utilisateur
         </button>
       </div>
@@ -1154,6 +1146,6 @@ export default function EquipesUtilisateursPage() {
           )}
         </div>
       </div>
-    </Layout>
+    </div>
   )
 }

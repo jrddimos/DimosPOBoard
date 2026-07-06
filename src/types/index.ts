@@ -44,6 +44,7 @@ export interface Tache {
   type_tache: string | null
   parent_id: string | null
   famille_id: string | null
+  ordre_kanban: number | null
   created_at: string
   updated_at: string | null
 }

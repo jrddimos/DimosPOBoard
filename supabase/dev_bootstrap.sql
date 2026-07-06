@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS taches (
   type_tache        text,
   parent_id         text,
   famille_id        text,
+  ordre_kanban      integer,
   created_at        timestamptz NOT NULL DEFAULT now(),
   updated_at        timestamptz
 );

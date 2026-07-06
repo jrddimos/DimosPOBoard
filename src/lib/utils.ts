@@ -4,6 +4,18 @@ export function cn(...inputs: ClassValue[]) {
   return clsx(inputs)
 }
 
+// Tri "naturel" : F2 < F10 et F1 < F1.1 < F2, contrairement au tri
+// alphabétique brut (F1, F1.1, F10, F2) utilisé par défaut par Postgres/JS.
+export function naturalCompare(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+}
+
+// Regroupement visuel des critères DoD d'une même famille (F1.1, F1.2… → "F1")
+export function codeMajor(code: string): string {
+  const idx = code.indexOf('.')
+  return idx === -1 ? code : code.slice(0, idx)
+}
+
 export function sprintInRange(sprint: string, debut: string | null, fin: string | null, target: string): boolean {
   if (sprint === target) return true
   if (debut === target) return true

@@ -7,10 +7,7 @@ import { Spinner }     from '@/components/ui/Spinner'
 import LoginPage       from '@/pages/auth/LoginPage'
 import SetPasswordPage from '@/pages/auth/SetPasswordPage'
 import ProduitsPage    from '@/pages/produits/ProduitsPage'
-import EquipesUtilisateursPage from '@/pages/admin/EquipesUtilisateursPage'
-import FinanceSetupPage        from '@/pages/admin/FinanceSetupPage'
 import DashboardPage   from '@/pages/dashboard/DashboardPage'
-import BacklogPage     from '@/pages/backlog/BacklogPage'
 import SprintBoardPage from '@/pages/sprint/SprintBoardPage'
 import TachesPage      from '@/pages/tache/TachesPage'
 import SetupPage       from '@/pages/setup/SetupPage'
@@ -52,7 +49,7 @@ const queryClient = new QueryClient({
 
 // ── Guard interne (a accès au contexte) ──────────────────────
 function AppRoutes() {
-  const { user, isAdmin, isLoading } = useAuth()
+  const { user, isLoading } = useAuth()
   const { produitActif } = useProduit()
 
   if (isLoading) return (
@@ -82,14 +79,16 @@ function AppRoutes() {
     <Routes>
       <Route path="/login"       element={<Navigate to="/" replace />} />
       <Route path="/produits"    element={<ProduitsPage />} />
-      <Route path="/admin/equipes"   element={isAdmin ? <EquipesUtilisateursPage /> : <Navigate to="/" replace />} />
-      <Route path="/admin/users"    element={<Navigate to="/admin/equipes" replace />} />
-      <Route path="/admin/finance"  element={isAdmin ? <FinanceSetupPage /> : <Navigate to="/" replace />} />
+      {/* Compat : Équipes/Finance ont été fusionnés dans Setup */}
+      <Route path="/admin/equipes"  element={<Navigate to="/setup?tab=equipes" replace />} />
+      <Route path="/admin/users"    element={<Navigate to="/setup?tab=equipes" replace />} />
+      <Route path="/admin/finance"  element={<Navigate to="/setup?tab=finance" replace />} />
       {/* Accessibles sans produit */}
       <Route path="/"            element={<DashboardPage />} />
       <Route path="/setup"       element={<SetupPage />} />
       {/* Nécessitent un produit */}
-      <Route path="/backlog"     element={requireProduit(<BacklogPage />)} />
+      {/* Compat : Backlog a été fusionné dans Tâches */}
+      <Route path="/backlog"     element={<Navigate to="/taches" replace />} />
       <Route path="/sprint"      element={requireProduit(<SprintBoardPage />)} />
       <Route path="/taches"      element={requireProduit(<TachesPage />)} />
       <Route path="/dod"         element={requireProduit(<DodPage />)} />

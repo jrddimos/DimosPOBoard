@@ -60,6 +60,15 @@ export interface ExpenseDetail {
   montant: number
 }
 
+// Répartition de l'ETP prévisionnel/réalisé par équipe (= type de profil),
+// pour valoriser au TJM de l'équipe réellement staffée plutôt qu'à un TJM
+// moyen global (Setup → Finance).
+export interface EtpDetail {
+  id:         string
+  equipe_id:  number | null
+  etp:        number
+}
+
 export interface TrimCheckItem {
   id:      string
   texte:   string
@@ -94,6 +103,8 @@ export interface TrimObjectif {
   realise_invest_details: ExpenseDetail[] | undefined
   budget_achats_details:  ExpenseDetail[] | undefined
   realise_achats_details: ExpenseDetail[] | undefined
+  budget_etp_detail:      EtpDetail[] | undefined
+  realise_etp_detail:     EtpDetail[] | undefined
 }
 
 export function trimAvancement(t: TrimObjectif): number | null {

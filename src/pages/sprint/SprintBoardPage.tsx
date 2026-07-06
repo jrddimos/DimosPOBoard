@@ -5,18 +5,21 @@ import { Spinner } from '@/components/ui/Spinner'
 import { StatutBadge, EpicBadge, JalonBadge, MoscowBadge } from '@/components/ui/Badge'
 import { useTaches, useUpdateTache, useCreateSousTache } from '@/hooks/useTaches'
 import { useSprints, useSprintActif, useClosedSprints } from '@/hooks/useSprints'
-import { useEquipes, useUtilisateurs } from '@/hooks/useEquipes'
+import { useUtilisateurs } from '@/hooks/useEquipes'
 import { useToast } from '@/hooks/useToast'
-import { EPIC_LIST, JALON_LIST, SPRINTS_LIST, MOSCOW_LIST, METIERS_DEFAULT } from '@/constants'
+import { EPIC_LIST, JALON_LIST, SPRINTS_LIST } from '@/constants'
 import { sprintInRange, hasPendingCriteres, serializeCriteres, parseCriteres } from '@/lib/utils'
 import type { CritereItem } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { confirm } from '@/components/ui/ConfirmModal'
 import { CriteresEditor } from '@/components/ui/CriteresEditor'
 import { TacheExtras } from '@/components/tache/TacheExtras'
+import { SousTacheModal } from '@/components/tache/SousTacheModal'
+import { DodDetailModal } from '@/components/ui/DodDetailModal'
+import { useDod } from '@/hooks/useDod'
 import {
-  ChevronDown, X, Plus, Zap, CalendarDays, AlertTriangle,
-  GripVertical, CornerDownRight, Kanban,
+  ChevronDown, X, Zap, CalendarDays, AlertTriangle,
+  GripVertical, CornerDownRight, Kanban, Search, User as UserIcon,
 } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
 import { StatusPicker } from '@/components/ui/StatusPicker'
@@ -27,9 +30,11 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useProduit } from '@/contexts/ProduitContext'
 import {
   DndContext, DragOverlay, PointerSensor,
-  useSensor, useSensors, useDraggable, useDroppable,
+  useSensor, useSensors, useDroppable,
 } from '@dnd-kit/core'
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
+import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import type { Statut, Tache } from '@/types'
 import type { UserProfile } from '@/contexts/AuthContext'
 
@@ -62,6 +67,7 @@ type KanbanCardProps = {
   isReadOnly: boolean
   isSelected: boolean
   isExpanded: boolean
+  showStatusPicker: boolean
   onSelect: () => void
   onToggleExpand: () => void
   onChangeStatut: (t: Tache, s: Statut) => void
@@ -71,10 +77,10 @@ type KanbanCardProps = {
 }
 
 function KanbanCard({
-  t, col, subs, membres, isReadOnly, isSelected, isExpanded,
+  t, col, subs, membres, isReadOnly, isSelected, isExpanded, showStatusPicker,
   onSelect, onToggleExpand, onChangeStatut, onAssign, onToggleSub, onAddSub,
 }: KanbanCardProps) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: t.id_tache })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: t.id_tache })
 
   const effortJ     = subs.length > 0 ? subs.reduce((a, s) => a + (s.effort_j ?? 0), 0) : (t.effort_j ?? 0)
   const effortRealJ = subs.length > 0 ? subs.reduce((a, s) => a + (s.effort_realise_j ?? 0), 0) : (t.effort_realise_j ?? null)
@@ -83,22 +89,15 @@ function KanbanCard({
   const pendingSubs = subs.filter(s => s.statut !== 'Fait').length
   const blockedByTask = col.key !== 'Fait' && pendingSubs > 0
 
-  const style = transform
-    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 100 }
-    : undefined
+  const style = { transform: CSS.Transform.toString(transform), transition, zIndex: isDragging ? 100 : undefined }
 
   return (
-    <div ref={setNodeRef} style={style}
-      className={cn('kanban-card border-l-4 group', col.borderColor, isDragging && 'opacity-40', isSelected && 'selected')}
+    <div ref={setNodeRef} style={style} {...listeners} {...attributes}
+      className={cn('kanban-card border-l-4 group cursor-grab active:cursor-grabbing touch-pan-y', col.borderColor, isDragging && 'opacity-40', isSelected && 'selected')}
       onClick={onSelect}>
 
       {/* Header */}
       <div className="flex items-start justify-between mb-1.5 gap-1">
-        <div {...listeners} {...attributes}
-          className="cursor-grab active:cursor-grabbing px-1 py-2 -my-1 rounded text-slate-200 hover:text-slate-400 transition-colors shrink-0 touch-none self-stretch flex items-center"
-          onClick={e => e.stopPropagation()}>
-          <GripVertical size={14} />
-        </div>
         <span className="text-xs font-semibold text-indigo-600 flex-1">{t.id_tache}</span>
         <EpicBadge value={t.epic ?? ''} className="text-xs" />
       </div>
@@ -130,11 +129,15 @@ function KanbanCard({
       </div>
 
       <div className={cn('mb-2', blockedByTask && 'opacity-60')}>
-        <StatusPicker
-          value={t.statut}
-          onChange={s => onChangeStatut(t, s)}
-          disabled={isReadOnly}
-        />
+        {showStatusPicker ? (
+          <StatusPicker
+            value={t.statut}
+            onChange={s => onChangeStatut(t, s)}
+            disabled={isReadOnly}
+          />
+        ) : (
+          <StatutBadge value={t.statut} />
+        )}
       </div>
       {blockedByTask && (
         <div className="flex items-center gap-1 mb-2 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-600 text-[11px] font-medium">
@@ -214,228 +217,6 @@ function CardGhost({ t, col }: { t: Tache; col: typeof COLS[0] }) {
   )
 }
 
-// ── Modal sous-tâche (formulaire identique à TachesPage) ──────
-function SousTacheModal({ parent, sprint, membres, equipeNoms, onClose, onCreate }: {
-  parent: Tache; sprint: string | null; membres: UserProfile[]
-  equipeNoms: string[]; onClose: () => void
-  onCreate: (payload: Partial<Tache>) => Promise<void>
-}) {
-  const [form, setForm] = useState({
-    titre:         '',
-    statut:        'À faire' as Statut,
-    priorite:      parent.priorite ?? 'P2',
-    moscow:        parent.moscow ?? 'Must Have',
-    effort_j:      0,
-    epic:          parent.epic ?? '',
-    jalon:         parent.jalon ?? '',
-    type_fonction: parent.type_fonction ?? 'Fonction principale',
-    sprint_debut:  parent.sprint_debut || parent.sprint || sprint || '',
-    sprint_fin:    parent.sprint_fin ?? '',
-    assigne_a:     '',
-    equipe:        parent.equipe ?? '',
-    metier:        parent.metier ?? '',
-    description:   '',
-    lien_dod:      '',
-    commentaire:   '',
-  })
-  const [critereItems, setCritereItems] = useState<CritereItem[]>([])
-  const [saving, setSaving] = useState(false)
-
-  const set = (k: string) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-      setForm(f => ({ ...f, [k]: e.target.value }))
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!form.titre.trim()) return
-    setSaving(true)
-    try {
-      await onCreate({
-        ...form,
-        effort_j: Number(form.effort_j) || 0,
-        criteres: serializeCriteres(critereItems),
-        sprint: form.sprint_debut,
-      })
-      onClose()
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-brand/40 backdrop-blur-sm p-4"
-      onClick={onClose}>
-      <div className="bg-card rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
-        onClick={e => e.stopPropagation()}>
-
-        {/* Header modal */}
-        <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
-          <CornerDownRight size={14} className="text-indigo-500 shrink-0" />
-          <div>
-            <p className="text-[11px] text-slate-400 font-medium">Nouvelle sous-tâche de</p>
-            <p className="text-sm font-bold text-navy">
-              {parent.id_tache} — <span className="font-normal text-slate-500 truncate">{parent.titre}</span>
-            </p>
-          </div>
-          <button onClick={onClose} className="ml-auto p-1.5 rounded-lg hover:bg-slate-50 text-slate-400 hover:text-navy">
-            <X size={15} />
-          </button>
-        </div>
-
-        <form onSubmit={submit} className="px-5 py-4 flex flex-col gap-4">
-          {/* Titre */}
-          <div>
-            <label className="ds-label mb-1 block">Titre <span className="text-rose-500">*</span></label>
-            <input value={form.titre} onChange={set('titre')} autoFocus
-              className="ds-input w-full" placeholder="Ex : Rédiger les critères…" />
-          </div>
-
-          {/* Statut + Priorité */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="ds-label mb-1 block">Statut</label>
-              <select value={form.statut} onChange={set('statut')} className="ds-select w-full">
-                {(['À faire', 'En cours', 'Fait', 'Bloqué'] as Statut[]).map(s => <option key={s}>{s}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="ds-label mb-1 block">Priorité</label>
-              <select value={form.priorite} onChange={set('priorite')} className="ds-select w-full">
-                <option value="">--</option>
-                {['P1', 'P2', 'P3', 'P4'].map(p => <option key={p}>{p}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {/* MoSCoW + Effort */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="ds-label mb-1 block">MoSCoW</label>
-              <select value={form.moscow} onChange={set('moscow')} className="ds-select w-full">
-                {MOSCOW_LIST.map(m => <option key={m}>{m}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="ds-label mb-1 block">Effort (j)</label>
-              <input type="number" value={form.effort_j} onChange={set('effort_j')}
-                className="ds-input w-full" min={0} step={0.5} />
-            </div>
-          </div>
-
-          {/* Epic */}
-          <div>
-            <label className="ds-label mb-1 block">Epic</label>
-            <select value={form.epic} onChange={set('epic')} className="ds-select w-full">
-              <option value="">--</option>
-              {EPIC_LIST.map(e => <option key={e} value={e}>{e}</option>)}
-            </select>
-          </div>
-
-          {/* Type fonction + Jalon */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="ds-label mb-1 block">Type de fonction</label>
-              <select value={form.type_fonction} onChange={set('type_fonction')} className="ds-select w-full">
-                {['Fonction principale', 'Fonction secondaire', 'Fonction support', 'Fonction exclue'].map(f => <option key={f}>{f}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="ds-label mb-1 block">Jalon - Incrément majeur</label>
-              <select value={form.jalon} onChange={set('jalon')} className="ds-select w-full">
-                <option value="">--</option>
-                {JALON_LIST.map(j => <option key={j}>{j}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {/* Sprint début + fin */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="ds-label mb-1 block">Sprint début</label>
-              <select value={form.sprint_debut} onChange={set('sprint_debut')} className="ds-select w-full">
-                <option value="">--</option>
-                {SPRINTS_LIST.map(s => <option key={s}>{s}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="ds-label mb-1 block">Sprint fin</label>
-              <select value={form.sprint_fin} onChange={set('sprint_fin')} className="ds-select w-full">
-                <option value="">Même</option>
-                {SPRINTS_LIST.map(s => <option key={s}>{s}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {/* Assigné */}
-          <div>
-            <label className="ds-label mb-1 block">Assigné à</label>
-            <select value={form.assigne_a} onChange={set('assigne_a')} className="ds-select w-full">
-              <option value="">-- Membre --</option>
-              {membres.filter(m => m.actif && m.trigramme).map(m => (
-                <option key={m.user_id} value={m.trigramme!}>{m.trigramme} — {m.prenom ?? ''} {m.nom ?? ''}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Équipe + Thème */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="ds-label mb-1 block">Équipe</label>
-              <select value={form.equipe} onChange={set('equipe')} className="ds-select w-full">
-                <option value="">--</option>
-                {equipeNoms.map(e => <option key={e} value={e}>{e}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="ds-label mb-1 block">Thème</label>
-              <select value={form.metier} onChange={set('metier')} className="ds-select w-full">
-                <option value="">--</option>
-                {METIERS_DEFAULT.map(m => <option key={m}>{m}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {/* User Story */}
-          <div>
-            <label className="ds-label mb-1 block">User Story</label>
-            <textarea value={form.description} onChange={set('description')}
-              className="ds-textarea w-full" rows={3} placeholder="En tant que… je veux… afin de…" />
-          </div>
-
-          {/* Critères */}
-          <div>
-            <label className="ds-label mb-1 block">Critères d'acceptation</label>
-            <div className="ds-input min-h-[72px] flex flex-col">
-              <CriteresEditor items={critereItems} onChange={setCritereItems} compact />
-            </div>
-          </div>
-
-          {/* Lien DoD */}
-          <div>
-            <label className="ds-label mb-1 block">Lien DoD</label>
-            <input value={form.lien_dod} onChange={set('lien_dod')} className="ds-input w-full" placeholder="F1.1, F1.2…" />
-          </div>
-
-          {/* Commentaire */}
-          <div>
-            <label className="ds-label mb-1 block">Commentaire PO</label>
-            <textarea value={form.commentaire} onChange={set('commentaire')} className="ds-textarea w-full" rows={2} />
-          </div>
-
-          {/* Actions */}
-          <div className="flex gap-2 pt-2 border-t border-slate-100">
-            <button type="submit" disabled={saving || !form.titre.trim()}
-              className="ds-btn-primary flex-1 disabled:opacity-40 flex items-center justify-center gap-1.5">
-              {saving ? 'Création…' : <><Plus size={13} /> Créer la sous-tâche</>}
-            </button>
-            <button type="button" onClick={onClose} className="ds-btn">Annuler</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
 // ── Critères cochables dans le panel ─────────────────────────
 function PanelCriteres({ tache, onSave }: { tache: Tache; onSave: (criteres: string) => void }) {
   const [items, setItems] = useState(() => parseCriteres(tache.criteres))
@@ -476,6 +257,8 @@ export default function SprintBoardPage() {
   const [activeTab,    setActiveTab]    = useState<'current' | 'all'>(params.get('tab') === 'all' ? 'all' : 'current')
   const [filterEpic,   setFilterEpic]   = useState('')
   const [filterJalon,  setFilterJalon]  = useState('')
+  const [onlyMine,     setOnlyMine]     = useState(false)
+  const [search,       setSearch]       = useState('')
   const [allSprint,    setAllSprint]    = useState('')
   const [panel,        setPanel]        = useState<Tache | null>(null)
   const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set())
@@ -484,21 +267,21 @@ export default function SprintBoardPage() {
   const [activeId,     setActiveId]     = useState<string | null>(null)
   const [sousTacheFor, setSousTacheFor] = useState<Tache | null>(null)
   const [mobileCol,    setMobileCol]    = useState<Statut>('À faire')
+  const [dodDetail,    setDodDetail]    = useState<import('@/hooks/useDod').DodItem | null>(null)
 
+  const { data: dodItems = [] }               = useDod()
   const { data: taches = [],      isLoading } = useTaches()
   const { data: sprintActif }                 = useSprintActif()
   const { data: sprints = [] }                = useSprints()
   const { data: closedSprints = [] }          = useClosedSprints()
   const { data: membres = [] }                = useUtilisateurs()
-  const { data: equipes = [] }                = useEquipes()
   const updateTache = useUpdateTache()
   const createSub   = useCreateSousTache()
   const toast       = useToast()
-  const { canWrite, user } = useAuth()
+  const { canWrite, user, profile } = useAuth()
   const { produitActif } = useProduit()
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
-  const equipeNoms = equipes.filter(e => e.actif).map(e => e.nom)
 
   const childMap = useMemo(() => {
     const map: Record<string, Tache[]> = {}
@@ -511,14 +294,19 @@ export default function SprintBoardPage() {
 
   const sprint4Board = activeTab === 'current' ? (sprintActif?.numero ?? null) : allSprint
 
-  const boardTaches = useMemo(() => taches.filter(t => {
-    if (t.parent_id) return false
-    if (!sprint4Board) return false
-    if (!sprintInRange(t.sprint ?? '', t.sprint_debut, t.sprint_fin, sprint4Board)) return false
-    if (filterEpic  && t.epic  !== filterEpic)  return false
-    if (filterJalon && t.jalon !== filterJalon) return false
-    return true
-  }), [taches, sprint4Board, filterEpic, filterJalon])
+  const boardTaches = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return taches.filter(t => {
+      if (t.parent_id) return false
+      if (!sprint4Board) return false
+      if (!sprintInRange(t.sprint ?? '', t.sprint_debut, t.sprint_fin, sprint4Board)) return false
+      if (filterEpic  && t.epic  !== filterEpic)  return false
+      if (filterJalon && t.jalon !== filterJalon) return false
+      if (onlyMine && t.assigne_a !== profile?.trigramme) return false
+      if (q && !t.id_tache.toLowerCase().includes(q) && !t.titre.toLowerCase().includes(q)) return false
+      return true
+    }).sort((a, b) => (a.ordre_kanban ?? Infinity) - (b.ordre_kanban ?? Infinity))
+  }, [taches, sprint4Board, filterEpic, filterJalon, onlyMine, search, profile?.trigramme])
 
   const isReadOnly = activeTab === 'all' || (sprint4Board ? closedSprints.includes(sprint4Board) : false)
     || !(produitActif ? canWrite(produitActif.id) : false)
@@ -600,8 +388,27 @@ export default function SprintBoardPage() {
     const { active, over } = event
     if (!over) return
     const tache = boardTaches.find(t => t.id_tache === active.id)
-    if (!tache || tache.statut === over.id) return
-    changeStatut(tache, over.id as Statut)
+    if (!tache) return
+
+    const overIsColumn = COLS.some(c => c.key === over.id)
+    const overTache = overIsColumn ? null : boardTaches.find(t => t.id_tache === over.id)
+    const targetStatut = overIsColumn ? (over.id as Statut) : (overTache?.statut ?? tache.statut)
+
+    if (targetStatut !== tache.statut) {
+      changeStatut(tache, targetStatut)
+      return
+    }
+
+    // Réordonnancement manuel dans la même colonne
+    if (overTache && overTache.id_tache !== tache.id_tache) {
+      const colTaches = boardTaches.filter(t => t.statut === targetStatut)
+      const oldIndex = colTaches.findIndex(t => t.id_tache === tache.id_tache)
+      const newIndex = colTaches.findIndex(t => t.id_tache === overTache.id_tache)
+      if (oldIndex === -1 || newIndex === -1) return
+      arrayMove(colTaches, oldIndex, newIndex).forEach((t, i) => {
+        if (t.ordre_kanban !== i) updateTache.mutate({ id_tache: t.id_tache, updates: { ordre_kanban: i } })
+      })
+    }
   }
 
   const fait    = boardTaches.filter(t => t.statut === 'Fait').length
@@ -641,6 +448,20 @@ export default function SprintBoardPage() {
         )}
 
         <div className="ds-sep" />
+        <div className="ds-searchbar w-44">
+          <Search size={12} className="text-subtle shrink-0"/>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher ID, titre…" />
+          {search && <button onClick={() => setSearch('')}><X size={11} className="text-subtle"/></button>}
+        </div>
+
+        {profile?.trigramme && (
+          <button onClick={() => setOnlyMine(v => !v)}
+            className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all',
+              onlyMine ? 'bg-indigo-500 text-white border-indigo-500' : 'bg-card text-subtle border-slate-200 hover:border-indigo-300')}>
+            <UserIcon size={12} /> Mes tâches
+          </button>
+        )}
+
         <FilterPopover
           activeCount={(filterEpic ? 1 : 0) + (filterJalon ? 1 : 0)}
           onReset={() => { setFilterEpic(''); setFilterJalon('') }}>
@@ -689,22 +510,25 @@ export default function SprintBoardPage() {
                 })}
               </div>
               <div className="flex flex-col gap-2.5">
-                {boardTaches.filter(t => t.statut === mobileCol).map(t => (
-                  <KanbanCard key={t.id_tache}
-                    t={t} col={COLS.find(c => c.key === mobileCol)!}
-                    subs={getSubsForSprint(t.id_tache)}
-                    membres={membres}
-                    isReadOnly={isReadOnly}
-                    isSelected={panel?.id_tache === t.id_tache}
-                    isExpanded={expandedSubs.has(t.id_tache)}
-                    onSelect={() => setPanel(p => p?.id_tache === t.id_tache ? null : t)}
-                    onToggleExpand={() => toggleExpand(t.id_tache)}
-                    onChangeStatut={changeStatut}
-                    onAssign={assignTo}
-                    onToggleSub={toggleSub}
-                    onAddSub={setSousTacheFor}
-                  />
-                ))}
+                <SortableContext items={boardTaches.filter(t => t.statut === mobileCol).map(t => t.id_tache)} strategy={verticalListSortingStrategy}>
+                  {boardTaches.filter(t => t.statut === mobileCol).map(t => (
+                    <KanbanCard key={t.id_tache}
+                      t={t} col={COLS.find(c => c.key === mobileCol)!}
+                      subs={getSubsForSprint(t.id_tache)}
+                      membres={membres}
+                      isReadOnly={isReadOnly}
+                      isSelected={panel?.id_tache === t.id_tache}
+                      isExpanded={expandedSubs.has(t.id_tache)}
+                      showStatusPicker
+                      onSelect={() => setPanel(p => p?.id_tache === t.id_tache ? null : t)}
+                      onToggleExpand={() => toggleExpand(t.id_tache)}
+                      onChangeStatut={changeStatut}
+                      onAssign={assignTo}
+                      onToggleSub={toggleSub}
+                      onAddSub={setSousTacheFor}
+                    />
+                  ))}
+                </SortableContext>
                 {!boardTaches.filter(t => t.statut === mobileCol).length && (
                   <div className="flex items-center justify-center h-16 border-2 border-dashed border-slate-200 rounded-xl text-slate-300 text-xs">Vide</div>
                 )}
@@ -713,7 +537,7 @@ export default function SprintBoardPage() {
 
             {/* ── Vue desktop : 4 colonnes ── */}
             <div className="hidden md:block overflow-x-auto">
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '14px', minWidth: '760px' }}>
+              <div className="mx-auto" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(220px, 340px))', gap: '14px', minWidth: '760px', maxWidth: '1440px' }}>
                 {COLS.map(col => {
                   const colTaches = boardTaches.filter(t => t.statut === col.key)
                   return (
@@ -726,22 +550,25 @@ export default function SprintBoardPage() {
                         <span className="text-xs font-medium text-slate-400 bg-card border border-slate-200 px-2 py-0.5 rounded-full">{colTaches.length}</span>
                       </div>
 
-                      {colTaches.map(t => (
-                        <KanbanCard key={t.id_tache}
-                          t={t} col={col}
-                          subs={getSubsForSprint(t.id_tache)}
-                          membres={membres}
-                          isReadOnly={isReadOnly}
-                          isSelected={panel?.id_tache === t.id_tache}
-                          isExpanded={expandedSubs.has(t.id_tache)}
-                          onSelect={() => setPanel(p => p?.id_tache === t.id_tache ? null : t)}
-                          onToggleExpand={() => toggleExpand(t.id_tache)}
-                          onChangeStatut={changeStatut}
-                          onAssign={assignTo}
-                          onToggleSub={toggleSub}
-                          onAddSub={setSousTacheFor}
-                        />
-                      ))}
+                      <SortableContext items={colTaches.map(t => t.id_tache)} strategy={verticalListSortingStrategy}>
+                        {colTaches.map(t => (
+                          <KanbanCard key={t.id_tache}
+                            t={t} col={col}
+                            subs={getSubsForSprint(t.id_tache)}
+                            membres={membres}
+                            isReadOnly={isReadOnly}
+                            isSelected={panel?.id_tache === t.id_tache}
+                            isExpanded={expandedSubs.has(t.id_tache)}
+                            showStatusPicker={false}
+                            onSelect={() => setPanel(p => p?.id_tache === t.id_tache ? null : t)}
+                            onToggleExpand={() => toggleExpand(t.id_tache)}
+                            onChangeStatut={changeStatut}
+                            onAssign={assignTo}
+                            onToggleSub={toggleSub}
+                            onAddSub={setSousTacheFor}
+                          />
+                        ))}
+                      </SortableContext>
 
                       {!colTaches.length && (
                         <div className="flex items-center justify-center h-16 border-2 border-dashed border-slate-200 rounded-xl text-slate-300 text-xs">Vide</div>
@@ -815,7 +642,24 @@ export default function SprintBoardPage() {
                       <div key={k}><div className="text-slate-400">{k}</div><div className="font-semibold text-navy">{v}</div></div>
                     ) : null)}
                   </div>
-                  {panel.lien_dod && <div><div className="ds-label mb-1">Lien DoD</div><span className="text-xs text-indigo-600 font-medium">{panel.lien_dod}</span></div>}
+                  {panel.lien_dod && (
+                    <div>
+                      <div className="ds-label mb-1">Lien DoD</div>
+                      <div className="flex flex-wrap gap-1">
+                        {panel.lien_dod.split(/[,;]/).map(s => s.trim()).filter(Boolean).map(code => {
+                          const item = dodItems.find(d => d.code === code)
+                          return (
+                            <button key={code} onClick={() => item && setDodDetail(item)}
+                              title={item ? 'Voir le détail' : undefined}
+                              className="text-xs px-2 py-0.5 rounded-full bg-brand/10 text-brand font-mono font-medium hover:bg-brand/20 transition-colors disabled:cursor-default"
+                              disabled={!item}>
+                              {code}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
                   {panel.commentaire && <div><div className="ds-label mb-1">Commentaire PO</div><p className="text-xs text-slate-400 italic">{panel.commentaire}</p></div>}
 
                   {panel.statut !== 'Fait' && (
@@ -908,7 +752,6 @@ export default function SprintBoardPage() {
           parent={sousTacheFor}
           sprint={sprint4Board}
           membres={membres}
-          equipeNoms={equipeNoms}
           onClose={() => setSousTacheFor(null)}
           onCreate={async payload => {
             const res = await createSub.mutateAsync({ parentId: sousTacheFor.id_tache, payload })
@@ -917,6 +760,8 @@ export default function SprintBoardPage() {
           }}
         />
       )}
+
+      <DodDetailModal item={dodDetail} onClose={() => setDodDetail(null)} />
     </Layout>
   )
 }

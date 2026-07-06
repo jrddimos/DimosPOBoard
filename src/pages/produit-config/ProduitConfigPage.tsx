@@ -3,20 +3,22 @@ import { useNavigate } from 'react-router-dom'
 import { Layout } from '@/components/layout/Layout'
 import {
   useProduits, useUpdateProduit,
-  type Produit, type TrimObjectif, type TrimStatut, type TrimCheckItem, type ExpenseDetail,
+  type Produit, type TrimObjectif, type TrimStatut, type TrimCheckItem, type ExpenseDetail, type EtpDetail,
   trimAvancement,
 } from '@/hooks/useProduits'
-import { useFinanceConfig } from '@/hooks/useFinanceConfig'
+import { useFinanceConfig, type FinanceConfig } from '@/hooks/useFinanceConfig'
+import { trimEtpTotal, trimEtpCostEur } from '@/utils/produitMetrics'
 import { useAppSettings } from '@/hooks/useAppSettings'
 import { useProduit } from '@/contexts/ProduitContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSprints } from '@/hooks/useSprints'
 import { useTaches } from '@/hooks/useTaches'
+import { useEquipes } from '@/hooks/useEquipes'
 import { useToast } from '@/hooks/useToast'
 import { ToastContainer } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils'
 import { BRAND_COLORS } from '@/constants'
-import type { Sprint, Tache, RagConfig } from '@/types'
+import type { Sprint, Tache, RagConfig, Equipe } from '@/types'
 import { RAG_CONFIG_DEFAULT } from '@/types'
 import {
   Plus, Check, X, ChevronDown, ChevronRight, Lock, Unlock,
@@ -54,6 +56,7 @@ function newTrim(): TrimObjectif {
     jours_ouvres: undefined,
     budget_invest_details: undefined, realise_invest_details: undefined,
     budget_achats_details: undefined, realise_achats_details: undefined,
+    budget_etp_detail: undefined, realise_etp_detail: undefined,
   }
 }
 
@@ -128,7 +131,7 @@ function BudgetCell({ details, total, disabled, expanded, colorTotal, onToggle, 
 }
 
 // ── TrimRow ───────────────────────────────────────────────────────
-function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintIds }: {
+function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintIds, equipes, financeConfig }: {
   t: TrimObjectif
   onChange: (updated: TrimObjectif) => void
   onDelete: () => void
@@ -136,6 +139,8 @@ function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintId
   sprints: Sprint[]
   taches: Tache[]
   usedSprintIds: string[]   // numeros déjà rattachés à un autre trim
+  equipes: Equipe[]
+  financeConfig: FinanceConfig | undefined
 }) {
   const isPause        = !!t.pause
   const isLance        = !!t.lance && !isPause   // actif = lancé ET pas en pause
@@ -201,6 +206,27 @@ function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintId
     }
   }
 
+  // ── Répartition ETP par équipe ──────────────────────────────────
+  function calcEtpSum(arr: EtpDetail[]) { return arr.length ? arr.reduce((s, d) => s + (d.etp || 0), 0) : null }
+  const etpDetailList = t.budget_etp_detail ?? []
+  const etpOps = {
+    list: etpDetailList,
+    add() {
+      const next = [...etpDetailList, { id: newId(), equipe_id: equipes[0]?.id ?? null, etp: 0 }]
+      onChange({ ...t, budget_etp_detail: next, budget_etp: calcEtpSum(next) })
+    },
+    update(id: string, field: 'equipe_id' | 'etp', value: number | null) {
+      const next = etpDetailList.map(d => d.id === id ? { ...d, [field]: value } : d)
+      onChange({ ...t, budget_etp_detail: next, budget_etp: calcEtpSum(next) })
+    },
+    remove(id: string) {
+      const next = etpDetailList.filter(d => d.id !== id)
+      onChange({ ...t, budget_etp_detail: next.length ? next : undefined, budget_etp: calcEtpSum(next) })
+    },
+  }
+  const joursTrim   = financeConfig?.jours_par_trim ?? JOURS_ETP_TRIM
+  const prevEtpCost = trimEtpCostEur(t, financeConfig, joursTrim)
+
   // Sprints disponibles : non rattachés à un autre trim, ou déjà dans celui-ci
   const availableSprints = sprints.filter(s =>
     !usedSprintIds.includes(s.numero) || selectedIds.includes(s.numero)
@@ -212,8 +238,11 @@ function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintId
   const etpAutoCalc        = totalJoursRealises / JOURS_ETP_TRIM
 
   // Calculs budget
-  const totalPrev = (t.budget_etp ?? 0) * 80000 + (t.budget_invest ?? 0) + (t.budget_achats ?? 0)
-  const totalReal = (t.realise_etp ?? 0) * 80000 + (t.realise_invest ?? 0) + (t.realise_achats ?? 0)
+  const tjmMoyen  = (financeConfig?.equipe_tjms?.length ?? 0) > 0
+    ? Math.round(financeConfig!.equipe_tjms.reduce((s, e) => s + e.tjm, 0) / financeConfig!.equipe_tjms.length)
+    : 500
+  const totalPrev = prevEtpCost + (t.budget_invest ?? 0) + (t.budget_achats ?? 0)
+  const totalReal = (t.realise_etp ?? 0) * tjmMoyen * joursTrim + (t.realise_invest ?? 0) + (t.realise_achats ?? 0)
   const ecart     = totalReal - totalPrev
   const pct       = trimAvancement(t)
   const items     = t.objectifs ?? []
@@ -374,12 +403,12 @@ function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintId
 
       {/* ── Corps ────────────────────────────────────────── */}
       {!collapsed && (
-        <div className={cn('p-4 space-y-5', isCloture && 'pointer-events-none select-none')}>
+        <div className={cn('p-4 space-y-3', isCloture && 'pointer-events-none select-none')}>
 
           {/* Statut + Objectifs */}
-          <div className="grid grid-cols-[140px_1fr] gap-4">
+          <div className="grid grid-cols-[140px_1fr] gap-4 bg-bg/60 rounded-xl border border-border p-3">
             <div>
-              <span className="ds-label block mb-1 flex items-center gap-1"><Activity size={10}/> Statut</span>
+              <span className="text-[11px] font-bold text-navy/75 uppercase tracking-wide block mb-1 flex items-center gap-1"><Activity size={10}/> Statut</span>
               <select value={t.statut ?? ''} disabled={isCloture}
                 onChange={e => set('statut', (e.target.value || null) as TrimStatut | null)}
                 className="ds-select text-xs">
@@ -389,7 +418,7 @@ function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintId
             </div>
             <div>
               <div className="flex items-center justify-between mb-1">
-                <span className="ds-label flex items-center gap-1"><Target size={10}/> Objectifs</span>
+                <span className="text-[11px] font-bold text-navy/75 uppercase tracking-wide flex items-center gap-1"><Target size={10}/> Objectifs</span>
                 {!isCloture && (
                   <button onClick={addItem}
                     className="flex items-center gap-1 text-xs font-semibold text-purple hover:text-purple/80 transition-colors">
@@ -435,10 +464,10 @@ function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintId
           </div>
 
           {/* ── Sprints de ce trimestre ─────────────────────── */}
-          <div className="space-y-2">
+          <div className="space-y-2 bg-bg/60 rounded-xl border border-border p-3">
             <div className="flex items-center gap-2">
-              <Layers size={11} className="text-subtle shrink-0" />
-              <span className="ds-label flex-1">Sprints de ce trimestre</span>
+              <Layers size={12} className="text-navy/60 shrink-0" />
+              <span className="text-[11px] font-bold text-navy/75 uppercase tracking-wide flex-1">Sprints de ce trimestre</span>
             </div>
 
             {/* Chips des sprints sélectionnés */}
@@ -560,9 +589,9 @@ function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintId
           </div>
 
           {/* ── Tableau Budget ─────────────────────────────── */}
-          <div>
+          <div className="bg-bg/60 rounded-xl border border-border p-3">
             <div className="flex items-center gap-2 mb-2">
-              <span className="ds-label">Budget</span>
+              <span className="text-[11px] font-bold text-navy/75 uppercase tracking-wide">Budget</span>
               {!isCloture && isAdmin && (
                 <button
                   onClick={() => set('previsionnel_verrouille', !prevVerrouille)}
@@ -596,12 +625,46 @@ function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintId
                 <tbody>
                   {/* ETP */}
                   <tr className="border-b border-border/50">
-                    <td className="px-3 py-2 text-subtle font-medium">ETP</td>
-                    <td className="px-3 py-2">
-                      <input type="number" min="0" step="0.5" value={t.budget_etp ?? ''} placeholder="0"
-                        disabled={!prevEditable || isCloture}
-                        onChange={e => { if (prevEditable) set('budget_etp', e.target.value === '' ? null : Number(e.target.value)) }}
-                        className={cn('ds-input text-xs text-right w-full', !prevEditable && 'bg-bg cursor-not-allowed opacity-60')} />
+                    <td className="px-3 py-2 text-subtle font-medium align-top">ETP</td>
+                    <td className="px-3 py-2 align-top">
+                      {etpDetailList.length > 0 ? (
+                        <div className="space-y-1">
+                          {etpDetailList.map(d => (
+                            <div key={d.id} className="flex items-center gap-1">
+                              <select value={d.equipe_id ?? ''} disabled={!prevEditable || isCloture}
+                                onChange={e => etpOps.update(d.id, 'equipe_id', e.target.value ? Number(e.target.value) : null)}
+                                className={cn('ds-select text-[11px] flex-1', (!prevEditable || isCloture) && 'bg-bg cursor-not-allowed opacity-60')}>
+                                <option value="">-- Équipe --</option>
+                                {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.nom}</option>)}
+                              </select>
+                              <input type="number" min="0" step="0.1" value={d.etp || ''} placeholder="0"
+                                disabled={!prevEditable || isCloture}
+                                onChange={e => etpOps.update(d.id, 'etp', e.target.value === '' ? 0 : Number(e.target.value))}
+                                className={cn('ds-input text-xs text-right w-16 shrink-0', (!prevEditable || isCloture) && 'bg-bg cursor-not-allowed opacity-60')} />
+                              {prevEditable && !isCloture && (
+                                <button onClick={() => etpOps.remove(d.id)} className="text-subtle hover:text-red shrink-0"><X size={11}/></button>
+                              )}
+                            </div>
+                          ))}
+                          <div className="flex items-center justify-between pt-0.5 gap-2">
+                            {prevEditable && !isCloture ? (
+                              <button onClick={etpOps.add} className="text-[10px] text-blue hover:underline shrink-0">+ équipe</button>
+                            ) : <span/>}
+                            <span className="text-[11px] font-semibold text-navy text-right">{fmt(prevEtpCost)}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <input type="number" min="0" step="0.5" value={t.budget_etp ?? ''} placeholder="0"
+                            disabled={!prevEditable || isCloture}
+                            onChange={e => { if (prevEditable) set('budget_etp', e.target.value === '' ? null : Number(e.target.value)) }}
+                            className={cn('ds-input text-xs text-right w-full', !prevEditable && 'bg-bg cursor-not-allowed opacity-60')} />
+                          {!isCloture && prevEditable && (
+                            <button onClick={etpOps.add} title="Détailler par équipe (TJM dédié)"
+                              className="text-[10px] text-blue hover:underline mt-1">+ Détailler par équipe</button>
+                          )}
+                        </>
+                      )}
                       {(t.budget_etp ?? 0) > 0 && (
                         <p className="text-[11px] text-subtle text-right mt-0.5">
                           = {Math.round((t.budget_etp ?? 0) * JOURS_ETP_TRIM)} j
@@ -632,7 +695,7 @@ function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintId
                       {(t.budget_etp != null || t.realise_etp != null) ? (() => {
                         const e = (t.realise_etp ?? 0) - (t.budget_etp ?? 0)
                         return (
-                          <div className={ecartClass(e * 80000)}>
+                          <div className={ecartClass(e * tjmMoyen * joursTrim)}>
                             <div>{e >= 0 ? '+' : ''}{e.toFixed(1)} ETP</div>
                             <div className="text-[11px] font-normal">
                               {e >= 0 ? '+' : ''}{Math.round(e * JOURS_ETP_TRIM)} j
@@ -716,19 +779,19 @@ function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintId
                 </tbody>
               </table>
             </div>
-            {totalPrev > 0 && <p className="text-[11px] text-subtle mt-1.5">ETP valorisé à 80 000 €/an</p>}
+            {totalPrev > 0 && <p className="text-[11px] text-subtle mt-1.5">ETP valorisé au TJM de l'équipe (ou TJM moyen si non détaillé)</p>}
           </div>
 
           {/* KPIs + Outcome */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 bg-bg/60 rounded-xl border border-border p-3">
             <div>
-              <span className="ds-label block mb-1 flex items-center gap-1"><TrendingUp size={10}/> KPIs</span>
+              <span className="text-[11px] font-bold text-navy/75 uppercase tracking-wide block mb-1 flex items-center gap-1"><TrendingUp size={10}/> KPIs</span>
               <textarea value={t.kpis} onChange={e => set('kpis', e.target.value)}
                 disabled={isCloture} className="ds-textarea text-xs" rows={2}
                 placeholder="NPS > 50, adoption > 30%…" />
             </div>
             <div className="space-y-1.5">
-              <span className="ds-label block flex items-center gap-1"><TrendingUp size={10}/> Outcome</span>
+              <span className="text-[11px] font-bold text-navy/75 uppercase tracking-wide block flex items-center gap-1"><TrendingUp size={10}/> Outcome</span>
               <textarea value={t.outcome_desc} onChange={e => set('outcome_desc', e.target.value)}
                 disabled={isCloture} className="ds-textarea text-xs" rows={2}
                 placeholder="Description de la valeur créée…" />
@@ -757,6 +820,7 @@ export default function ProduitConfigPage() {
 
   const produit  = produits.find(p => p.id === produitActif?.id)
   const { data: financeConfig } = useFinanceConfig()
+  const { data: equipes = [] }  = useEquipes()
   const { ragConfigDefault }    = useAppSettings()
 
   const [nom,           setNom]     = useState('')
@@ -800,8 +864,12 @@ export default function ProduitConfigPage() {
     setDirty(true)
   }
 
-  const totalPrev    = trims.reduce((s, t) => s + (t.budget_etp ?? 0) * 80000 + (t.budget_invest ?? 0) + (t.budget_achats ?? 0), 0)
-  const totalPrevEtp = trims.reduce((s, t) => s + (t.budget_etp  ?? 0), 0)
+  const joursParTrim = financeConfig?.jours_par_trim ?? 65
+  const tjmMoyenPage = (financeConfig?.equipe_tjms?.length ?? 0) > 0
+    ? Math.round(financeConfig!.equipe_tjms.reduce((s, e) => s + e.tjm, 0) / financeConfig!.equipe_tjms.length)
+    : 500
+  const totalPrev    = trims.reduce((s, t) => s + trimEtpCostEur(t, financeConfig, joursParTrim) + (t.budget_invest ?? 0) + (t.budget_achats ?? 0), 0)
+  const totalPrevEtp = trims.reduce((s, t) => s + trimEtpTotal(t), 0)
   const totalRealEtp = trims.reduce((s, t) => s + (t.realise_etp ?? 0), 0)
   const totalOutcome = trims.reduce((s, t) => s + (t.outcome_euros ?? 0), 0)
 
@@ -939,14 +1007,14 @@ export default function ProduitConfigPage() {
                       <input type="number" min="0" step="1"
                         value={ragConfig[key].amber}
                         onChange={e => { setRagConfig(c => ({ ...c, [key]: { ...c[key], amber: Number(e.target.value) } })); setDirty(true) }}
-                        className="ds-input text-xs text-center" />
+                        className="ds-input text-xs text-center w-16" />
                     </div>
                     <div>
                       <label className="text-[10px] text-red font-bold uppercase tracking-wide block mb-0.5">Critique ≥</label>
                       <input type="number" min="0" step="1"
                         value={ragConfig[key].red}
                         onChange={e => { setRagConfig(c => ({ ...c, [key]: { ...c[key], red: Number(e.target.value) } })); setDirty(true) }}
-                        className="ds-input text-xs text-center" />
+                        className="ds-input text-xs text-center w-16" />
                     </div>
                   </div>
                 </div>
@@ -961,7 +1029,7 @@ export default function ProduitConfigPage() {
               ? trims.find(t => t.id === resumeTrimId) ?? null
               : null
 
-            const dPrevEtp  = activeTrim ? (activeTrim.budget_etp  ?? 0) : totalPrevEtp
+            const dPrevEtp  = activeTrim ? trimEtpTotal(activeTrim) : totalPrevEtp
             const dRealEtp  = activeTrim ? (activeTrim.realise_etp ?? 0) : totalRealEtp
             const dPrevJ    = Math.round(dPrevEtp * JOURS_ETP_TRIM)
             const dRealJ    = Math.round(dRealEtp * JOURS_ETP_TRIM)
@@ -976,7 +1044,10 @@ export default function ProduitConfigPage() {
               : trims.reduce((s, t) => s + (t.realise_invest ?? 0) + (t.realise_achats ?? 0), 0)
             const dEcartExt = dRealExt - dPrevExt
 
-            const dPrevTotal = dPrevEtp * 80000 + dPrevExt
+            const dPrevEtpEur = activeTrim
+              ? trimEtpCostEur(activeTrim, financeConfig, joursParTrim)
+              : trims.reduce((s, t) => s + trimEtpCostEur(t, financeConfig, joursParTrim), 0)
+            const dPrevTotal = dPrevEtpEur + dPrevExt
             const dOutcome   = activeTrim ? (activeTrim.outcome_euros ?? 0) : totalOutcome
             const dRoi       = dPrevTotal > 0 ? ((dOutcome - dPrevTotal) / dPrevTotal * 100) : null
 
@@ -1027,7 +1098,7 @@ export default function ProduitConfigPage() {
                       {(dPrevEtp > 0 || dRealEtp > 0) && (
                         <div className="flex items-center justify-between px-3 py-2 bg-bg/50">
                           <span className="text-xs text-subtle font-medium">Écart</span>
-                          <span className={cn('text-xs font-bold tabular-nums', dRealEtp > 0 ? ecartClass(dEcartEtp * 80000) : 'text-subtle')}>
+                          <span className={cn('text-xs font-bold tabular-nums', dRealEtp > 0 ? ecartClass(dEcartEtp * tjmMoyenPage * joursParTrim) : 'text-subtle')}>
                             {dRealEtp > 0
                               ? <>{dEcartEtp >= 0 ? '+' : ''}{dEcartEtp.toFixed(1)} ETP <span className="font-normal mx-1">·</span> {dEcartEtp >= 0 ? '+' : ''}{Math.round(dEcartEtp * JOURS_ETP_TRIM)} j</>
                               : '—'
@@ -1169,6 +1240,8 @@ export default function ProduitConfigPage() {
                     sprints={sprints}
                     taches={taches}
                     usedSprintIds={usedByOthers}
+                    equipes={equipes}
+                    financeConfig={financeConfig}
                     onChange={updated => updateTrim(t.id, updated)}
                     onDelete={() => deleteTrim(t.id)} />
                 )

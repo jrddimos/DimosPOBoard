@@ -9,7 +9,7 @@ import { Tooltip } from '@/components/ui/Tooltip'
 import { ToggleGroup } from '@/components/ui/ToggleGroup'
 import { cn, epicShortName } from '@/lib/utils'
 import { EPIC_COLORS, JALON_COLORS } from '@/constants'
-import { scopedMetrics } from '@/utils/produitMetrics'
+import { scopedMetrics, computeBurndownWeeks } from '@/utils/produitMetrics'
 import type { MultiScope, ProduitMetrics } from '@/utils/produitMetrics'
 import { trimAvancement } from '@/hooks/useProduits'
 import type { Produit } from '@/hooks/useProduits'
@@ -182,7 +182,7 @@ function StackedStatutRows({ rows }: { rows: { label: string; taches: Tache[] }[
 }
 
 // ── Courbe (1..N séries, un seul axe) ────────────────────────────
-export interface LineSeries { id: string; label: string; color: string; points: { x: string; y: number | null }[] }
+export interface LineSeries { id: string; label: string; color: string; dash?: boolean; points: { x: string; y: number | null }[] }
 
 function TrendLineChart({ categories, series, valueFormatter }: {
   categories: string[]; series: LineSeries[]; valueFormatter?: (v: number) => string
@@ -211,7 +211,8 @@ function TrendLineChart({ categories, series, valueFormatter }: {
           iconType="circle" iconSize={8} wrapperStyle={{ paddingTop: 8 }} />}
         {series.map(s => (
           <Line key={s.id} type="monotone" dataKey={s.id} name={s.id} stroke={s.color} strokeWidth={2}
-            dot={{ r: 3.5, fill: '#fff', stroke: s.color, strokeWidth: 2 }}
+            strokeDasharray={s.dash ? '5 4' : undefined}
+            dot={s.dash ? false : { r: 3.5, fill: '#fff', stroke: s.color, strokeWidth: 2 }}
             activeDot={{ r: 5 }} connectNulls={false} isAnimationActive />
         ))}
       </RLineChart>
@@ -288,6 +289,55 @@ export function PortfolioTendanceChart({ produits }: { produits: Produit[] }) {
       <TrendLineChart categories={categories} series={trimSeries} valueFormatter={v => `${v}%`} />
       <p className="text-[11px] text-slate-400 mt-2">{TRIM_METRIC_LABEL[trimMetric]}, par trimestre.</p>
     </div>
+  )
+}
+
+// ── Burndown trimestriel (reste à faire théorique vs réel, semaine par semaine) ──
+// "Objectif" (pointillé) = pente idéale linéaire du total d'US à 0 sur toute la
+// durée du trimestre. "Réalisé" (plein, vert) = US restantes réellement, à partir
+// des dates de passage à "Fait" issues du journal d'activité — s'arrête à
+// aujourd'hui, ne continue pas au-delà.
+export function ProduitBurndownChart({ quarterStart, quarterEnd, objectif, doneDates, trimLabel }: {
+  quarterStart: Date | null; quarterEnd: Date | null; objectif: number; doneDates: Date[]; trimLabel?: string | null
+}) {
+  if (!quarterStart || !quarterEnd || objectif === 0) {
+    return <p className="text-xs text-subtle italic">Pas de période active avec des US planifiées pour ce périmètre.</p>
+  }
+  const weeks = computeBurndownWeeks(quarterStart, quarterEnd, objectif, doneDates)
+  if (weeks.length === 0) {
+    return <p className="text-xs text-subtle italic">Cette période n'a pas encore commencé.</p>
+  }
+  const series: LineSeries[] = [
+    { id: 'objectif', label: 'Objectif', color: '#94A3B8', dash: true, points: weeks.map(w => ({ x: w.label, y: w.objectif })) },
+    { id: 'realise',  label: 'Réalisé',  color: '#10B981', points: weeks.map(w => ({ x: w.label, y: w.realise })) },
+  ]
+  return (
+    <div>
+      <TrendLineChart categories={weeks.map(w => w.label)} series={series} valueFormatter={v => `${v} US restantes`} />
+      <p className="text-[11px] text-slate-400 mt-2">
+        {trimLabel ? `${trimLabel} — ` : ''}{objectif} US à écouler sur la période, reste à faire par semaine.
+      </p>
+    </div>
+  )
+}
+
+// Version compacte (sparkline) sans axes ni légende, pour une ligne de tableau.
+export function BurndownSparkline({ quarterStart, quarterEnd, objectif, doneDates }: {
+  quarterStart: Date | null; quarterEnd: Date | null; objectif: number; doneDates: Date[]
+}) {
+  if (!quarterStart || !quarterEnd || objectif === 0) return null
+  const weeks = computeBurndownWeeks(quarterStart, quarterEnd, objectif, doneDates)
+  if (weeks.length < 2) return null
+  const lastReal = [...weeks].reverse().find(w => w.realise !== null)
+  return (
+    <Tooltip content={lastReal ? `Burndown trimestre : ${lastReal.realise}/${objectif} US restantes` : `Objectif : ${objectif} US`}>
+      <ResponsiveContainer width={72} height={28}>
+        <RLineChart data={weeks} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+          <Line type="monotone" dataKey="objectif" stroke="#CBD5E1" strokeWidth={1.5} strokeDasharray="2 2" dot={false} connectNulls isAnimationActive={false} />
+          <Line type="monotone" dataKey="realise" stroke="#10B981" strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
+        </RLineChart>
+      </ResponsiveContainer>
+    </Tooltip>
   )
 }
 

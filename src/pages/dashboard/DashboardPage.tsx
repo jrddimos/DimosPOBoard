@@ -5,6 +5,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { useAllTaches } from '@/hooks/useTaches'
 import { useProduits, useRequestProduitAccess } from '@/hooks/useProduits'
 import { useFinanceConfig } from '@/hooks/useFinanceConfig'
+import { useAllFaitTransitions } from '@/hooks/useActivityLog'
 import { useAuth } from '@/contexts/AuthContext'
 import { useProduit } from '@/contexts/ProduitContext'
 import { useToast } from '@/hooks/useToast'
@@ -29,6 +30,10 @@ export default function DashboardPage() {
   const { data: produits = [], isLoading: loadProd } = useProduits()
   const { data: taches   = [], isLoading: loadTach } = useAllTaches()
   const { data: finConfig }                          = useFinanceConfig()
+  // Fenêtre large (~1 trimestre) : couvre le trimestre en cours de n'importe
+  // quel produit sans avoir à connaître sa date de début à l'avance.
+  const sinceBurnup = useMemo(() => new Date(Date.now() - 100 * 86400000).toISOString(), [])
+  const { data: faitTransitions = [] } = useAllFaitTransitions(sinceBurnup)
   const { isAdmin, getRoleForProduit }               = useAuth()
   const { produitActif, setProduitActif }            = useProduit()
   const navigate                                     = useNavigate()
@@ -68,6 +73,16 @@ export default function DashboardPage() {
     })
     return map
   }, [accessibles, allParents, finConfig, today])
+
+  // Date la plus ancienne à laquelle chaque US est passée à "Fait" (clé "produit_id:id_tache").
+  const faitDoneMap = useMemo(() => {
+    const map = new Map<string, string>()
+    faitTransitions.forEach(f => {
+      const key = `${f.produit_id}:${f.target}`
+      if (!map.has(key)) map.set(key, f.created_at)
+    })
+    return map
+  }, [faitTransitions])
 
   function toggleProduit(id: number) {
     setSelectedIds(prev => {
@@ -176,6 +191,7 @@ export default function DashboardPage() {
                 metricsMap={metricsMap}
                 scope={scope}
                 allTaches={allParents}
+                faitDoneMap={faitDoneMap}
                 navigate={navigate}
                 openProduct={goToProductDashboard}
                 fmtDate={fmtDate}

@@ -13,6 +13,7 @@ import {
   computeProduitMetrics,
   scopedMetrics,
   getQuarterEnd,
+  trimEtpCostEur,
 } from '@/utils/produitMetrics'
 import type { Rag, MultiScope } from '@/utils/produitMetrics'
 
@@ -162,15 +163,15 @@ export function ProduitBandeauRow({
   }, [racines, currentTrim])
 
   const effortFaitTrim    = racinesTrim.filter(t => t.statut === 'Fait').reduce((s, t) => s + (t.effort_j ?? 0), 0)
-  const trimBudgetEtp     = (currentTrim?.budget_etp ?? 0) * tjmMoyen * joursTotaux
+  const trimBudgetEtp     = currentTrim ? trimEtpCostEur(currentTrim, finConfig, joursTotaux) : 0
   const trimRealiseEtpEur = effortFaitTrim * tjmMoyen
 
   const effortFaitGlobal = racines.filter(t => t.statut === 'Fait').reduce((s, t) => s + (t.effort_j ?? 0), 0)
   const realiseEtpEur    = effortFaitGlobal * tjmMoyen
-  const totalEtp         = (produit.objectifs_trimestriels ?? []).reduce((s, t) => s + (t.budget_etp ?? 0), 0)
+  const totalEtpEur      = (produit.objectifs_trimestriels ?? []).reduce((s, t) => s + trimEtpCostEur(t, finConfig, joursTotaux), 0)
   const totalInvest      = (produit.objectifs_trimestriels ?? []).reduce((s, t) => s + (t.budget_invest ?? 0), 0)
   const totalAchats      = (produit.objectifs_trimestriels ?? []).reduce((s, t) => s + (t.budget_achats ?? 0), 0)
-  const globalBudgetNet  = totalEtp * tjmMoyen * joursTotaux - totalInvest - totalAchats
+  const globalBudgetNet  = totalEtpEur - totalInvest - totalAchats
 
   const bloqueGlobal = sm.bloqueUS
   const bloqueTrimSc = sm.bloqueTrim

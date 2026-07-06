@@ -7,6 +7,8 @@ import { useSprintActif, useSprints } from '@/hooks/useSprints'
 import { useTachesByProduit } from '@/hooks/useTaches'
 import { useUtilisateurs, useEquipes } from '@/hooks/useEquipes'
 import { useFinanceConfig } from '@/hooks/useFinanceConfig'
+import { useFaitTransitions } from '@/hooks/useActivityLog'
+import { trimEtpCostEur } from '@/utils/produitMetrics'
 import { cn } from '@/lib/utils'
 import { AlertTriangle, Check, CheckCircle, XCircle, CornerDownRight, ListPlus, Lock, Pencil, Plus, X } from 'lucide-react'
 import type { Produit, RisqueItem, ActionLop } from '@/hooks/useProduits'
@@ -18,6 +20,7 @@ const LazyRoadmapChart   = lazy(() => import('@/pages/dashboard/DashboardCharts'
 const LazyStatutsChart   = lazy(() => import('@/pages/dashboard/DashboardCharts').then(m => ({ default: m.VerticalStackedStatutChart })))
 const LazyEpicsChart     = lazy(() => import('@/pages/dashboard/DashboardCharts').then(m => ({ default: m.ProduitEpicsChart })))
 const LazyTendanceChart  = lazy(() => import('@/pages/dashboard/DashboardCharts').then(m => ({ default: m.ProduitTendanceSprintChart })))
+const LazyBurndownChart  = lazy(() => import('@/pages/dashboard/DashboardCharts').then(m => ({ default: m.ProduitBurndownChart })))
 
 function ChartWidget({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -373,7 +376,8 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
     ? Math.round(equipeTjms.reduce((s, e) => s + e.tjm, 0) / equipeTjms.length)
     : 500
 
-  const totalEtp      = trims.reduce((s, t) => s + (t.budget_etp    ?? 0), 0)
+  const joursParTrim  = finConfig?.jours_par_trim ?? 65
+  const totalEtpEur   = trims.reduce((s, t) => s + trimEtpCostEur(t, finConfig, joursParTrim), 0)
   const totalInvest   = trims.reduce((s, t) => s + (t.budget_invest  ?? 0), 0)
   const totalAchats   = trims.reduce((s, t) => s + (t.budget_achats  ?? 0), 0)
   const realiseInvest = trims.reduce((s, t) => s + (t.realise_invest ?? 0), 0)
@@ -381,11 +385,11 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const realiseEtpJ   = effortFait
   const realiseEtpEur = realiseEtpJ * tjmMoyen
 
-  const totalBudget   = totalEtp * tjmMoyen * (finConfig?.jours_par_trim ?? 65) + totalInvest + totalAchats
+  const totalBudget   = totalEtpEur + totalInvest + totalAchats
   const totalOutcome  = trims.reduce((s, t) => s + (t.outcome_euros ?? 0), 0)
   const roi           = totalBudget > 0 ? Math.round((totalOutcome - totalBudget) / totalBudget * 100) : null
 
-  const trimBudgetEtp    = (currentTrim?.budget_etp    ?? 0) * tjmMoyen * (finConfig?.jours_par_trim ?? 65)
+  const trimBudgetEtp    = currentTrim ? trimEtpCostEur(currentTrim, finConfig, joursParTrim) : 0
   const trimBudgetInvest = currentTrim?.budget_invest  ?? 0
   const trimBudgetAchats = currentTrim?.budget_achats  ?? 0
   const trimBudgetTotal  = trimBudgetEtp + trimBudgetInvest + trimBudgetAchats
@@ -402,6 +406,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   // ── Curseur temporel ─────────────────────────────────────────
   const joursTotaux  = finConfig?.jours_par_trim ?? 65
   const quarterStart = currentTrim ? getQuarterStart(currentTrim.trimestre) : null
+  const quarterEndForBurndown = currentTrim ? getQuarterEnd(currentTrim.trimestre) : null
   const joursEcoules = quarterStart ? Math.min(countWorkingDays(quarterStart, new Date()), joursTotaux) : null
   const cursorPct    = joursEcoules !== null ? Math.round(joursEcoules / joursTotaux * 100) : null
 
@@ -413,6 +418,32 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
     .sort((a, b) => a.getTime() - b.getTime())[0] ?? null
 
   const globalTargetDateEarly = produit.date_lancement_cible ? new Date(produit.date_lancement_cible) : null
+
+  // ── Burndown (dates réelles de passage à "Fait" depuis le journal d'activité) ──
+  // Adapté au sélecteur Global / Trimestre / Sprint (scopeView) déjà utilisé par le reste du dashboard.
+  const effectiveSprintObj = sortedSprints.find(s => s.numero === effectiveSprint) ?? null
+  const burndownStart = scopeView === 'global' ? firstTrimStartEarly
+    : scopeView === 'sprint' ? (effectiveSprintObj?.started_at ? new Date(effectiveSprintObj.started_at) : null)
+    : quarterStart
+  const burndownEnd = scopeView === 'global' ? (globalTargetDateEarly ?? new Date())
+    : scopeView === 'sprint' ? (effectiveSprintObj?.closed_at ? new Date(effectiveSprintObj.closed_at) : null)
+    : quarterEndForBurndown
+  const burndownObjectif = scopeView === 'global' ? totalUS : scopeView === 'sprint' ? totalUSSprint : totalUSTrim
+  const burndownTasks    = scopeView === 'global' ? racines : scopeView === 'sprint' ? racinesSprint : racinesTrim
+
+  // Fenêtre de requête assez large pour couvrir n'importe quel scope, sans refetch au changement de sélecteur.
+  const burndownSinceCandidates = [quarterStart, firstTrimStartEarly, ...sortedSprints.map(s => s.started_at ? new Date(s.started_at) : null)]
+    .filter((d): d is Date => d !== null)
+  const burndownSince = burndownSinceCandidates.length
+    ? new Date(Math.min(...burndownSinceCandidates.map(d => d.getTime())))
+    : null
+
+  const { data: faitTransitions = [] } = useFaitTransitions(produit.id, burndownSince ? burndownSince.toISOString() : null)
+  const faitDoneMap = new Map<string, string>()
+  faitTransitions.forEach(f => { if (!faitDoneMap.has(f.target)) faitDoneMap.set(f.target, f.created_at) })
+  const burndownDoneDates = burndownTasks
+    .filter(t => t.statut === 'Fait')
+    .map(t => { const iso = faitDoneMap.get(t.id_tache); return iso ? new Date(iso) : (burndownStart ?? new Date()) })
 
   const globalCursorPctEarly = firstTrimStartEarly && globalTargetDateEarly && globalTargetDateEarly > firstTrimStartEarly
     ? Math.min(100, Math.max(0, Math.round(
@@ -1128,6 +1159,15 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
                 ))}
 </div>}
 </Section>
+          ) },
+          { key: 'chart_burndown', label: 'Burndown', minW: 4, minH: 3, defaultSize: { w: 12, h: 5 }, content: (
+            <ChartWidget title={`Burndown — ${
+              scopeView === 'global' ? 'Global' : scopeView === 'sprint' ? (effectiveSprint ?? 'Sprint') : (currentTrim?.trimestre ?? 'Trimestre en cours')
+            }`}>
+              <LazyBurndownChart quarterStart={burndownStart} quarterEnd={burndownEnd} objectif={burndownObjectif}
+                doneDates={burndownDoneDates}
+                trimLabel={scopeView === 'global' ? 'Global' : scopeView === 'sprint' ? effectiveSprint : (currentTrim?.trimestre ?? null)} />
+            </ChartWidget>
           ) },
           { key: 'lop', label: 'LOP', minW: 5, minH: 3, defaultSize: { w: 12, h: 4 }, content: (
 <Section className="h-full" scrollable

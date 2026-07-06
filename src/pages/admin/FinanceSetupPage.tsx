@@ -1,11 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Layout }   from '@/components/layout/Layout'
 import { useToast } from '@/hooks/useToast'
-import { ToastContainer } from '@/components/ui/Toast'
 import { useFinanceConfig, useUpdateFinanceConfig } from '@/hooks/useFinanceConfig'
 import type { EquipeTjm, TrimConfig } from '@/hooks/useFinanceConfig'
 import { useEquipes } from '@/hooks/useEquipes'
-import { Plus, X, Save, Euro, Calendar, Users, Wand2, AlertCircle } from 'lucide-react'
+import { Plus, X, Save, Calendar, Users, Wand2, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export default function FinanceSetupPage() {
@@ -95,24 +93,16 @@ export default function FinanceSetupPage() {
   }, [activeEquipes, equipeTjms, joursParTrim, trimestres])
 
   if (isLoading) return (
-    <Layout>
-      <div className="flex items-center justify-center h-40 text-slate-400 text-sm">Chargement…</div>
-    </Layout>
+    <div className="flex items-center justify-center h-40 text-slate-400 text-sm">Chargement…</div>
   )
 
   return (
-    <Layout>
-      <ToastContainer />
-
-      {/* Topbar */}
-      <div className="page-topbar -mx-3 -mt-3 mb-4 px-3 md:-mx-5 md:-mt-5 md:px-5">
-        <div className="flex items-center gap-2">
-          <Euro size={16} className="text-navy" />
-          <h1 className="text-sm font-semibold text-navy">Configuration Finance</h1>
-        </div>
+    <div>
+      {/* Barre d'actions locale (le titre est déjà porté par l'onglet "Finance") */}
+      <div className="flex items-center justify-end mb-4">
         <button onClick={handleSave} disabled={!dirty || updateConfig.isPending}
           className={cn(
-            'ml-auto ds-btn-primary ds-btn-sm flex items-center gap-1.5 disabled:opacity-40 transition-all',
+            'ds-btn-primary ds-btn-sm flex items-center gap-1.5 disabled:opacity-40 transition-all',
             dirty && 'animate-pulse'
           )}>
           <Save size={13}/> {updateConfig.isPending ? 'Enregistrement…' : 'Enregistrer'}
@@ -121,7 +111,7 @@ export default function FinanceSetupPage() {
 
       {/* Bandeau "modifications non sauvegardées" */}
       {dirty && (
-        <div className="flex items-center gap-2 px-3 py-2 mb-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-xs font-medium -mx-3 md:-mx-5 md:px-5">
+        <div className="flex items-center gap-2 px-3 py-2 mb-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-xs font-medium">
           <AlertCircle size={13} className="shrink-0" />
           Modifications non sauvegardées — pensez à enregistrer avant de quitter.
         </div>
@@ -316,6 +306,6 @@ export default function FinanceSetupPage() {
           )}
         </div>
       </div>
-    </Layout>
+    </div>
   )
 }

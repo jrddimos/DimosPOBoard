@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { Layout } from '@/components/layout/Layout'
 import { Spinner } from '@/components/ui/Spinner'
+import { StatutBadge } from '@/components/ui/Badge'
 import { useTaches } from '@/hooks/useTaches'
 import { useDod, useCreateDodItem, useUpdateDodItem, useDeleteDodItem, type DodItem } from '@/hooks/useDod'
 import { useDodCategories, useCreateDodCategorie, type DodCategorie } from '@/hooks/useDodCategories'
@@ -10,9 +11,9 @@ import { confirm } from '@/components/ui/ConfirmModal'
 import { supabase } from '@/lib/supabase'
 import { useQueryClient } from '@tanstack/react-query'
 import { EPIC_LIST, EPIC_COLORS, JALON_LIST, JALON_COLORS } from '@/constants'
-import { epicShortName } from '@/lib/utils'
+import { epicShortName, naturalCompare } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { Plus, Pencil, Trash2, Check, X, ToggleLeft, ToggleRight, SlidersHorizontal, ClipboardCheck, BookOpen, BarChart3, Tag } from 'lucide-react'
+import { Plus, Pencil, Trash2, Check, X, ToggleLeft, ToggleRight, ClipboardCheck, BookOpen, BarChart3, Tag, Search, AlertTriangle } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
 import { SelectPicker } from '@/components/ui/SelectPicker'
 import { ToggleGroup } from '@/components/ui/ToggleGroup'
@@ -91,9 +92,35 @@ function CategoriesManager({ categories, items, produitId, qc, toast }: {
   qc: ReturnType<typeof useQueryClient>; toast: ReturnType<typeof useToast>
 }) {
   const createCategorie = useCreateDodCategorie()
-  const [nom, setNom] = useState('')
+  const [nom,       setNom]       = useState('')
+  const [editId,    setEditId]    = useState<number | null>(null)
+  const [editNom,   setEditNom]   = useState('')
+  const [importing, setImporting] = useState(false)
 
   function countFor(nomCat: string) { return items.filter(i => i.categorie === nomCat).length }
+
+  // Tri par code du 1er critère de chaque catégorie (items déjà triés
+  // naturellement depuis useDod), pour suivre l'ordre F1, F2, F9, F10…
+  const sortedCategories = [...categories].sort((a, b) => {
+    const codeA = items.find(i => i.categorie === a.nom)?.code ?? ''
+    const codeB = items.find(i => i.categorie === b.nom)?.code ?? ''
+    return naturalCompare(codeA, codeB)
+  })
+
+  // Catégories déjà utilisées sur des critères mais absentes de la table
+  // dod_categories (ex: valeurs saisies directement, sans passer par ce gestionnaire).
+  const missingCats = [...new Set(items.map(i => i.categorie).filter((c): c is string => !!c))]
+    .filter(c => !categories.some(cat => cat.nom.toLowerCase() === c.toLowerCase()))
+
+  async function importMissing() {
+    setImporting(true)
+    try {
+      for (const c of missingCats) await createCategorie.mutateAsync(c)
+      toast(`${missingCats.length} catégorie${missingCats.length > 1 ? 's' : ''} importée${missingCats.length > 1 ? 's' : ''}`)
+    } finally {
+      setImporting(false)
+    }
+  }
 
   async function add() {
     const v = nom.trim()
@@ -105,14 +132,16 @@ function CategoriesManager({ categories, items, produitId, qc, toast }: {
   }
 
   async function rename(cat: DodCategorie) {
-    const next = window.prompt('Renommer la catégorie', cat.nom)?.trim()
-    if (!next || next === cat.nom) return
+    const next = editNom.trim()
+    if (!next || next === cat.nom) { setEditId(null); return }
+    if (categories.some(c => c.id !== cat.id && c.nom.toLowerCase() === next.toLowerCase())) { toast('Cette catégorie existe déjà', 'error'); return }
     const ok = await confirm({ title: 'Renommer la catégorie ?', message: `"${cat.nom}" → "${next}" sur tous les critères concernés.`, confirmLabel: 'Renommer' })
     if (!ok) return
     await supabase.from('dod_categories').update({ nom: next }).eq('id', cat.id)
     await supabase.from('dod').update({ categorie: next }).eq('categorie', cat.nom).eq('produit_id', produitId)
     qc.invalidateQueries({ queryKey: ['dod_categories', produitId] })
     qc.invalidateQueries({ queryKey: ['dod', produitId] })
+    setEditId(null)
     toast('Catégorie renommée')
   }
 
@@ -133,6 +162,17 @@ function CategoriesManager({ categories, items, produitId, qc, toast }: {
 
   return (
     <div className="bg-bg border border-border rounded-xl p-4 flex flex-col gap-3">
+      {missingCats.length > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-orange/10 border border-orange/20 text-orange text-xs font-medium">
+          <span className="flex-1">
+            {missingCats.length} catégorie{missingCats.length > 1 ? 's' : ''} utilisée{missingCats.length > 1 ? 's' : ''} sur des critères mais absente{missingCats.length > 1 ? 's' : ''} de cette liste : {missingCats.join(', ')}
+          </span>
+          <button onClick={importMissing} disabled={importing}
+            className="ds-btn ds-btn-sm shrink-0 disabled:opacity-40">
+            {importing ? 'Import…' : 'Importer'}
+          </button>
+        </div>
+      )}
       <div className="flex items-end gap-2">
         <div className="flex-1">
           <label className="ds-label mb-1 block">Nouvelle catégorie</label>
@@ -149,16 +189,32 @@ function CategoriesManager({ categories, items, produitId, qc, toast }: {
         <p className="text-xs text-subtle italic">Aucune catégorie définie pour ce produit.</p>
       ) : (
         <div className="flex flex-col gap-1.5">
-          {categories.map(cat => (
+          {sortedCategories.map(cat => (
             <div key={cat.id} className="flex items-center gap-2 px-3 py-2 bg-card rounded-lg border border-border">
-              <span className="flex-1 text-sm font-medium text-navy truncate">{cat.nom}</span>
-              <span className="text-xs text-subtle">{countFor(cat.nom)} critère{countFor(cat.nom) !== 1 ? 's' : ''}</span>
-              <button onClick={() => rename(cat)} title="Renommer" className="p-1.5 rounded-lg text-subtle hover:text-navy hover:bg-bg transition-colors">
-                <Pencil size={12} />
-              </button>
-              <button onClick={() => del(cat)} title="Supprimer" className="p-1.5 rounded-lg text-subtle hover:text-rose-600 hover:bg-rose-50 transition-colors">
-                <Trash2 size={12} />
-              </button>
+              {editId === cat.id ? (
+                <>
+                  <input value={editNom} onChange={e => setEditNom(e.target.value)} autoFocus
+                    className="ds-input py-0.5 text-sm font-medium flex-1"
+                    onKeyDown={e => { if (e.key === 'Enter') rename(cat); if (e.key === 'Escape') setEditId(null) }} />
+                  <button onClick={() => rename(cat)} title="Valider" className="p-1.5 rounded-lg text-green hover:bg-green/10 transition-colors">
+                    <Check size={13} />
+                  </button>
+                  <button onClick={() => setEditId(null)} title="Annuler" className="p-1.5 rounded-lg text-subtle hover:text-navy hover:bg-bg transition-colors">
+                    <X size={13} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="flex-1 text-sm font-medium text-navy truncate">{cat.nom}</span>
+                  <span className="text-xs text-subtle">{countFor(cat.nom)} critère{countFor(cat.nom) !== 1 ? 's' : ''}</span>
+                  <button onClick={() => { setEditId(cat.id); setEditNom(cat.nom) }} title="Renommer" className="p-1.5 rounded-lg text-subtle hover:text-navy hover:bg-bg transition-colors">
+                    <Pencil size={12} />
+                  </button>
+                  <button onClick={() => del(cat)} title="Supprimer" className="p-1.5 rounded-lg text-subtle hover:text-red hover:bg-red/10 transition-colors">
+                    <Trash2 size={12} />
+                  </button>
+                </>
+              )}
             </div>
           ))}
         </div>
@@ -191,7 +247,10 @@ function ReferentielTab() {
       if (!map[cat]) map[cat] = []
       map[cat].push(item)
     })
-    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b))
+    // Tri par code du 1er critère de chaque catégorie (les items arrivent déjà
+    // triés naturellement depuis useDod) plutôt que par nom de catégorie —
+    // pour suivre l'ordre F1, F2, F9, F10… au lieu de l'ordre alphabétique.
+    return Object.entries(map).sort(([, a], [, b]) => naturalCompare(a[0].code, b[0].code))
   }, [items])
 
   async function handleCreate(v: Omit<DodItem, 'id' | 'created_at' | 'produit_id'>) {
@@ -211,7 +270,12 @@ function ReferentielTab() {
   }
 
   async function handleDelete(item: DodItem) {
-    if (!window.confirm(`Supprimer "${item.code} — ${item.titre}" ?`)) return
+    const ok = await confirm({
+      title: 'Supprimer ce critère ?',
+      message: `"${item.code} — ${item.titre}" sera définitivement supprimé.`,
+      confirmLabel: 'Supprimer', variant: 'danger',
+    })
+    if (!ok) return
     await del.mutateAsync(item.id)
     toast(`"${item.code}" supprimé`)
   }
@@ -249,7 +313,7 @@ function ReferentielTab() {
 
       {items.length === 0 && !showAdd ? (
         <div className="ds-card flex flex-col items-center py-14 text-subtle gap-2">
-          <div className="text-3xl mb-2">📋</div>
+          <ClipboardCheck size={40} className="opacity-20 mb-2" />
           <p className="font-medium text-sm">Aucun critère DoD défini</p>
           <p className="text-xs">Commencez par ajouter les critères de votre Definition of Done.</p>
         </div>
@@ -257,7 +321,7 @@ function ReferentielTab() {
         byCategorie.map(([categorie, catItems]) => (
           <div key={categorie} className="ds-card">
             <div className="flex items-center gap-2 mb-3">
-              <span className="text-xs font-bold text-subtle uppercase tracking-wider">{categorie}</span>
+              <span className="text-[11px] font-bold text-navy/75 uppercase tracking-wide">{categorie}</span>
               <span className="text-xs text-subtle/60">({catItems.length})</span>
             </div>
             <div className="flex flex-col gap-2">
@@ -274,7 +338,7 @@ function ReferentielTab() {
                     'flex items-start gap-3 px-3 py-2.5 rounded-xl border transition-all',
                     item.actif ? 'bg-card border-border' : 'bg-bg border-border/50 opacity-60'
                   )}>
-                    <span className="font-mono text-xs font-bold text-indigo-600 shrink-0 mt-0.5 w-16">{item.code}</span>
+                    <span className="font-mono text-xs font-bold text-brand shrink-0 mt-0.5 w-16">{item.code}</span>
                     <div className="flex-1 min-w-0">
                       <div className={cn('text-sm font-medium', !item.actif && 'line-through text-subtle')}>{item.titre}</div>
                       {item.description && <div className="text-xs text-subtle mt-0.5">{item.description}</div>}
@@ -310,10 +374,9 @@ function ReferentielTab() {
 function CouvertureTab() {
   const { data: taches   = [] } = useTaches()
   const { data: dodItems = [] } = useDod()
-  const [groupBy,     setGroupBy]     = useState<GroupBy>('epic')
-  const [filter,      setFilter]      = useState<FilterDod>('all')
-  const [search,      setSearch]      = useState('')
-  const [showFilters, setShowFilters] = useState(false)
+  const [groupBy, setGroupBy] = useState<GroupBy>('epic')
+  const [filter,  setFilter]  = useState<FilterDod>('all')
+  const [search,  setSearch]  = useState('')
 
   const parents = useMemo(() => taches.filter(t => !t.parent_id), [taches])
 
@@ -346,22 +409,10 @@ function CouvertureTab() {
         </div>
       </div>
 
-      {/* Filtres */}
+      {/* Recherche + filtres + groupement (toujours visibles) */}
       <div className="flex items-center gap-3 flex-wrap">
-        <button onClick={() => setShowFilters(v => !v)}
-          className={cn('relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all shrink-0',
-            showFilters ? 'bg-brand text-white border-navy' : 'bg-card text-subtle border-border hover:text-navy')}>
-          <SlidersHorizontal size={13} />
-          Filtres
-          {!showFilters && (search || filter !== 'all') && (
-            <span className="absolute -top-1.5 -right-1.5 bg-indigo-500 text-white text-[11px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-              {(search ? 1 : 0) + (filter !== 'all' ? 1 : 0)}
-            </span>
-          )}
-        </button>
-        {showFilters && <>
         <div className="ds-searchbar flex-1 max-w-xs">
-          <span className="text-subtle text-xs">🔍</span>
+          <Search size={13} className="text-subtle shrink-0" />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher…" />
         </div>
         <ToggleGroup value={filter} onChange={setFilter} options={[
@@ -371,9 +422,8 @@ function CouvertureTab() {
         ]} />
         <ToggleGroup value={groupBy} onChange={setGroupBy} options={[
           { key: 'epic',  label: 'Par Epic' },
-          { key: 'jalon', label: 'Par Jalon - Incrément majeur' },
+          { key: 'jalon', label: 'Par Jalon' },
         ]} />
-        </>}
       </div>
 
       {/* Tableau par groupe */}
@@ -399,7 +449,7 @@ function CouvertureTab() {
                 <tbody>
                   {group.tasks.map(t => (
                     <tr key={t.id_tache}>
-                      <td className="font-semibold text-indigo-600">{t.id_tache}</td>
+                      <td className="font-semibold text-brand">{t.id_tache}</td>
                       <td className="max-w-xs"><div className="truncate">{t.titre}</div></td>
                       <td>
                         {t.lien_dod ? (
@@ -408,21 +458,19 @@ function CouvertureTab() {
                               const ref = dodItems.find(d => d.code === code)
                               return (
                                 <span key={code} title={ref?.titre ?? code}
-                                  className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-mono font-medium">
+                                  className="text-xs px-2 py-0.5 rounded-full bg-brand/10 text-brand font-mono font-medium">
                                   {code}
                                 </span>
                               )
                             })}
                           </div>
                         ) : (
-                          <span className="text-xs bg-red/10 text-red px-2 py-0.5 rounded-full font-medium">⚠ Manquant</span>
+                          <span className="inline-flex items-center gap-1 text-xs bg-red/10 text-red px-2 py-0.5 rounded-full font-medium">
+                            <AlertTriangle size={11} /> Manquant
+                          </span>
                         )}
                       </td>
-                      <td>
-                        {t.statut === 'Fait'
-                          ? <span className="text-xs text-green font-semibold">✓</span>
-                          : <span className="text-xs text-subtle">{t.statut}</span>}
-                      </td>
+                      <td><StatutBadge value={t.statut} /></td>
                       <td className="text-subtle">{t.sprint || t.sprint_debut || '—'}</td>
                     </tr>
                   ))}

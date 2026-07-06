@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { Layout } from '@/components/layout/Layout'
 import { useProduit } from '@/contexts/ProduitContext'
@@ -15,18 +16,24 @@ import { downloadCSV } from '@/lib/utils'
 import { EPIC_COLORS, JALON_LIST, JALON_COLORS, METIERS_DEFAULT, SPRINTS_LIST } from '@/constants'
 import {
   Pencil, Trash2, Plus, ChevronDown, ChevronRight, Check, X,
-  Tag, Calendar, BookOpen, Target, Download, FileDown, Settings, Lock,
+  Tag, Calendar, BookOpen, Target, Download, FileDown, Settings, Lock, Euro, Users,
 } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
 import { SelectPicker } from '@/components/ui/SelectPicker'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
 import type { SprintStats } from '@/types'
+import FinanceTab from '@/pages/admin/FinanceSetupPage'
+import EquipesTab from '@/pages/admin/EquipesUtilisateursPage'
 
-type SetupTab = 'sprints'|'epics'|'jalons'|'metiers'|'export'
+type SetupTab = 'sprints'|'epics'|'jalons'|'metiers'|'export'|'finance'|'equipes'
 
-const GLOBAL_TABS = [
-  { key: 'metiers' as SetupTab, label: 'Thèmes',  icon: <Tag size={12} /> },
+// Thèmes est ouvert à tous (lecture seule pour les non-admins) ; Finance et
+// Équipes restent réservés aux admins, comme avant leur fusion dans Setup.
+const GLOBAL_TABS_ALL   = [{ key: 'metiers' as SetupTab, label: 'Thèmes',                 icon: <Tag size={12} /> }]
+const GLOBAL_TABS_ADMIN = [
+  { key: 'finance' as SetupTab, label: 'Finance',                icon: <Euro size={12} /> },
+  { key: 'equipes' as SetupTab, label: 'Équipes & Utilisateurs',  icon: <Users size={12} /> },
 ]
 const PRODUCT_TABS = [
   { key: 'sprints' as SetupTab, label: 'Sprints',  icon: <Calendar size={12} /> },
@@ -43,12 +50,14 @@ export default function SetupPage() {
   const canEditProduct   = produitActif ? canEdit(produitActif.id) : false
 
   // Onglets visibles selon le contexte : jamais mélangés
+  const GLOBAL_TABS  = [...GLOBAL_TABS_ALL, ...(isAdmin ? GLOBAL_TABS_ADMIN : [])]
   const isProductTab = (t: SetupTab) => PRODUCT_TABS.some(x => x.key === t)
+  const isGlobalTab  = (t: SetupTab) => t === 'metiers' || t === 'finance' || t === 'equipes'
   const tabs = isProductTab(tab) ? PRODUCT_TABS : GLOBAL_TABS
 
   useEffect(() => {
     const t = params.get('tab') as SetupTab
-    if (t === 'metiers') { setTab('metiers'); return }
+    if (t && isGlobalTab(t)) { setTab(t); return }
     if (t && PRODUCT_TABS.some(x => x.key === t)) { setTab(t); return }
     // Pas de tab dans l'URL : contexte produit → sprints, sinon → thèmes
     setTab(produitActif ? 'sprints' : 'metiers')
@@ -78,12 +87,18 @@ export default function SetupPage() {
         <div className="ds-card flex items-center gap-2 text-sm text-subtle">
           <Lock size={14}/> Accès en lecture seule — la gestion des thèmes globaux est réservée aux administrateurs.
         </div>
+      ) : (tab === 'finance' || tab === 'equipes') && !isAdmin ? (
+        <div className="ds-card flex items-center gap-2 text-sm text-subtle">
+          <Lock size={14}/> Accès réservé aux administrateurs.
+        </div>
       ) : <>
         {tab === 'sprints' && <SprintsTab />}
         {tab === 'epics'   && <EpicsTab />}
         {tab === 'jalons'  && <JalonsTab />}
         {tab === 'metiers' && <MetiersTab />}
         {tab === 'export'  && <ExportTab />}
+        {tab === 'finance' && <FinanceTab />}
+        {tab === 'equipes' && <EquipesTab />}
       </>}
     </Layout>
   )
@@ -600,7 +615,19 @@ function JalonsTab() {
 }
 
 function MetiersTab() {
-  const { data: taches = [] } = useTaches(); const toast = useToast()
+  // Les Thèmes (métiers) sont transverses à tous les produits : on ne les
+  // scope pas au produit actif comme le fait useTaches(), sinon on ne voit
+  // que les métiers utilisés dans le produit courant.
+  const { data: taches = [] } = useQuery({
+    queryKey: ['taches-metiers-global'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('taches').select('metier')
+      if (error) throw error
+      return (data ?? []) as { metier: string | null }[]
+    },
+    staleTime: 30_000,
+  })
+  const toast = useToast()
   const [nom, setNom] = useState('')
   const counts: Record<string, number> = {}; taches.forEach(t => { if (t.metier) counts[t.metier] = (counts[t.metier] ?? 0) + 1 })
   const metiers = Object.keys(counts).sort()

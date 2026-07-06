@@ -1,6 +1,32 @@
 import type { Tache } from '@/types'
-import type { Produit } from '@/hooks/useProduits'
+import type { Produit, TrimObjectif } from '@/hooks/useProduits'
 import type { FinanceConfig } from '@/hooks/useFinanceConfig'
+
+function tjmMoyenOf(finConfig: FinanceConfig | undefined): number {
+  return (finConfig?.equipe_tjms?.length ?? 0) > 0
+    ? Math.round(finConfig!.equipe_tjms.reduce((s, e) => s + e.tjm, 0) / finConfig!.equipe_tjms.length)
+    : 500
+}
+
+// Total ETP d'un trimestre : somme du détail par équipe s'il existe, sinon
+// le champ simple (rétro-compatibilité avec les trimestres existants).
+export function trimEtpTotal(t: TrimObjectif): number {
+  const d = t.budget_etp_detail
+  return d && d.length > 0 ? d.reduce((s, x) => s + (x.etp || 0), 0) : (t.budget_etp ?? 0)
+}
+
+// Coût € d'un trimestre : valorise chaque ligne du détail au TJM de son
+// équipe (fallback TJM moyen si l'équipe n'a pas de TJM ou si aucun détail
+// n'a été saisi) — au lieu d'un TJM moyen appliqué à tout l'ETP.
+export function trimEtpCostEur(t: TrimObjectif, finConfig: FinanceConfig | undefined, jours: number): number {
+  const tjmMoyen = tjmMoyenOf(finConfig)
+  const d = t.budget_etp_detail
+  if (d && d.length > 0) {
+    const tjmByEquipe = new Map((finConfig?.equipe_tjms ?? []).map(e => [e.equipe_id, e.tjm]))
+    return d.reduce((s, x) => s + (x.etp || 0) * (x.equipe_id != null ? (tjmByEquipe.get(x.equipe_id) ?? tjmMoyen) : tjmMoyen) * jours, 0)
+  }
+  return (t.budget_etp ?? 0) * tjmMoyen * jours
+}
 
 export type Rag = 'green' | 'amber' | 'red' | null
 export type MultiScope = 'global' | 'trim'
@@ -66,9 +92,6 @@ export function computeProduitMetrics(
   today: Date,
 ): ProduitMetrics {
   const joursTotaux = finConfig?.jours_par_trim ?? 65
-  const tjmMoyen    = (finConfig?.equipe_tjms?.length ?? 0) > 0
-    ? Math.round(finConfig!.equipe_tjms.reduce((s, e) => s + e.tjm, 0) / finConfig!.equipe_tjms.length)
-    : 500
 
   const trims       = produit.objectifs_trimestriels ?? []
   const currentTrim = [...trims].reverse().find(t => !!t.lance && !t.pause && !t.cloture) ?? null
@@ -80,9 +103,8 @@ export function computeProduitMetrics(
   const backlogPct = totalUS > 0 ? Math.round(faitUS / totalUS * 100) : 0
   const effortFaitGlobal = racines.filter(t => t.statut === 'Fait').reduce((s, t) => s + (t.effort_j ?? 0), 0)
 
-  const totalEtp        = trims.reduce((s, t) => s + (t.budget_etp ?? 0), 0)
-  const globalBudgetEtp = totalEtp * tjmMoyen * joursTotaux
-  const globalRealiseEur = effortFaitGlobal * tjmMoyen
+  const globalBudgetEtp = trims.reduce((s, t) => s + trimEtpCostEur(t, finConfig, joursTotaux), 0)
+  const globalRealiseEur = effortFaitGlobal * tjmMoyenOf(finConfig)
 
   const firstTrimStart = trims
     .filter(t => !!t.lance)
@@ -113,8 +135,8 @@ export function computeProduitMetrics(
 
   const trimEnd = currentTrim ? getQuarterEnd(currentTrim.trimestre) : null
 
-  const trimBudgetEtp     = (currentTrim?.budget_etp ?? 0) * tjmMoyen * joursTotaux
-  const trimRealiseEtpEur = effortFaitTrim * tjmMoyen
+  const trimBudgetEtp     = currentTrim ? trimEtpCostEur(currentTrim, finConfig, joursTotaux) : 0
+  const trimRealiseEtpEur = effortFaitTrim * tjmMoyenOf(finConfig)
 
   const ragATrim = totalUSTrim > 0   ? ragAvancement(backlogPctTrim, cursorPct) : null
   const ragBTrim = trimBudgetEtp > 0 ? ragBudget(trimRealiseEtpEur, trimBudgetEtp, cursorPct) : null
@@ -177,6 +199,31 @@ export function computeProduitMetrics(
     trimLabel: currentTrim?.trimestre ?? null,
     dateLancementCible: produit.date_lancement_cible,
   }
+}
+
+// ── Burndown trimestriel (reste à faire théorique vs réel, semaine par semaine) ──
+// "Objectif" (pointillé) : pente idéale linéaire du total d'US à 0, sur toute la
+// durée du trimestre (semaines passées ET à venir).
+// "Réalisé" (plein) : US restantes réellement, jusqu'à aujourd'hui seulement
+// (null au-delà — la ligne s'arrête au lieu de continuer à plat).
+export interface BurndownPoint { label: string; objectif: number; realise: number | null }
+
+export function computeBurndownWeeks(quarterStart: Date, quarterEnd: Date, objectif: number, doneDates: Date[]): BurndownPoint[] {
+  if (quarterStart > quarterEnd) return []
+  const today = new Date()
+  const totalWeeks = Math.max(1, Math.ceil((quarterEnd.getTime() - quarterStart.getTime()) / (7 * 86400000)))
+  const points: BurndownPoint[] = []
+  for (let w = 0; w <= totalWeeks; w++) {
+    const weekDate = new Date(Math.min(quarterStart.getTime() + w * 7 * 86400000, quarterEnd.getTime()))
+    const idealRestant = Math.round(objectif * (1 - w / totalWeeks))
+    let realiseRestant: number | null = null
+    if (weekDate <= today) {
+      const doneCount = doneDates.filter(d => d.getTime() <= weekDate.getTime()).length
+      realiseRestant = Math.max(0, objectif - doneCount)
+    }
+    points.push({ label: w === 0 ? 'Début' : w === totalWeeks ? 'Fin' : `S${w}`, objectif: idealRestant, realise: realiseRestant })
+  }
+  return points
 }
 
 export function scopedMetrics(m: ProduitMetrics, scope: MultiScope) {
