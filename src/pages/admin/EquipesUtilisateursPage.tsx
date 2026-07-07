@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { useToast } from '@/hooks/useToast'
-import { useEquipes, useUtilisateurs, useCreateEquipe, useUpdateEquipe, useDeleteEquipe } from '@/hooks/useEquipes'
+import { useEquipes, useUtilisateurs, useCreateEquipe, useUpdateEquipe, useDeleteEquipe, useLastSignInDates } from '@/hooks/useEquipes'
 import { useAllRoles, useInviteUser, useSetRoleGlobal, useUpdateProfile, useSetUserEquipes, useUploadAvatar, useUpsertRoleProduit, useDeleteRoleProduit, useDeleteUser, usePendingProfiles, useCreatePendingProfile, useDeletePendingProfile, useSendInvitationToPending, useUpdatePendingProfile } from '@/hooks/useUserManagement'
 import type { PendingProfile } from '@/hooks/useUserManagement'
 import { useProduits } from '@/hooks/useProduits'
@@ -353,11 +353,12 @@ function PendingRow({
 }
 
 export default function EquipesUtilisateursPage() {
-  const { user: me } = useAuth()
+  const { user: me, isAdmin } = useAuth()
   const toast = useToast()
 
   const { data: equipes      = [], isLoading: loadEq } = useEquipes()
   const { data: utilisateurs = [], isLoading: loadU  } = useUtilisateurs()
+  const { data: lastSignIn   = new Map<string, string | null>() } = useLastSignInDates(isAdmin)
   const { data: allRoles     = [] }                    = useAllRoles()
   const { data: produits     = [] }                    = useProduits()
 
@@ -589,6 +590,10 @@ export default function EquipesUtilisateursPage() {
     const isExpanded = expandRoles === u.user_id
     const isMe       = u.user_id === me?.id
     const displayName = [u.prenom, u.nom].filter(Boolean).join(' ') || u.display_name || '—'
+    const lastSeen = lastSignIn.get(u.user_id)
+    const lastSeenLabel = lastSeen
+      ? new Date(lastSeen).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
+      : 'Jamais connecté'
     const fileRef = useRef<HTMLInputElement>(null)
     const userEquipeIds = u.equipe_ids ?? (u.equipe_id ? [u.equipe_id] : [])
     const teamsForUser  = userEquipeIds.map(id => equipeMap[id]).filter(Boolean)
@@ -624,7 +629,10 @@ export default function EquipesUtilisateursPage() {
                 <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full shrink-0">Vous</span>
               )}
             </div>
-            <div className="text-xs text-subtle">{u.role_metier || '—'}{u.trigramme ? ` · ${u.trigramme}` : ''}</div>
+            <div className="text-xs text-subtle">
+              {u.role_metier || '—'}{u.trigramme ? ` · ${u.trigramme}` : ''}
+              <span title="Dernière connexion" className={cn('ml-1.5', !lastSeen && 'italic text-subtle/60')}>· {lastSeenLabel}</span>
+            </div>
 
             {/* Chips équipes */}
             <div className="flex flex-wrap gap-1 mt-1.5">

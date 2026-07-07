@@ -2,17 +2,30 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useProduit } from '@/contexts/ProduitContext'
 import { naturalCompare } from '@/lib/utils'
+import { logActivity } from '@/hooks/useActivityLog'
 
+export type ExigenceType      = 'fonctionnelle' | 'performance' | 'securite' | 'cout'
+export type ExigenceCriticite = 'haute' | 'moyenne' | 'basse'
+
+// "DodItem"/table "dod" : noms historiques — il s'agit en réalité du
+// référentiel d'EXIGENCES produit (voir migration 0028).
 export interface DodItem {
-  id:          number
-  produit_id:  number
-  code:        string
-  titre:       string
-  description: string | null
-  categorie:   string | null
-  actif:       boolean
-  ordre:       number
-  created_at:  string
+  id:               number
+  produit_id:       number
+  code:             string
+  titre:            string
+  description:      string | null
+  categorie:        string | null
+  actif:            boolean
+  ordre:            number
+  type:             ExigenceType
+  criticite:        ExigenceCriticite
+  // Couverte = une US y travaille (lien_dod) ; vérifiée = validée par un
+  // essai. C'est ce statut qui pilote la sortie des boucles proto/essais.
+  verifiee:         boolean
+  valeur_cible:     string | null
+  valeur_constatee: string | null
+  created_at:       string
 }
 
 export function useDod() {
@@ -61,11 +74,23 @@ export function useUpdateDodItem() {
   const { produitActif } = useProduit()
 
   return useMutation({
-    mutationFn: async ({ id, updates }: { id: number; updates: Partial<DodItem> }) => {
+    // "item" (l'exigence complète avant modif) est optionnel mais nécessaire
+    // pour journaliser les allers-retours de vérification (compteur de
+    // boucles proto/essais) — à passer dès qu'on connaît déjà l'item.
+    mutationFn: async ({ id, updates, item }: { id: number; updates: Partial<DodItem>; item?: DodItem }) => {
       const { error } = await supabase.from('dod').update(updates).eq('id', id)
       if (error) throw error
+      if (produitActif && item && updates.verifiee !== undefined && updates.verifiee !== item.verifiee) {
+        await logActivity({
+          produit_id: produitActif.id, action: 'status', target: item.code, title: item.titre,
+          field: 'verifiee', old_value: String(item.verifiee), new_value: String(updates.verifiee),
+        })
+      }
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['dod', produitActif?.id] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['dod', produitActif?.id] })
+      qc.invalidateQueries({ queryKey: ['verification-loops', produitActif?.id] })
+    },
   })
 }
 

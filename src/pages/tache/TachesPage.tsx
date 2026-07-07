@@ -11,11 +11,13 @@ import { useSprintActif, useClosedSprints } from '@/hooks/useSprints'
 import { useEquipes, useUtilisateurs } from '@/hooks/useEquipes'
 import { useToast } from '@/hooks/useToast'
 import { confirm } from '@/components/ui/ConfirmModal'
-import { EPIC_LIST, JALON_LIST, MOSCOW_LIST, SPRINTS_LIST, METIERS_DEFAULT, EPIC_COLORS } from '@/constants'
+import { MOSCOW_LIST, SPRINTS_LIST, METIERS_DEFAULT } from '@/constants'
+import { useEpics, epicFullName } from '@/hooks/useEpics'
+import { useJalons } from '@/hooks/useJalons'
 import { Search, Lock, Plus, Copy, Trash2, ChevronRight, ChevronDown, X, CornerDownRight, FilePlus, SlidersHorizontal, BookOpen, Target, AlignJustify } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
 import { ToggleGroup } from '@/components/ui/ToggleGroup'
-import { cn, parseCriteres, serializeCriteres, hasPendingCriteres, epicShortName, epicCode } from '@/lib/utils'
+import { cn, parseCriteres, serializeCriteres, hasPendingCriteres, epicShortName, epicCode, naturalCompare } from '@/lib/utils'
 import type { CritereItem } from '@/lib/utils'
 import { CriteresEditor } from '@/components/ui/CriteresEditor'
 import { StatusPicker } from '@/components/ui/StatusPicker'
@@ -230,6 +232,8 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
   toast:ReturnType<typeof useToast>;initTitre?:string;initParentId?:string
 }) {
   const { data: dodItems=[] } = useDod()
+  const { data: epicsList=[] } = useEpics()
+  const { data: jalonsList=[] } = useJalons()
   const mkBlank=()=>({epic:'',jalon:'',titre:initTitre,description:'',lien_dod:'',commentaire:'',
     sprint_debut:sprintActif??'',sprint_fin:'',moscow:'Must Have',priorite:'P2',effort_j:0,
     equipe:'',metier:'',type_fonction:'Fonction principale',type_tache:'Tâche',assigne_a:'',
@@ -363,11 +367,11 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
             </Grp>
             <Grp label="Epic">
               <SelectPicker value={form.epic} onChange={v=>setForm(f=>({...f,epic:v}))}
-                options={EPIC_LIST.map(e=>({value:e,label:e}))} placeholder="-- Epic --" searchable/>
+                options={epicsList.map(e=>({value:epicFullName(e),label:epicFullName(e)}))} placeholder="-- Epic --" searchable/>
             </Grp>
             <Grp label="Jalon - Incrément majeur">
               <SelectPicker value={form.jalon} onChange={v=>setForm(f=>({...f,jalon:v}))}
-                options={JALON_LIST.map(j=>({value:j,label:j}))} placeholder="-- Jalon - Incrément majeur --"/>
+                options={jalonsList.map(j=>({value:j.code,label:j.code}))} placeholder="-- Jalon - Incrément majeur --"/>
             </Grp>
             <Grp label="MoSCoW">
               <MoSCoWPicker value={form.moscow} onChange={v=>setForm(f=>({...f,moscow:v}))}/>
@@ -381,7 +385,7 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
           {/* Ligne 3 : User Story + Critères */}
           <div className="grid grid-cols-2 gap-4">
             <Grp label="User Story"><textarea value={form.description} onChange={set('description')} className="ds-textarea" rows={3} placeholder="En tant que… je veux… afin de…"/></Grp>
-            <Grp label="Critères d'acceptation">
+            <Grp label="Critères d'acceptation (DoD)">
               <div className="ds-input min-h-[80px] flex flex-col">
                 <CriteresEditor items={critereItems} onChange={setCritereItems} />
               </div>
@@ -420,7 +424,7 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
                   {value:'Fonction exclue',label:'Exclue'},
                 ]} placeholder="-- Type --"/>
             </Grp>
-            <Grp label="Lien DoD"><DodLinkPicker value={form.lien_dod} onChange={v=>setForm(f=>({...f,lien_dod:v}))} items={dodItems}/></Grp>
+            <Grp label="Exigences"><DodLinkPicker value={form.lien_dod} onChange={v=>setForm(f=>({...f,lien_dod:v}))} items={dodItems}/></Grp>
           </div>
           {/* Ligne 5 : commentaire + boutons */}
           <div className="grid grid-cols-2 gap-4 items-end">
@@ -545,6 +549,12 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
   userId:string|null;initFocusId?:string
 }) {
   const { data: dodItems=[] } = useDod()
+  const { data: epicsList=[] } = useEpics()
+  const { data: jalonsList=[] } = useJalons()
+  const epicColorMap = useMemo(() => new Map(epicsList.map(e => [epicFullName(e), e.couleur])), [epicsList])
+  const epicBgMap = useMemo(() => new Map(epicsList.map(e => [epicFullName(e), e.bg_couleur])), [epicsList])
+  const jalonColorMap = useMemo(() => new Map(jalonsList.map(j => [j.code, j.couleur])), [jalonsList])
+  const jalonCodes = useMemo(() => jalonsList.map(j => j.code), [jalonsList])
   const [search,setSearch]=useState('')
   const [groupBy,setGroupBy]=useState<GroupBy>('epic')
   const [selEpics,setSelEpics]=useState<string[]>([])
@@ -566,7 +576,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
   const childMap:Record<string,Tache[]>={}
   taches.filter(t=>t.parent_id).forEach(c=>{if(!childMap[c.parent_id!]) childMap[c.parent_id!]=[]; childMap[c.parent_id!].push(c)})
 
-  const epicListe=useMemo(()=>[...new Set(parents.map(t=>t.epic).filter(Boolean))].sort(),[parents])
+  const epicListe=useMemo(()=>[...new Set(parents.map(t=>t.epic).filter(Boolean))].sort(naturalCompare),[parents])
 
   function toggleIn<T>(arr:T[],val:T):T[] { return arr.includes(val)?arr.filter(x=>x!==val):[...arr,val] }
   const activeFilterCount=selEpics.length+selJalons.length+selStatuts.length+selMoscows.length+selTypes.length+(search?1:0)
@@ -598,7 +608,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
 
   const groups:{key:string;tasks:Tache[]}[] =
     groupBy==='epic'  ? epicListe.map(e=>({key:e,tasks:filteredPaged.filter(t=>t.epic===e)})).filter(g=>g.tasks.length) :
-    groupBy==='jalon' ? JALON_LIST.map(j=>({key:j,tasks:filteredPaged.filter(t=>t.jalon===j)})).filter(g=>g.tasks.length) :
+    groupBy==='jalon' ? jalonCodes.map(j=>({key:j,tasks:filteredPaged.filter(t=>t.jalon===j)})).filter(g=>g.tasks.length) :
     [{key:'all',tasks:filteredPaged}]
 
   const panelTask=panelId?taches.find(t=>t.id_tache===panelId):null
@@ -721,7 +731,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
               {epicListe.map(epic=>(
                 <FilterChip key={epic} label={epicCode(epic)} active={selEpics.includes(epic)}
                   onClick={()=>{setSelEpics(prev=>toggleIn(prev,epic));setPage(1)}}
-                  activeBg={EPIC_COLORS[epic] ?? '#6366F1'} activeText="#fff"/>
+                  activeBg={epicColorMap.get(epic) ?? '#6366F1'} activeText="#fff"/>
               ))}
             </div>
           </div>
@@ -729,7 +739,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
             <div className="flex items-center gap-2">
               <span className="ds-label shrink-0">Jalon - Incrément majeur</span>
               <div className="flex gap-1.5">
-                {JALON_LIST.map(j=>(
+                {jalonCodes.map(j=>(
                   <FilterChip key={j} label={j} active={selJalons.includes(j)}
                     onClick={()=>{setSelJalons(prev=>toggleIn(prev,j));setPage(1)}}/>
                 ))}
@@ -786,9 +796,9 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
               <SelectPicker value={bulk.moscow} onChange={v=>setBulk(b=>({...b,moscow:v}))} className="w-32"
                 options={MOSCOW_LIST.map(m=>({value:m,label:m}))} placeholder="MoSCoW…"/>
               <SelectPicker value={bulk.epic} onChange={v=>setBulk(b=>({...b,epic:v}))} className="w-44"
-                options={EPIC_LIST.map(e=>({value:e,label:e.split(' — ')[0]}))} placeholder="Epic…" searchable/>
+                options={epicsList.map(e=>({value:epicFullName(e),label:e.code}))} placeholder="Epic…" searchable/>
               <SelectPicker value={bulk.jalon} onChange={v=>setBulk(b=>({...b,jalon:v}))} className="w-52"
-                options={JALON_LIST.map(j=>({value:j,label:j}))} placeholder="Jalon - Incrément majeur…"/>
+                options={jalonCodes.map(j=>({value:j,label:j}))} placeholder="Jalon - Incrément majeur…"/>
               <SelectPicker value={bulk.sprint_debut} onChange={v=>setBulk(b=>({...b,sprint_debut:v}))} className="w-32"
                 options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="Sprint…"/>
               <SelectPicker value={bulk.assigne_a} onChange={v=>setBulk(b=>({...b,assigne_a:v}))} className="w-44"
@@ -826,7 +836,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                 className={cn('bg-card border rounded-xl p-3 cursor-pointer',panelId===t.id_tache?'border-indigo-300 ring-1 ring-indigo-100':'border-border')}>
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="text-xs font-semibold text-indigo-600 shrink-0">{t.id_tache}</span>
-                  <EpicBadge value={t.epic??''} className="text-[11px]"/>
+                  <EpicBadge value={t.epic??''} className="text-[11px]" color={epicColorMap.get(t.epic??'') ?? undefined} bg={epicBgMap.get(t.epic??'') ?? undefined}/>
                   {subs.length>0&&<span className="bg-indigo-100 text-indigo-600 px-1 rounded text-[11px] font-semibold shrink-0">{subs.filter(s=>s.statut==='Fait').length}/{subs.length}</span>}
                   {blockers.length>0&&<span className="ml-auto text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full shrink-0">⛔ {blockers.length}</span>}
                 </div>
@@ -835,7 +845,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                   <StatutBadge value={t.statut}/>
                   {t.priorite&&<PrioBadge value={t.priorite}/>}
                   {t.moscow&&<MoscowBadge value={t.moscow}/>}
-                  {t.jalon&&<JalonBadge value={t.jalon}/>}
+                  {t.jalon&&<JalonBadge value={t.jalon} color={jalonColorMap.get(t.jalon)}/>}
                   {t.assigne_a&&<span className="text-[11px] font-semibold text-navy bg-bg px-1.5 py-0.5 rounded-full">{t.assigne_a}</span>}
                   {(t.sprint_debut||t.sprint)&&<span className="text-[11px] text-subtle ml-auto">{t.sprint_debut||t.sprint}</span>}
                 </div>
@@ -875,7 +885,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                     <tr className="group-row">
                       <td colSpan={14}>
                         <div className="flex items-center gap-2">
-                          {groupBy==='epic'&&<div className="w-2 h-2 rounded-sm" style={{background:EPIC_COLORS[group.key]??'#4A4CC8'}}/>}
+                          {groupBy==='epic'&&<div className="w-2 h-2 rounded-sm" style={{background:epicColorMap.get(group.key)??'#4A4CC8'}}/>}
                           {groupBy==='epic'?epicShortName(group.key):`Jalon - Incrément majeur ${group.key}`}
                           <span className="text-subtle font-normal text-xs ml-1">
                             {group.tasks.length} US · {group.tasks.reduce((s,t)=>s+effJ(t),0)}j
@@ -926,8 +936,8 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                       </td>
                       <td className="text-center">{t.priorite?<PrioBadge value={t.priorite}/>:<span className="text-subtle">—</span>}</td>
                       <td>{t.moscow?<MoscowBadge value={t.moscow}/>:<span className="text-subtle">—</span>}</td>
-                      <td><EpicBadge value={t.epic??''}/></td>
-                      <td className="text-center">{t.jalon?<JalonBadge value={t.jalon}/>:<span className="text-subtle">—</span>}</td>
+                      <td><EpicBadge value={t.epic??''} color={epicColorMap.get(t.epic??'') ?? undefined} bg={epicBgMap.get(t.epic??'') ?? undefined}/></td>
+                      <td className="text-center">{t.jalon?<JalonBadge value={t.jalon} color={jalonColorMap.get(t.jalon)}/>:<span className="text-subtle">—</span>}</td>
                       <td className="text-subtle whitespace-nowrap text-xs">{spDisplay}</td>
                       <td className="text-xs font-semibold text-navy">{t.assigne_a||<span className="text-subtle font-normal">—</span>}</td>
                       <td className="text-xs text-subtle truncate max-w-[120px]">{t.equipe||'—'}</td>
@@ -1006,7 +1016,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
               <div className="grid grid-cols-6 gap-3 mt-4 pt-3 border-t-2 border-slate-300">
                 <Grp label="Epic" className="col-span-2">
                   <SelectPicker value={String(editForm.epic??'')} onChange={v=>setEditForm(f=>({...f,epic:v}))}
-                    options={EPIC_LIST.map(e=>({value:e,label:e}))} placeholder="-- Epic --" searchable/>
+                    options={epicsList.map(e=>({value:epicFullName(e),label:epicFullName(e)}))} placeholder="-- Epic --" searchable/>
                 </Grp>
                 <Grp label="Type fonction" className="col-span-2">
                   <SelectPicker value={String(editForm.type_fonction??'')} onChange={v=>setEditForm(f=>({...f,type_fonction:v}))}
@@ -1019,7 +1029,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                 </Grp>
                 <Grp label="Jalon - Incrément majeur" className="col-span-2">
                   <SelectPicker value={String(editForm.jalon??'')} onChange={v=>setEditForm(f=>({...f,jalon:v}))}
-                    options={JALON_LIST.map(j=>({value:j,label:j}))} placeholder="-- Jalon --"/>
+                    options={jalonCodes.map(j=>({value:j,label:j}))} placeholder="-- Jalon --"/>
                 </Grp>
               </div>
 
@@ -1069,7 +1079,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
               {/* Contenu : User Story + Critères côte à côte */}
               <div className="grid grid-cols-2 gap-3 mt-4 pt-3 border-t-2 border-slate-300">
                 <Grp label="User Story"><textarea value={String(editForm.description??'')} onChange={setF('description')} className="ds-textarea text-xs" rows={5}/></Grp>
-                <Grp label="Critères d'acceptation">
+                <Grp label="Critères d'acceptation (DoD)">
                   <div className="ds-input min-h-[110px] flex flex-col">
                     <CriteresEditor
                       items={parseCriteres(String(editForm.criteres??''))}
@@ -1080,9 +1090,9 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                 </Grp>
               </div>
 
-              {/* Lien DoD + Commentaire PO */}
+              {/* Exigences + Commentaire PO */}
               <div className="grid grid-cols-[220px_1fr] gap-3 mt-4 pt-3 border-t-2 border-slate-300">
-                <Grp label="Lien DoD">
+                <Grp label="Exigences">
                   <DodLinkPicker value={String(editForm.lien_dod??'')} onChange={v=>setEditForm(f=>({...f,lien_dod:v}))} items={dodItems}/>
                 </Grp>
                 <Grp label="Commentaire PO">

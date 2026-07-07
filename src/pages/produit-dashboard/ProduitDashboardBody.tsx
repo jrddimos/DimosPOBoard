@@ -1,4 +1,4 @@
-import React, { useState, lazy, Suspense } from 'react'
+import React, { useState, useMemo, lazy, Suspense } from 'react'
 import type { ReactNode } from 'react'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { useNavigate } from 'react-router-dom'
@@ -12,7 +12,8 @@ import { trimEtpCostEur } from '@/utils/produitMetrics'
 import { cn } from '@/lib/utils'
 import { AlertTriangle, Check, CheckCircle, XCircle, CornerDownRight, ListPlus, Lock, Pencil, Plus, X } from 'lucide-react'
 import type { Produit, RisqueItem, ActionLop } from '@/hooks/useProduits'
-import { EPIC_COLORS } from '@/constants'
+import { useEpicsByProduit, epicFullName } from '@/hooks/useEpics'
+import { useJalonsByProduit } from '@/hooks/useJalons'
 import { BentoGrid } from '@/pages/dashboard/cockpit/BentoGrid'
 
 // Graphiques en widgets — chargés à la demande pour garder recharts hors du bundle initial
@@ -268,6 +269,10 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const { data: sprintActif }     = useSprintActif()
   const { data: allSprints = [] } = useSprints()
   const { data: taches = [] }     = useTachesByProduit(produit.id)
+  const { data: epicsList = [] }  = useEpicsByProduit(produit.id)
+  const { data: jalonsList = [] } = useJalonsByProduit(produit.id)
+  const epicColorsMap  = useMemo(() => new Map(epicsList.map(e => [epicFullName(e), e.couleur ?? '#6366F1'])), [epicsList])
+  const jalonColorsMap = useMemo(() => new Map(jalonsList.map(j => [j.code, j.couleur ?? '#6366F1'])), [jalonsList])
   const { data: membres = [] }    = useUtilisateurs()
   const { data: equipes = [] }    = useEquipes()
   const { data: finConfig }       = useFinanceConfig()
@@ -938,7 +943,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
                   <div className="divide-y divide-border">
                     {epics.map(([epicName, stats]) => {
                       const pct   = stats.total > 0 ? Math.round(stats.fait / stats.total * 100) : 0
-                      const color = EPIC_COLORS[epicName] ?? '#4A4CC8'
+                      const color = epicColorsMap.get(epicName) ?? '#4A4CC8'
                       return (
                         <div key={epicName} className="flex items-center gap-2 px-3 py-2 hover:bg-bg/50 transition-colors">
                           <div className="w-2 h-2 rounded-sm shrink-0" style={{ background: color }} />
@@ -1326,7 +1331,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
           ) },
           { key: 'chart_roadmap', label: 'Roadmap', minW: 6, minH: 4, defaultSize: { w: 12, h: 6 }, content: (
             <ChartWidget title={`Roadmap — ${produit.nom}`}>
-              <LazyRoadmapChart produit={produit} taches={taches} sprints={allSprints} />
+              <LazyRoadmapChart produit={produit} taches={taches} sprints={allSprints} epicColors={epicColorsMap} jalonColors={jalonColorsMap} />
             </ChartWidget>
           ) },
           { key: 'chart_statuts', label: 'Graphe statuts', minW: 3, minH: 3, defaultSize: { w: 6, h: 5 }, content: (
@@ -1336,7 +1341,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
           ) },
           { key: 'chart_epics', label: 'Graphe épics', minW: 3, minH: 3, defaultSize: { w: 6, h: 5 }, content: (
             <ChartWidget title="Tâches par épic">
-              <LazyEpicsChart taches={taches} />
+              <LazyEpicsChart taches={taches} epicColors={epicColorsMap} />
             </ChartWidget>
           ) },
           { key: 'chart_tendance', label: 'Tendance sprints', minW: 4, minH: 3, defaultSize: { w: 12, h: 5 }, content: (

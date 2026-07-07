@@ -181,6 +181,18 @@ export function useDuplicateProduit() {
       if (errProd) throw errProd
       const newId = (newProduit as Produit).id
 
+      // 1bis. Epics & Jalons — configuration de base toujours reprise (comme les
+      // catégories DoD, ce sont des référentiels de classification, pas des
+      // "données" à cocher optionnellement).
+      const { data: srcEpics } = await supabase.from('epics').select('code, nom, couleur, bg_couleur, ordre').eq('produit_id', sourceId)
+      if (srcEpics && srcEpics.length > 0) {
+        await supabase.from('epics').insert(srcEpics.map((e: Record<string, unknown>) => ({ ...e, produit_id: newId })))
+      }
+      const { data: srcJalons } = await supabase.from('jalons').select('code, couleur, ordre').eq('produit_id', sourceId)
+      if (srcJalons && srcJalons.length > 0) {
+        await supabase.from('jalons').insert(srcJalons.map((j: Record<string, unknown>) => ({ ...j, produit_id: newId })))
+      }
+
       // 2. DoD
       if (copyDod) {
         const { data: dodItems } = await supabase

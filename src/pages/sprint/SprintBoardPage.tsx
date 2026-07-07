@@ -7,7 +7,9 @@ import { useTaches, useUpdateTache, useCreateSousTache } from '@/hooks/useTaches
 import { useSprints, useSprintActif, useClosedSprints } from '@/hooks/useSprints'
 import { useUtilisateurs } from '@/hooks/useEquipes'
 import { useToast } from '@/hooks/useToast'
-import { EPIC_LIST, JALON_LIST, SPRINTS_LIST } from '@/constants'
+import { SPRINTS_LIST } from '@/constants'
+import { useEpics, epicFullName } from '@/hooks/useEpics'
+import { useJalons } from '@/hooks/useJalons'
 import { sprintInRange, hasPendingCriteres, serializeCriteres, parseCriteres } from '@/lib/utils'
 import type { CritereItem } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -16,7 +18,7 @@ import { CriteresEditor } from '@/components/ui/CriteresEditor'
 import { TacheExtras } from '@/components/tache/TacheExtras'
 import { SousTacheModal } from '@/components/tache/SousTacheModal'
 import { DodDetailModal } from '@/components/ui/DodDetailModal'
-import { useDod } from '@/hooks/useDod'
+import { useDod, useUpdateDodItem } from '@/hooks/useDod'
 import {
   ChevronDown, X, Zap, CalendarDays, AlertTriangle,
   GripVertical, CornerDownRight, Kanban, Search, User as UserIcon,
@@ -81,6 +83,10 @@ function KanbanCard({
   onSelect, onToggleExpand, onChangeStatut, onAssign, onToggleSub, onAddSub,
 }: KanbanCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: t.id_tache })
+  const { data: epicsList = [] } = useEpics()
+  const epicMatch = epicsList.find(e => epicFullName(e) === t.epic)
+  const epicColor = epicMatch?.couleur
+  const epicBg    = epicMatch?.bg_couleur
 
   const effortJ     = subs.length > 0 ? subs.reduce((a, s) => a + (s.effort_j ?? 0), 0) : (t.effort_j ?? 0)
   const effortRealJ = subs.length > 0 ? subs.reduce((a, s) => a + (s.effort_realise_j ?? 0), 0) : (t.effort_realise_j ?? null)
@@ -99,7 +105,7 @@ function KanbanCard({
       {/* Header */}
       <div className="flex items-start justify-between mb-1.5 gap-1">
         <span className="text-xs font-semibold text-indigo-600 flex-1">{t.id_tache}</span>
-        <EpicBadge value={t.epic ?? ''} className="text-xs" />
+        <EpicBadge value={t.epic ?? ''} className="text-xs" color={epicColor ?? undefined} bg={epicBg ?? undefined} />
       </div>
 
       <p className="text-xs font-medium text-navy leading-snug mb-2">{t.titre}</p>
@@ -236,7 +242,7 @@ function PanelCriteres({ tache, onSave }: { tache: Tache; onSave: (criteres: str
   return (
     <div>
       <div className="ds-label mb-1.5 flex items-center gap-2">
-        Critères d'acceptation
+        Critères d'acceptation (DoD)
         {total > 0 && (
           <span className={cn(
             'ml-auto text-[11px] font-semibold px-1.5 py-0.5 rounded-full',
@@ -270,13 +276,16 @@ export default function SprintBoardPage() {
   const [dodDetail,    setDodDetail]    = useState<import('@/hooks/useDod').DodItem | null>(null)
 
   const { data: dodItems = [] }               = useDod()
+  const { data: epicsListMain = [] }          = useEpics()
+  const { data: jalonsListMain = [] }         = useJalons()
   const { data: taches = [],      isLoading } = useTaches()
   const { data: sprintActif }                 = useSprintActif()
   const { data: sprints = [] }                = useSprints()
   const { data: closedSprints = [] }          = useClosedSprints()
   const { data: membres = [] }                = useUtilisateurs()
-  const updateTache = useUpdateTache()
-  const createSub   = useCreateSousTache()
+  const updateTache   = useUpdateTache()
+  const updateDodItem = useUpdateDodItem()
+  const createSub     = useCreateSousTache()
   const toast       = useToast()
   const { canWrite, user, profile } = useAuth()
   const { produitActif } = useProduit()
@@ -320,6 +329,32 @@ export default function SprintBoardPage() {
     )
   }
 
+  // Semi-auto : quand la dernière US parente liée à une exigence passe à
+  // "Fait", on PROPOSE de la marquer vérifiée — jamais automatiquement,
+  // car un essai réalisé n'est pas forcément un essai conforme (c'est ce
+  // qui déclenche les boucles P1 → P2 → P3).
+  async function proposeVerification(done: Tache) {
+    if (done.parent_id) return
+    const codesOf = (t: Tache) => (t.lien_dod ?? '').split(/[,;]/).map(s => s.trim()).filter(Boolean)
+    const codes = codesOf(done)
+    if (!codes.length) return
+    const ready = codes
+      .map(code => dodItems.find(d => d.code === code))
+      .filter((d): d is typeof dodItems[number] => !!d && d.actif && !d.verifiee)
+      .filter(d => taches
+        .filter(t => !t.parent_id && codesOf(t).includes(d.code))
+        .every(t => t.id_tache === done.id_tache || t.statut === 'Fait'))
+    if (!ready.length) return
+    const ok = await confirm({
+      title: ready.length === 1 ? 'Exigence à statuer' : `${ready.length} exigences à statuer`,
+      message: `Toutes les US liées sont terminées pour :\n${ready.map(d => `${d.code} — ${d.titre}`).join('\n')}\n\nEssai conforme ? Marquer comme vérifiée${ready.length > 1 ? 's' : ''} ?\n(Sinon : refuse, et crée les US de la boucle suivante.)`,
+      confirmLabel: `Marquer vérifiée${ready.length > 1 ? 's' : ''}`,
+    })
+    if (!ok) return
+    for (const d of ready) await updateDodItem.mutateAsync({ id: d.id, updates: { verifiee: true }, item: d })
+    toast(`${ready.length} exigence${ready.length > 1 ? 's' : ''} vérifiée${ready.length > 1 ? 's' : ''} ✓`)
+  }
+
   async function changeStatut(t: Tache, statut: Statut) {
     if (isReadOnly) { toast('Sprint clôturé ou en lecture seule', 'error'); return }
     if (statut === 'Fait') {
@@ -334,6 +369,7 @@ export default function SprintBoardPage() {
         const totalReal = subs.reduce((acc, s) => acc + (s.effort_realise_j ?? 0), 0)
         await updateTache.mutateAsync({ id_tache: t.id_tache, updates: { statut, effort_realise_j: totalReal } })
         toast(`${t.id_tache} → Fait · ${totalReal}j réalisés`)
+        await proposeVerification(t)
         return
       }
       setEffortInput(String(t.effort_j ?? ''))
@@ -357,19 +393,23 @@ export default function SprintBoardPage() {
   async function confirmEffort() {
     if (!effortModal) return
     const val = parseFloat(effortInput)
+    const done = effortModal.tache
     await updateTache.mutateAsync({
-      id_tache: effortModal.tache.id_tache,
+      id_tache: done.id_tache,
       updates: { statut: effortModal.pendingStatut, effort_realise_j: isNaN(val) ? null : val },
     })
-    toast(`${effortModal.tache.id_tache} → Fait · ${isNaN(val) ? '—' : val + 'j'} réalisés`)
+    toast(`${done.id_tache} → Fait · ${isNaN(val) ? '—' : val + 'j'} réalisés`)
     setEffortModal(null)
+    if (effortModal.pendingStatut === 'Fait') await proposeVerification(done)
   }
 
   async function skipEffort() {
     if (!effortModal) return
-    await updateTache.mutateAsync({ id_tache: effortModal.tache.id_tache, updates: { statut: effortModal.pendingStatut } })
-    toast(`${effortModal.tache.id_tache} → Fait`)
+    const done = effortModal.tache
+    await updateTache.mutateAsync({ id_tache: done.id_tache, updates: { statut: effortModal.pendingStatut } })
+    toast(`${done.id_tache} → Fait`)
     setEffortModal(null)
+    if (effortModal.pendingStatut === 'Fait') await proposeVerification(done)
   }
 
   async function assignTo(id_tache: string, assigne: string) {
@@ -468,13 +508,13 @@ export default function SprintBoardPage() {
           <FilterField label="Epic">
             <select value={filterEpic} onChange={e => setFilterEpic(e.target.value)} className="ds-select text-xs py-1.5">
               <option value="">Tous Epics</option>
-              {EPIC_LIST.map(e => <option key={e} value={e}>{e.split(' — ')[0]}</option>)}
+              {epicsListMain.map(e => <option key={e.id} value={epicFullName(e)}>{e.code}</option>)}
             </select>
           </FilterField>
           <FilterField label="Jalon — incrément majeur">
             <select value={filterJalon} onChange={e => setFilterJalon(e.target.value)} className="ds-select text-xs py-1.5">
               <option value="">Tous Jalons</option>
-              {JALON_LIST.map(j => <option key={j}>{j}</option>)}
+              {jalonsListMain.map(j => <option key={j.code}>{j.code}</option>)}
             </select>
           </FilterField>
         </FilterPopover>
@@ -602,7 +642,7 @@ export default function SprintBoardPage() {
               <div className="flex flex-wrap gap-1.5">
                 <StatutBadge value={panel.statut} />
                 {panel.moscow && <MoscowBadge value={panel.moscow} />}
-                {panel.jalon && <JalonBadge value={panel.jalon} />}
+                {panel.jalon && <JalonBadge value={panel.jalon} color={jalonsListMain.find(j => j.code === panel.jalon)?.couleur ?? undefined} />}
               </div>
               {panel.description && <div><div className="ds-label mb-1">User Story</div><p className="text-xs text-navy leading-relaxed whitespace-pre-line">{panel.description}</p></div>}
               {parseCriteres(panel.criteres).length > 0 && (
@@ -644,7 +684,7 @@ export default function SprintBoardPage() {
                   </div>
                   {panel.lien_dod && (
                     <div>
-                      <div className="ds-label mb-1">Lien DoD</div>
+                      <div className="ds-label mb-1">Exigences</div>
                       <div className="flex flex-wrap gap-1">
                         {panel.lien_dod.split(/[,;]/).map(s => s.trim()).filter(Boolean).map(code => {
                           const item = dodItems.find(d => d.code === code)

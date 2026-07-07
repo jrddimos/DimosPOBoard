@@ -8,7 +8,6 @@ import '@svar-ui/react-gantt/all.css'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { ToggleGroup } from '@/components/ui/ToggleGroup'
 import { cn, epicShortName } from '@/lib/utils'
-import { EPIC_COLORS, JALON_COLORS } from '@/constants'
 import { scopedMetrics, computeBurndownWeeks } from '@/utils/produitMetrics'
 import type { MultiScope, ProduitMetrics } from '@/utils/produitMetrics'
 import { trimAvancement } from '@/hooks/useProduits'
@@ -350,11 +349,11 @@ const SPRINT_METRIC_CFG: Record<SprintMetric, { label: string; color: string; ge
 
 
 // ── Briques par produit (widgets du dashboard produit) ───────────
-export function ProduitEpicsChart({ taches }: { taches: Tache[] }) {
+export function ProduitEpicsChart({ taches, epicColors }: { taches: Tache[]; epicColors?: Map<string, string> }) {
   const byEpic = new Map<string, number>()
   taches.forEach(t => { if (t.epic) byEpic.set(t.epic, (byEpic.get(t.epic) ?? 0) + 1) })
   const epicData = [...byEpic.entries()].map(([epic, n]) => ({ label: epicShortName(epic), fullEpic: epic, value: n })).sort((a, b) => b.value - a.value)
-  const epicColorByLabel = new Map(epicData.map(e => [e.label, EPIC_COLORS[e.fullEpic] ?? '#6366F1']))
+  const epicColorByLabel = new Map(epicData.map(e => [e.label, epicColors?.get(e.fullEpic) ?? '#6366F1']))
   if (epicData.length === 0) return <p className="text-xs text-subtle/40 italic p-2">Aucun épic dans les tâches</p>
   return <VerticalBarChart data={epicData} colorFor={l => epicColorByLabel.get(l) ?? '#6366F1'} />
 }
@@ -405,7 +404,8 @@ function slugify(s: string): string {
   return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
 }
 
-function buildRoadmapRows(taches: Tache[], sprintDates: Map<string, { start: Date; end: Date }>, mode: RoadmapMode): RoadmapRow[] {
+function buildRoadmapRows(taches: Tache[], sprintDates: Map<string, { start: Date; end: Date }>, mode: RoadmapMode,
+  epicColors: Map<string, string>, jalonColors: Map<string, string>): RoadmapRow[] {
   const groups = new Map<string, Tache[]>()
   taches.forEach(t => {
     const key = mode === 'epic' ? t.epic : t.jalon
@@ -428,7 +428,7 @@ function buildRoadmapRows(taches: Tache[], sprintDates: Map<string, { start: Dat
     const done = groupTaches.filter(t => t.statut === 'Fait').length
     rows.push({
       key, label: mode === 'epic' ? epicShortName(key) : key,
-      color: mode === 'epic' ? (EPIC_COLORS[key] ?? '#6366F1') : (JALON_COLORS[key] ?? '#6366F1'),
+      color: mode === 'epic' ? (epicColors.get(key) ?? '#6366F1') : (jalonColors.get(key) ?? '#6366F1'),
       start, end, progress: groupTaches.length ? Math.round(done / groupTaches.length * 100) : 0,
       n: groupTaches.length,
     })
@@ -452,10 +452,14 @@ const ROADMAP_COLUMNS = [
   },
 ]
 
-export function RoadmapChart({ produit, taches, sprints }: { produit: Produit; taches: Tache[]; sprints: Sprint[] }) {
+export function RoadmapChart({ produit, taches, sprints, epicColors, jalonColors }: {
+  produit: Produit; taches: Tache[]; sprints: Sprint[]
+  epicColors?: Map<string, string>; jalonColors?: Map<string, string>
+}) {
   const [mode, setMode] = useState<RoadmapMode>('epic')
   const sprintDates = useMemo(() => buildSprintDateIndex(sprints), [sprints])
-  const rows = useMemo(() => buildRoadmapRows(taches, sprintDates, mode), [taches, sprintDates, mode])
+  const rows = useMemo(() => buildRoadmapRows(taches, sprintDates, mode, epicColors ?? new Map(), jalonColors ?? new Map()),
+    [taches, sprintDates, mode, epicColors, jalonColors])
 
   const ganttTasks: ITask[] = useMemo(() => rows.map(r => ({
     id: r.key, text: r.label, start: r.start, end: r.end, progress: r.progress, type: slugify(r.key),

@@ -40,19 +40,22 @@ export function PrioBadge({ value, className }: BadgeProps) {
   return makeBadge(s.bg, s.text, value, className)
 }
 
-export function EpicBadge({ value, className }: BadgeProps) {
+// `color`/`bg` : couleur réelle de l'Epic/Jalon pour CE produit (table
+// `epics`/`jalons`), à passer par l'appelant quand il l'a sous la main.
+// Repli sur les anciennes constantes globales sinon (compat descendante).
+export function EpicBadge({ value, className, color, bg }: BadgeProps & { color?: string; bg?: string }) {
   const code = value.split(' — ')[0] ?? value
-  const bg   = EPIC_BG[value]     ?? '#EDE9FE'
-  const text = EPIC_COLORS[value] ?? '#5B21B6'
-  return makeBadge(bg, text, code, className)
+  const text = color ?? EPIC_COLORS[value] ?? '#5B21B6'
+  const back = bg ?? (color ? `${color}1a` : (EPIC_BG[value] ?? '#EDE9FE'))
+  return makeBadge(back, text, code, className)
 }
 
-export function JalonBadge({ value, className }: BadgeProps) {
-  const color = JALON_COLORS[value] ?? '#4A4CC8'
+export function JalonBadge({ value, className, color }: BadgeProps & { color?: string }) {
+  const bg = color ?? JALON_COLORS[value] ?? '#4A4CC8'
   return (
     <span
       className={cn('inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold text-white', className)}
-      style={{ background: color }}
+      style={{ background: bg }}
     >
       {value}
     </span>

@@ -66,6 +66,22 @@ export function useUtilisateurs() {
   return useQuery({ queryKey: ['utilisateurs'], queryFn: fetchUtilisateurs, staleTime: 60_000 })
 }
 
+// ── Dernière connexion (auth.users, admin uniquement) ───────────
+export function useLastSignInDates(enabled = true) {
+  return useQuery({
+    queryKey: ['last-sign-in-dates'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('get_last_sign_in_dates')
+      if (error) throw error
+      const map = new Map<string, string | null>()
+      ;(data ?? []).forEach((r: { user_id: string; last_sign_in_at: string | null }) => map.set(r.user_id, r.last_sign_in_at))
+      return map
+    },
+    staleTime: 60_000,
+    enabled,
+  })
+}
+
 // ── Sync equipe sur les tâches ────────────────────────────────
 export function useSyncEquipesTaches() {
   const qc = useQueryClient()

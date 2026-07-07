@@ -68,7 +68,7 @@ export function DodLinkPicker({ value, onChange, items }: {
         ))}
         <button type="button"
           className="inline-flex items-center gap-1 text-xs text-subtle hover:text-navy px-1.5 py-0.5 transition-colors pointer-events-none">
-          <Plus size={12} /> {selected.length === 0 ? 'Lier un critère DoD' : 'Ajouter'}
+          <Plus size={12} /> {selected.length === 0 ? 'Lier une exigence' : 'Ajouter'}
         </button>
       </div>
 
@@ -77,17 +77,17 @@ export function DodLinkPicker({ value, onChange, items }: {
           style={{ left: pos.left, top: pos.top, width: pos.width }}>
           <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
             <Search size={12} className="text-subtle shrink-0" />
-            <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Chercher un critère…"
+            <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Chercher une exigence…"
               className="flex-1 text-xs outline-none text-navy placeholder:text-subtle/50 bg-transparent" />
           </div>
           <div className="overflow-y-auto" style={{ maxHeight: 240 }}>
             {items.length === 0 ? (
               <p className="px-3 py-3 text-xs text-subtle italic">
-                Aucun critère DoD défini pour ce produit — créez-les dans DoD → Référentiel.
+                Aucune exigence définie pour ce produit — créez-les dans Exigences → Référentiel.
               </p>
             ) : filtered.length === 0 ? (
               <p className="px-3 py-3 text-xs text-subtle italic">
-                {available.length === 0 ? 'Tous les critères sont déjà liés.' : 'Aucun résultat.'}
+                {available.length === 0 ? 'Toutes les exigences sont déjà liées.' : 'Aucun résultat.'}
               </p>
             ) : filtered.map((i, idx) => {
               const major = codeMajor(i.code)

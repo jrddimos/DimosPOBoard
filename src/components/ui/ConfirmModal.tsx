@@ -44,7 +44,7 @@ export function ConfirmProvider() {
             <X size={14}/>
           </button>
         </div>
-        <p className="text-xs text-subtle leading-relaxed mb-5">{modal.message}</p>
+        <p className="text-xs text-subtle leading-relaxed mb-5 whitespace-pre-line">{modal.message}</p>
         <div className="flex gap-2 justify-end">
           <button onClick={() => answer(false)} className="ds-btn ds-btn-sm">Annuler</button>
           <button onClick={() => answer(true)}

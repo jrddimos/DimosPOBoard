@@ -8,6 +8,8 @@ import type { ActionLop } from '@/hooks/useProduits'
 import { useUploadAvatar, useUpdateProfile } from '@/hooks/useUserManagement'
 import { useQuickNotes, useCreateQuickNote, useToggleQuickNote, useDeleteQuickNote, useMigrateLegacyQuickNotes } from '@/hooks/useQuickNotes'
 import { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead, useDeleteNotification } from '@/hooks/useNotifications'
+import { useSuggestions, useCreateSuggestion, useUpdateSuggestionStatut } from '@/hooks/useSuggestions'
+import type { Suggestion, SuggestionStatut } from '@/hooks/useSuggestions'
 import { useProduitMessages, useAddProduitMessage, useDeleteProduitMessage } from '@/hooks/useProduitMessages'
 import { useUtilisateurs } from '@/hooks/useEquipes'
 import { MentionField } from '@/components/ui/MentionField'
@@ -23,7 +25,7 @@ import {
   ChevronDown, LogOut, ClipboardCheck, User, Clock, X,
   Package, CalendarClock, BarChart3, Camera, TrendingUp,
   StickyNote, Plus, Check, ArrowRight, ChevronRight, ChevronLeft, Sun, Moon, Layers, Bell, Search, Square, Timer,
-  SlidersHorizontal, MessageCircle, Send,
+  SlidersHorizontal, MessageCircle, Send, Lightbulb, ThumbsUp, ThumbsDown, Archive,
 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
@@ -401,6 +403,146 @@ function NotificationsPanel({ userId, onClose, leftOffset }: {
   ), document.body)
 }
 
+// ── Propositions d'amélioration ──────────────────────────────────
+const SUGGESTION_STATUT_CFG: Record<SuggestionStatut, { label: string; className: string }> = {
+  nouvelle: { label: 'Nouvelle',  className: 'bg-indigo-50 text-indigo-600' },
+  acceptee: { label: 'Acceptée',  className: 'bg-emerald-50 text-emerald-600' },
+  rejetee:  { label: 'Rejetée',   className: 'bg-rose-50 text-rose-600' },
+  fermee:   { label: 'Fermée',    className: 'bg-slate-100 text-slate-500' },
+}
+
+function SuggestionsPanel({ userId, isAdmin, onClose, leftOffset }: {
+  userId: string; isAdmin: boolean; onClose: () => void; leftOffset: string
+}) {
+  const { data: suggestions = [] } = useSuggestions()
+  const { data: membres = [] } = useUtilisateurs()
+  const createSuggestion = useCreateSuggestion()
+  const updateStatut     = useUpdateSuggestionStatut()
+  const [titre, setTitre] = useState('')
+  const [description, setDescription] = useState('')
+  const [showForm, setShowForm] = useState(false)
+
+  function authorName(id: string) {
+    const m = membres.find(u => u.user_id === id)
+    return m ? ([m.prenom, m.nom].filter(Boolean).join(' ') || m.trigramme || m.display_name || 'Utilisateur') : 'Utilisateur'
+  }
+
+  async function submit() {
+    if (!titre.trim()) return
+    await createSuggestion.mutateAsync({ auteur_id: userId, titre: titre.trim(), description: description.trim() || null })
+    setTitre(''); setDescription(''); setShowForm(false)
+  }
+
+  const nouvelles = suggestions.filter(s => s.statut === 'nouvelle')
+  const autres     = suggestions.filter(s => s.statut !== 'nouvelle')
+
+  function SuggestionRow({ s }: { s: Suggestion }) {
+    const cfg = SUGGESTION_STATUT_CFG[s.statut]
+    return (
+      <div className="px-4 py-3 group/row hover:bg-bg/40 transition-colors">
+        <div className="flex items-start gap-2.5">
+          <Lightbulb size={14} className="text-amber-400 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <p className="text-sm font-medium text-navy/85 leading-snug">{s.titre}</p>
+              <span className={cn('text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0', cfg.className)}>{cfg.label}</span>
+            </div>
+            {s.description && <p className="text-xs text-subtle mt-1 leading-snug">{s.description}</p>}
+            <p className="text-[11px] text-subtle/50 mt-1.5">
+              {authorName(s.auteur_id)} · {new Date(s.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}
+            </p>
+          </div>
+        </div>
+        {isAdmin && (
+          <div className="mt-2 ml-6 flex items-center gap-1.5">
+            {s.statut === 'nouvelle' && (
+              <>
+                <button onClick={() => updateStatut.mutate({ id: s.id, statut: 'acceptee' })}
+                  className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded-lg transition-colors">
+                  <ThumbsUp size={11} /> Accepter
+                </button>
+                <button onClick={() => updateStatut.mutate({ id: s.id, statut: 'rejetee' })}
+                  className="flex items-center gap-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50 px-2 py-1 rounded-lg transition-colors">
+                  <ThumbsDown size={11} /> Rejeter
+                </button>
+              </>
+            )}
+            {s.statut === 'acceptee' && (
+              <button onClick={() => updateStatut.mutate({ id: s.id, statut: 'fermee' })}
+                className="flex items-center gap-1 text-[11px] font-semibold text-subtle hover:text-navy hover:bg-bg px-2 py-1 rounded-lg transition-colors">
+                <Archive size={11} /> Marquer traitée
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return createPortal((
+    <>
+      <div className="fixed inset-0 z-[10049]" onClick={onClose} />
+      <div className="fixed bottom-4 z-[10050] w-[380px] max-h-[70vh] bg-card shadow-2xl flex flex-col rounded-2xl border border-border overflow-hidden"
+        style={{ left: leftOffset }}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+          <div className="flex items-center gap-2.5">
+            <Lightbulb size={15} className="text-amber-400" />
+            <div>
+              <h2 className="text-sm font-bold text-navy">Propositions d'amélioration</h2>
+              <p className="text-[11px] text-subtle">{nouvelles.length} nouvelle{nouvelles.length !== 1 ? 's' : ''}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setShowForm(v => !v)}
+              className={cn('text-[11px] font-semibold px-2 py-1 rounded-lg transition-colors', showForm ? 'bg-indigo-50 text-indigo-600' : 'text-indigo-500 hover:bg-indigo-50')}>
+              <Plus size={12} className="inline -mt-0.5" /> Proposer
+            </button>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-bg text-subtle hover:text-navy transition-colors"><X size={15} /></button>
+          </div>
+        </div>
+
+        {showForm && (
+          <div className="px-4 py-3 border-b border-border bg-bg/50 shrink-0 flex flex-col gap-2">
+            <input value={titre} onChange={e => setTitre(e.target.value)} autoFocus
+              placeholder="Titre de la proposition…"
+              className="text-sm text-navy placeholder:text-subtle/40 outline-none bg-card border border-border rounded-lg px-3 py-2 focus:border-indigo-300 transition-colors" />
+            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2}
+              placeholder="Détails (optionnel)…"
+              className="text-xs text-navy placeholder:text-subtle/40 outline-none bg-card border border-border rounded-lg px-3 py-2 focus:border-indigo-300 transition-colors resize-none" />
+            <button onClick={submit} disabled={!titre.trim() || createSuggestion.isPending}
+              className="text-xs font-semibold text-white bg-indigo-500 px-3 py-1.5 rounded-lg hover:bg-indigo-400 transition-colors disabled:opacity-40 self-end">
+              {createSuggestion.isPending ? 'Envoi…' : 'Envoyer'}
+            </button>
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto">
+          {suggestions.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-subtle/30">
+              <Lightbulb size={36} className="mb-3" />
+              <p className="text-xs italic">Aucune proposition pour le moment</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border/30">
+              {nouvelles.map(s => <SuggestionRow key={s.id} s={s} />)}
+              {autres.length > 0 && (
+                <details className="group/done" open={nouvelles.length === 0}>
+                  <summary className="flex items-center gap-2 px-4 py-2 text-[11px] text-subtle/50 uppercase tracking-wider font-semibold cursor-pointer hover:text-subtle list-none select-none">
+                    <ChevronDown size={11} className="transition-transform group-open/done:rotate-0 -rotate-90" /> Traitées ({autres.length})
+                  </summary>
+                  <div className="divide-y divide-border/20">
+                    {autres.map(s => <SuggestionRow key={s.id} s={s} />)}
+                  </div>
+                </details>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  ), document.body)
+}
+
 // ── Discussion produit ──────────────────────────────────────────
 function fmtDiscussionDay(iso: string) {
   const d = new Date(iso)
@@ -582,7 +724,7 @@ export const PRODUCT_NAV: NavItem[] = [
   { id: 'produit-dashboard', label: 'Dashboard',    href: '/produit-dashboard',  icon: <BarChart3 size={15} />      },
   { id: 'sprint',            label: 'Sprint Board', href: '/sprint',             icon: <Kanban size={15} />         },
   { id: 'taches',            label: 'Tâches Backlog', href: '/taches',           icon: <FilePlus size={15} />       },
-  { id: 'dod',               label: 'DoD',          href: '/dod',                icon: <ClipboardCheck size={15} /> },
+  { id: 'dod',               label: 'Exigences',    href: '/dod',                icon: <ClipboardCheck size={15} /> },
   { id: 'activite',          label: 'Activité',     href: '/activite',           icon: <Clock size={15} />          },
   { id: 'produit-config',    label: 'Configuration', href: '/produit-config',    icon: <SlidersHorizontal size={15} />, writeOnly: true },
 ]
@@ -686,6 +828,57 @@ function NavRow({ item, active, t, collapsed }: { item: NavItem; active: boolean
   )
 }
 
+// ── Accès rapide : Notifications + Points à traiter ─────────────
+// Placé en bas de la nav défilable (juste au-dessus du trait qui la sépare
+// du footer profil), qui accueille désormais les Propositions d'amélioration.
+function QuickAccessRow({ t, collapsed }: { t: SidebarTheme; collapsed: boolean }) {
+  const { user, profile } = useAuth()
+  const [showNotes,  setShowNotes]  = useState(false)
+  const [showNotifs, setShowNotifs] = useState(false)
+  const { data: quickNotes = [] }     = useQuickNotes(user?.id)
+  const { data: notifications = [] }  = useNotifications(user?.id)
+  const migrateLegacyNotes            = useMigrateLegacyQuickNotes()
+  const unreadNotifCount = notifications.filter(n => !n.lu).length
+
+  // Migration ponctuelle des anciennes notes localStorage → Supabase
+  useEffect(() => {
+    if (user?.id) migrateLegacyNotes.mutate(user.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
+
+  if (!user) return null
+
+  return (
+    <div className="flex items-stretch gap-1 mt-1.5 mb-1 shrink-0">
+      <button onClick={() => setShowNotifs(true)} title="Notifications"
+        className={cn('relative flex-1 min-w-0 flex items-center justify-center rounded-lg text-[12px] font-medium transition-colors py-[7px]',
+          collapsed ? 'px-1.5' : 'gap-1.5 px-2', t.notesBtn)}>
+        <Bell size={14} className="shrink-0" />
+        {!collapsed && <span className="truncate">Notifs</span>}
+        {unreadNotifCount > 0 && (
+          <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-rose-500" />
+        )}
+      </button>
+      <button onClick={() => setShowNotes(true)} title="Points à traiter"
+        className={cn('relative flex-1 min-w-0 flex items-center justify-center rounded-lg text-[12px] font-medium transition-colors py-[7px]',
+          collapsed ? 'px-1.5' : 'gap-1.5 px-2', t.notesBtn)}>
+        <StickyNote size={14} className="shrink-0" />
+        {!collapsed && <span className="truncate">À traiter</span>}
+        {quickNotes.filter(x => !x.done).length > 0 && (
+          <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500" />
+        )}
+      </button>
+      {showNotifs && (
+        <NotificationsPanel userId={user.id} onClose={() => setShowNotifs(false)} leftOffset={collapsed ? '4.5rem' : '14.5rem'} />
+      )}
+      {showNotes && (
+        <QuickNotesPanel userId={user.id} userName={profile?.display_name ?? user.email ?? ''}
+          onClose={() => setShowNotes(false)} leftOffset={collapsed ? '4.5rem' : '14.5rem'} />
+      )}
+    </div>
+  )
+}
+
 // ── Footer profil ─────────────────────────────────────────────
 function ProfileFooter({ t, onThemeChange, collapsed }: { t: SidebarTheme; onThemeChange: (k: ThemeKey) => void; collapsed: boolean }) {
   const { user, profile, isAdmin, refreshProfile } = useAuth()
@@ -693,13 +886,10 @@ function ProfileFooter({ t, onThemeChange, collapsed }: { t: SidebarTheme; onThe
   const updateProfile = useUpdateProfile()
   const fileRef       = useRef<HTMLInputElement>(null)
   const panelRef      = useRef<HTMLDivElement>(null)
-  const [open,       setOpen]       = useState(false)
-  const [showNotes,  setShowNotes]  = useState(false)
-  const [showNotifs, setShowNotifs] = useState(false)
-  const { data: quickNotes = [] }     = useQuickNotes(user?.id)
-  const { data: notifications = [] }  = useNotifications(user?.id)
-  const migrateLegacyNotes            = useMigrateLegacyQuickNotes()
-  const unreadNotifCount = notifications.filter(n => !n.lu).length
+  const [open,           setOpen]           = useState(false)
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const { data: suggestions = [] } = useSuggestions()
+  const newSuggestionsCount = suggestions.filter(s => s.statut === 'nouvelle').length
   const darkMode = useDarkModeStore(s => s.dark)
   const toggleDark = useDarkModeStore(s => s.toggle)
   const running = useTimerStore(s => s.running)
@@ -712,12 +902,6 @@ function ProfileFooter({ t, onThemeChange, collapsed }: { t: SidebarTheme; onThe
     const id = setInterval(() => setTick(v => v + 1), 1000)
     return () => clearInterval(id)
   }, [running])
-
-  // Migration ponctuelle des anciennes notes localStorage → Supabase
-  useEffect(() => {
-    if (user?.id) migrateLegacyNotes.mutate(user.id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id])
 
   useEffect(() => {
     if (!open) return
@@ -842,42 +1026,25 @@ function ProfileFooter({ t, onThemeChange, collapsed }: { t: SidebarTheme; onThe
         </div>
       )}
 
-      {/* Notifications + Points à traiter — une seule rangée */}
+      {/* Propositions d'amélioration + mode sombre */}
       {user && (
         <div className="flex items-stretch gap-1 mb-0.5">
-          <button onClick={() => setShowNotifs(true)} title="Notifications"
+          <button onClick={() => setShowSuggestions(true)} title="Propositions d'amélioration"
             className={cn('relative flex-1 min-w-0 flex items-center justify-center rounded-lg text-[12px] font-medium transition-colors py-[7px]',
               collapsed ? 'px-1.5' : 'gap-1.5 px-2', t.notesBtn)}>
-            <Bell size={14} className="shrink-0" />
-            {!collapsed && <span className="truncate">Notifs</span>}
-            {(() => {
-              const n = unreadNotifCount
-              if (n === 0) return null
-              return <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-rose-500" />
-            })()}
-          </button>
-          <button onClick={() => setShowNotes(true)} title="Points à traiter"
-            className={cn('relative flex-1 min-w-0 flex items-center justify-center rounded-lg text-[12px] font-medium transition-colors py-[7px]',
-              collapsed ? 'px-1.5' : 'gap-1.5 px-2', t.notesBtn)}>
-            <StickyNote size={14} className="shrink-0" />
-            {!collapsed && <span className="truncate">À traiter</span>}
-            {(() => {
-              const n = quickNotes.filter(x => !x.done).length
-              if (n === 0) return null
-              return <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500" />
-            })()}
+            <Lightbulb size={14} className="shrink-0" />
+            {!collapsed && <span className="truncate">Améliorations</span>}
+            {newSuggestionsCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500" />
+            )}
           </button>
           <button onClick={toggleDark} title={darkMode ? 'Passer en mode clair' : 'Passer en mode sombre'}
             className={cn('shrink-0 flex items-center justify-center rounded-lg transition-colors py-[7px]',
               collapsed ? 'px-1.5' : 'px-2', t.notesBtn)}>
             {darkMode ? <Sun size={14} className="shrink-0" /> : <Moon size={14} className="shrink-0" />}
           </button>
-          {showNotifs && (
-            <NotificationsPanel userId={user.id} onClose={() => setShowNotifs(false)} leftOffset={collapsed ? '4.5rem' : '14.5rem'} />
-          )}
-          {showNotes && (
-            <QuickNotesPanel userId={user.id} userName={profile?.display_name ?? user.email ?? ''}
-              onClose={() => setShowNotes(false)} leftOffset={collapsed ? '4.5rem' : '14.5rem'} />
+          {showSuggestions && (
+            <SuggestionsPanel userId={user.id} isAdmin={isAdmin} onClose={() => setShowSuggestions(false)} leftOffset={collapsed ? '4.5rem' : '14.5rem'} />
           )}
         </div>
       )}
@@ -1081,6 +1248,12 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             </>
           )}
         </nav>
+
+        {/* Hors du flux défilable : toujours collé au trait séparateur du footer,
+            quelle que soit la hauteur du contenu de la nav au-dessus. */}
+        <div className="px-3 shrink-0">
+          <QuickAccessRow t={t} collapsed={collapsed} />
+        </div>
 
         <ProfileFooter t={t} onThemeChange={handleThemeChange} collapsed={collapsed} />
       </aside>

@@ -15,8 +15,9 @@ import { Spinner } from '@/components/ui/Spinner'
 import {
   Plus, Check, X, Star, Copy, LayoutTemplate, Settings2,
   LayoutDashboard, ChevronRight, AlertTriangle, TrendingUp, TrendingDown, SlidersHorizontal,
-  Power, ChevronDown, Package, Calendar, Search, ArrowUpDown,
+  Power, ChevronDown, Package, Calendar, Search, ArrowUpDown, Sparkles,
 } from 'lucide-react'
+import { CreateProduitWizard } from './CreateProduitWizard'
 import { cn } from '@/lib/utils'
 import { BRAND_COLORS } from '@/constants'
 import type { TrimStatut } from '@/hooks/useProduits'
@@ -552,6 +553,7 @@ export default function ProduitsPage() {
   const navigate = useNavigate()
 
   const [showCreate,      setShowCreate]      = useState(false)
+  const [showWizard,      setShowWizard]      = useState(false)
   const [editingId,       setEditingId]       = useState<number | null>(null)
   const [showRagDefaults, setShowRagDefaults] = useState(false)
   const [showArchives,    setShowArchives]    = useState(false)
@@ -730,10 +732,16 @@ export default function ProduitsPage() {
           </button>
         )}
         {isAdmin && (
-          <button onClick={() => { setShowCreate(true); setEditingId(null) }}
-            className="ml-auto ds-btn-primary ds-btn-sm flex items-center gap-1.5">
-            <Plus size={13} /> Nouveau produit
-          </button>
+          <div className="ml-auto flex items-center gap-1.5">
+            <button onClick={() => setShowWizard(true)}
+              className="ds-btn ds-btn-sm flex items-center gap-1.5">
+              <Sparkles size={13} /> Créer avec assistant
+            </button>
+            <button onClick={() => { setShowCreate(true); setEditingId(null) }}
+              className="ds-btn-primary ds-btn-sm flex items-center gap-1.5">
+              <Plus size={13} /> Nouveau produit
+            </button>
+          </div>
         )}
       </div>
 
@@ -750,6 +758,18 @@ export default function ProduitsPage() {
           onCreate={handleCreate}
           onDuplicate={opts => handleDuplicate(opts)}
           loading={isSaving}
+        />
+      )}
+
+      {/* Assistant de création complet */}
+      {showWizard && (
+        <CreateProduitWizard
+          onClose={() => setShowWizard(false)}
+          onDone={p => {
+            setShowWizard(false)
+            toast(`Produit "${p.nom}" prêt`)
+            navigate('/produit-config')
+          }}
         />
       )}
 

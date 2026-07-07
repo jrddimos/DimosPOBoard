@@ -101,7 +101,7 @@ export function SousTacheModal({ parent, sprint, membres, onClose, onCreate }: {
           </div>
 
           <div>
-            <label className="ds-label mb-1 block">Critères d'acceptation</label>
+            <label className="ds-label mb-1 block">Critères d'acceptation (DoD)</label>
             <div className="ds-input min-h-[72px] flex flex-col">
               <CriteresEditor items={critereItems} onChange={setCritereItems} compact />
             </div>
@@ -135,7 +135,7 @@ export function SousTacheModal({ parent, sprint, membres, onClose, onCreate }: {
                   className="ds-textarea w-full" rows={2} placeholder="En tant que… je veux… afin de…" />
               </div>
               <div>
-                <label className="ds-label mb-1 block">Lien DoD</label>
+                <label className="ds-label mb-1 block">Exigences</label>
                 <input value={lienDod} onChange={e => setLienDod(e.target.value)} className="ds-input w-full" placeholder="F1.1, F1.2…" />
               </div>
               <div>

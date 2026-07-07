@@ -69,6 +69,30 @@ export function useFaitTransitions(produitId: number | null, sinceISO: string | 
   })
 }
 
+// ── Boucles de vérification par exigence (F2.1 revérifiée 3x, etc.) ──
+// Nombre de fois où une exigence est repassée à verifiee=true : 1 = validée
+// du premier coup, ≥2 = elle a rebouclé (dé-vérifiée puis revalidée).
+export function useVerificationLoops(produitId: number | null) {
+  return useQuery({
+    queryKey: ['verification-loops', produitId],
+    queryFn: async () => {
+      if (!produitId) return new Map<string, number>()
+      const { data, error } = await supabase
+        .from('activite')
+        .select('target')
+        .eq('produit_id', produitId)
+        .eq('field', 'verifiee')
+        .eq('new_value', 'true')
+      if (error) throw error
+      const map = new Map<string, number>()
+      ;(data ?? []).forEach((r: { target: string }) => map.set(r.target, (map.get(r.target) ?? 0) + 1))
+      return map
+    },
+    enabled: !!produitId,
+    staleTime: 15_000,
+  })
+}
+
 export function useClearActivityLog() {
   const qc = useQueryClient()
   return useMutation({
