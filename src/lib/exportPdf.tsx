@@ -50,7 +50,7 @@ function TaskTable({ tasks }: { tasks: Tache[] }) {
 }
 
 function SprintReviewDoc({ sprint, taches }: { sprint: Sprint; taches: Tache[] }) {
-  const parents = taches.filter(t => !t.parent_id)
+  const parents = taches.filter(t => !t.parent_id && t.type_tache !== 'Conteneur')
   const fait    = parents.filter(t => t.statut === 'Fait')
   const nonFait = parents.filter(t => t.statut !== 'Fait')
   const effort  = parents.reduce((s, t) => s + (t.effort_j ?? 0), 0)

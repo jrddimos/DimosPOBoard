@@ -179,7 +179,10 @@ function AvancementWidget(ctx: WidgetCtx) {
         const trimSprintSet = new Set<string>(currentTrim?.sprints_ids ?? [])
         const doneDates = scope === 'trim'
           ? allTaches
-              .filter(t => t.produit_id === p.id && t.statut === 'Fait' && t.sprint && trimSprintSet.has(t.sprint))
+              // `t.sprint` (l'ancien champ) porte une valeur par défaut ('S01'
+              // constaté en base) sur la quasi-totalité des tâches — seul
+              // sprint_debut est fiable (même bug corrigé dans sprintEligibility.ts).
+              .filter(t => t.produit_id === p.id && t.type_tache !== 'Conteneur' && t.statut === 'Fait' && t.sprint_debut && trimSprintSet.has(t.sprint_debut))
               .map(t => {
                 const iso = faitDoneMap.get(`${p.id}:${t.id_tache}`)
                 return iso ? new Date(iso) : (quarterStart ?? new Date())
@@ -286,7 +289,7 @@ function BudgetWidget(ctx: WidgetCtx) {
   return (
     <div className="flex flex-col gap-2.5">
       {produits.map(p => {
-        const ts = allTaches.filter(t => t.produit_id === p.id)
+        const ts = allTaches.filter(t => t.produit_id === p.id && t.type_tache !== 'Conteneur')
         const total = ts.reduce((s, t) => s + (t.effort_j ?? 0), 0)
         const fait  = ts.filter(t => t.statut === 'Fait').reduce((s, t) => s + (t.effort_j ?? 0), 0)
         const pct   = total > 0 ? Math.round(fait / total * 100) : 0
@@ -310,7 +313,7 @@ function BlocagesWidget(ctx: WidgetCtx) {
   const { produits, allTaches, openProduct } = ctx
   const pById = new Map(produits.map(p => [p.id, p]))
   const bloquees = allTaches
-    .filter(t => t.statut === 'Bloqué' && pById.has(t.produit_id as number))
+    .filter(t => t.statut === 'Bloqué' && t.type_tache !== 'Conteneur' && pById.has(t.produit_id as number))
     .slice(0, 12)
   if (!bloquees.length) return <EmptyHint>Aucune tâche bloquée 🎉</EmptyHint>
   return (
@@ -340,6 +343,7 @@ function MonTravailWidget(ctx: WidgetCtx) {
   const pIds = new Set(produits.map(p => p.id))
   const miennes = allTaches.filter(t =>
     pIds.has(t.produit_id as number) &&
+    t.type_tache !== 'Conteneur' &&
     t.statut !== 'Fait' &&
     t.assigne_a?.split(/[,;\s]+/).map(s => s.trim()).includes(userTrigramme))
   const enCours = miennes.filter(t => t.statut === 'En cours')
@@ -374,7 +378,7 @@ const STATUT_COLORS: Record<string, string> = {
 function RepartitionWidget(ctx: WidgetCtx) {
   const { produits, allTaches } = ctx
   const pIds = new Set(produits.map(p => p.id))
-  const ts = allTaches.filter(t => pIds.has(t.produit_id as number))
+  const ts = allTaches.filter(t => pIds.has(t.produit_id as number) && t.type_tache !== 'Conteneur')
   const data = ['Fait', 'En cours', 'À faire', 'Bloqué']
     .map(s => ({ name: s, value: ts.filter(t => t.statut === s).length }))
     .filter(d => d.value > 0)
@@ -445,7 +449,7 @@ function RoadmapWidget(ctx: WidgetCtx) {
 
   interface Seg { jalon: string; from: number; to: number; pct: number; nb: number }
   const rows: { p: Produit; segs: Seg[] }[] = produits.map(p => {
-    const ts = allTaches.filter(t => t.produit_id === p.id && t.jalon)
+    const ts = allTaches.filter(t => t.produit_id === p.id && t.type_tache !== 'Conteneur' && t.jalon)
     const byJalon = new Map<string, typeof ts>()
     ts.forEach(t => {
       const arr = byJalon.get(t.jalon!) ?? []

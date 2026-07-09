@@ -164,7 +164,7 @@ export function ProduitBandeauRow({
 
   const racinesTrim = useMemo(() => {
     const ids = new Set<string>(currentTrim?.sprints_ids ?? [])
-    return racines.filter(t => t.sprint && ids.has(t.sprint))
+    return racines.filter(t => t.sprint_debut && ids.has(t.sprint_debut))
   }, [racines, currentTrim])
 
   const effortFaitTrim    = racinesTrim.filter(t => t.statut === 'Fait').reduce((s, t) => s + (t.effort_j ?? 0), 0)

@@ -122,8 +122,11 @@ export function computeProduitMetrics(
   const ragAGlobal = totalUS > 0         ? ragAvancement(backlogPct, globalCursorPct) : null
   const ragBGlobal = globalBudgetEtp > 0 ? ragBudget(globalRealiseEur, globalBudgetEtp, globalCursorPct) : null
 
+  // `t.sprint` (l'ancien champ, avant sprint_debut/sprint_fin) porte une
+  // valeur par défaut ('S01' constaté en base) sur la quasi-totalité des
+  // tâches, y compris jamais planifiées — seul sprint_debut est fiable ici.
   const trimSprintSet  = new Set<string>(currentTrim?.sprints_ids ?? [])
-  const racinesTrim    = racines.filter(t => t.sprint && trimSprintSet.has(t.sprint))
+  const racinesTrim    = racines.filter(t => t.sprint_debut && trimSprintSet.has(t.sprint_debut))
   const totalUSTrim    = racinesTrim.length
   const faitUSTrim     = racinesTrim.filter(t => t.statut === 'Fait').length
   const backlogPctTrim = totalUSTrim > 0 ? Math.round(faitUSTrim / totalUSTrim * 100) : 0

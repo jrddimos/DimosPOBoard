@@ -20,10 +20,14 @@ import type { Tache, Statut } from '@/types'
 
 // ── Helpers ────────────────────────────────────────────────────
 const STATUT_CFG: Record<Statut, { bg: string; text: string; border: string; icon: React.ReactNode }> = {
-  'À faire':  { bg: 'bg-slate-50',       text: 'text-slate-500',   border: 'border-slate-200', icon: <CircleDot size={11} /> },
-  'En cours': { bg: 'bg-amber-50',       text: 'text-amber-700',   border: 'border-amber-200', icon: <Clock size={11} /> },
-  'Fait':     { bg: 'bg-emerald-50',     text: 'text-emerald-700', border: 'border-emerald-200', icon: <CheckCircle2 size={11} /> },
-  'Bloqué':   { bg: 'bg-rose-50',        text: 'text-rose-700',    border: 'border-rose-200',  icon: <Octagon size={11} /> },
+  'À faire':   { bg: 'bg-slate-50',       text: 'text-slate-500',   border: 'border-slate-200', icon: <CircleDot size={11} /> },
+  'En cours':  { bg: 'bg-amber-50',       text: 'text-amber-700',   border: 'border-amber-200', icon: <Clock size={11} /> },
+  'Fait':      { bg: 'bg-emerald-50',     text: 'text-emerald-700', border: 'border-emerald-200', icon: <CheckCircle2 size={11} /> },
+  'Bloqué':    { bg: 'bg-rose-50',        text: 'text-rose-700',    border: 'border-rose-200',  icon: <Octagon size={11} /> },
+  // N'apparaît jamais en pratique : `myTaches` ne lit que taches.statut, et
+  // "Transféré" ne vit que sur tache_iterations.statut. Entrée requise pour
+  // satisfaire Record<Statut,...> une fois le type élargi.
+  'Transféré': { bg: 'bg-slate-50',       text: 'text-slate-500',   border: 'border-slate-200', icon: <Archive size={11} /> },
 }
 
 function StatusPill({ value, onChange }: { value: Statut; onChange: (s: Statut) => void }) {

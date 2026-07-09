@@ -140,6 +140,27 @@ export function useDeleteTache() {
     mutationFn: async (id_tache: string) => {
       const produitId = produitActif?.id ?? null
       const current = qc.getQueryData<Tache[]>(['taches', produitId])?.find(t => t.id_tache === id_tache)
+
+      // Garde-fou : une tâche liée (directement ou via une itération) à un
+      // sprint clôturé ne doit plus pouvoir être supprimée — les données de
+      // sprints clôturés servent de référence figée pour le dashboard/Plan
+      // de charges, la suppression fausserait rétroactivement ces chiffres.
+      if (produitId) {
+        const { data: closed } = await supabase.from('sprints').select('numero').eq('statut', 'cloture').eq('produit_id', produitId)
+        const closedSet = new Set((closed ?? []).map(s => s.numero))
+        if (closedSet.size > 0) {
+          const { data: tacheRow } = await supabase.from('taches').select('sprint_debut').eq('id_tache', id_tache).eq('produit_id', produitId).single()
+          if (tacheRow?.sprint_debut && closedSet.has(tacheRow.sprint_debut)) {
+            throw new Error(`Impossible de supprimer ${id_tache} : elle appartient au sprint clôturé ${tacheRow.sprint_debut}.`)
+          }
+          const { data: iters } = await supabase.from('tache_iterations').select('sprint').eq('id_tache', id_tache).eq('produit_id', produitId)
+          const closedIter = (iters ?? []).find(i => i.sprint && closedSet.has(i.sprint))
+          if (closedIter) {
+            throw new Error(`Impossible de supprimer ${id_tache} : une de ses itérations appartient au sprint clôturé ${closedIter.sprint}.`)
+          }
+        }
+      }
+
       let query = supabase.from('taches').delete().eq('id_tache', id_tache)
       if (produitId) query = query.eq('produit_id', produitId)
       const { error } = await query

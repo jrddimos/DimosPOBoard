@@ -10,7 +10,7 @@ import { useToast } from '@/hooks/useToast'
 import { SPRINTS_LIST } from '@/constants'
 import { useEpics, epicFullName } from '@/hooks/useEpics'
 import { useJalons } from '@/hooks/useJalons'
-import { sprintInRange, hasPendingCriteres, serializeCriteres, parseCriteres, buildTacheIndex, isUS } from '@/lib/utils'
+import { sprintInRange, serializeCriteres, parseCriteres, buildTacheIndex, isUS } from '@/lib/utils'
 import type { CritereItem } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { confirm } from '@/components/ui/ConfirmModal'
@@ -270,6 +270,7 @@ export default function SprintBoardPage() {
   const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set())
   const [effortModal,  setEffortModal]  = useState<{ tache: Tache; pendingStatut: Statut } | null>(null)
   const [effortInput,  setEffortInput]  = useState('')
+  const [modalCriteres, setModalCriteres] = useState<CritereItem[]>([])
   const [activeId,     setActiveId]     = useState<string | null>(null)
   const [sousTacheFor, setSousTacheFor] = useState<Tache | null>(null)
   const [mobileCol,    setMobileCol]    = useState<Statut>('À faire')
@@ -359,10 +360,6 @@ export default function SprintBoardPage() {
   async function changeStatut(t: Tache, statut: Statut) {
     if (isReadOnly) { toast('Sprint clôturé ou en lecture seule', 'error'); return }
     if (statut === 'Fait') {
-      if (hasPendingCriteres(t.criteres)) {
-        const ok = await confirm({ title: 'Critères non validés', message: `"${t.titre}"\n\nCertains critères d'acceptation ne sont pas cochés. Clôturer quand même ?`, confirmLabel: 'Clôturer', variant: 'danger' })
-        if (!ok) return
-      }
       const subs = getSubsForSprint(t.id_tache)
       const pending = subs.filter(s => s.statut !== 'Fait')
       if (pending.length > 0) { toast(`${pending.length} sous-tâche(s) non terminée(s) dans ce sprint`, 'error'); return }
@@ -373,7 +370,11 @@ export default function SprintBoardPage() {
         await proposeVerification(t)
         return
       }
+      // Un seul popup pour tout : cocher les critères restants ET saisir le
+      // temps réalisé, plutôt qu'une confirmation "critères non cochés,
+      // continuer quand même ?" séparée puis une 2ᵉ popup pour l'effort.
       setEffortInput(String(t.effort_j ?? ''))
+      setModalCriteres(parseCriteres(t.criteres))
       setEffortModal({ tache: t, pendingStatut: statut })
       return
     }
@@ -387,6 +388,7 @@ export default function SprintBoardPage() {
       await updateTache.mutateAsync({ id_tache: sub.id_tache, updates: { statut: 'À faire' } })
     } else {
       setEffortInput(String(sub.effort_j ?? ''))
+      setModalCriteres(parseCriteres(sub.criteres))
       setEffortModal({ tache: sub, pendingStatut: 'Fait' })
     }
   }
@@ -397,7 +399,7 @@ export default function SprintBoardPage() {
     const done = effortModal.tache
     await updateTache.mutateAsync({
       id_tache: done.id_tache,
-      updates: { statut: effortModal.pendingStatut, effort_realise_j: isNaN(val) ? null : val },
+      updates: { statut: effortModal.pendingStatut, effort_realise_j: isNaN(val) ? null : val, criteres: serializeCriteres(modalCriteres) },
     })
     toast(`${done.id_tache} → Fait · ${isNaN(val) ? '—' : val + 'j'} réalisés`)
     setEffortModal(null)
@@ -407,7 +409,7 @@ export default function SprintBoardPage() {
   async function skipEffort() {
     if (!effortModal) return
     const done = effortModal.tache
-    await updateTache.mutateAsync({ id_tache: done.id_tache, updates: { statut: effortModal.pendingStatut } })
+    await updateTache.mutateAsync({ id_tache: done.id_tache, updates: { statut: effortModal.pendingStatut, criteres: serializeCriteres(modalCriteres) } })
     toast(`${done.id_tache} → Fait`)
     setEffortModal(null)
     if (effortModal.pendingStatut === 'Fait') await proposeVerification(done)
@@ -756,12 +758,20 @@ export default function SprintBoardPage() {
       {effortModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-brand/40 backdrop-blur-sm"
           onClick={() => setEffortModal(null)}>
-          <div className="bg-card rounded-2xl shadow-2xl w-80 p-5 space-y-4" onClick={e => e.stopPropagation()}>
+          <div className="bg-card rounded-2xl shadow-2xl w-96 p-5 space-y-4 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">Effort réalisé</p>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">Clôturer la tâche</p>
               <p className="text-sm font-bold text-navy">{effortModal.tache.id_tache}</p>
               <p className="text-xs text-slate-400 leading-snug line-clamp-2">{effortModal.tache.titre}</p>
             </div>
+            {modalCriteres.length > 0 && (
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-navy">Critères d'acceptation</label>
+                <div className="bg-bg rounded-xl p-2.5">
+                  <CriteresEditor items={modalCriteres} onChange={setModalCriteres} compact />
+                </div>
+              </div>
+            )}
             {effortModal.tache.effort_j > 0 && (
               <p className="text-xs text-slate-400">Estimé : <span className="font-semibold text-navy">{effortModal.tache.effort_j}j</span></p>
             )}

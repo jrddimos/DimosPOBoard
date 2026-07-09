@@ -115,13 +115,30 @@ describe('computeProduitMetrics', () => {
     }
     const produit = mkProduit({ objectifs_trimestriels: [trim] })
     const taches = [
-      mkTache({ id_tache: 'US-001', sprint: 'S1', statut: 'Fait' }),
-      mkTache({ id_tache: 'US-002', sprint: 'S1', statut: 'Fait' }),
+      mkTache({ id_tache: 'US-001', sprint_debut: 'S1', statut: 'Fait' }),
+      mkTache({ id_tache: 'US-002', sprint_debut: 'S1', statut: 'Fait' }),
     ]
     // Quelques jours après le début du trimestre : curseur bas, avancement déjà à 100 % → vert.
     const m = computeProduitMetrics(produit, taches, finConfig, new Date(2026, 0, 5))
     expect(m.backlogPctTrim).toBe(100)
     expect(m.ragATrim).toBe('green')
+  })
+
+  it('ignore le champ `sprint` legacy (défaut base "S01") pour le scope trimestre — seul sprint_debut compte', () => {
+    const trim: TrimObjectif = {
+      id: 't1', trimestre: 'Q1-2026', objectifs: [], budget_etp: 1, budget_invest: null, budget_achats: null,
+      previsionnel_verrouille: undefined, sprints_ids: ['S1'], realise_etp: null, realise_invest: null,
+      realise_achats: null, kpis: '', outcome_desc: '', outcome_euros: null, statut: null,
+      lance: true, pause: false, cloture: false, jours_ouvres: undefined,
+      budget_invest_details: undefined, realise_invest_details: undefined,
+      budget_achats_details: undefined, realise_achats_details: undefined,
+      budget_etp_detail: undefined, realise_etp_detail: undefined,
+    }
+    const produit = mkProduit({ objectifs_trimestriels: [trim] })
+    // sprint='S1' mais sprint_debut=null : ne doit PAS compter dans le trimestre.
+    const taches = [mkTache({ id_tache: 'US-001', sprint: 'S1', sprint_debut: null, statut: 'Fait' })]
+    const m = computeProduitMetrics(produit, taches, finConfig, new Date(2026, 0, 5))
+    expect(m.totalUSTrim).toBe(0)
   })
 })
 

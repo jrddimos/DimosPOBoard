@@ -233,7 +233,10 @@ function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintId
   )
 
   // ETP auto depuis les sprints sélectionnés
-  const faitAutoTaches     = taches.filter(ta => selectedIds.includes(ta.sprint ?? '') && ta.statut === 'Fait')
+  // `ta.sprint` (l'ancien champ) porte une valeur par défaut ('S01' constaté
+  // en base) sur la quasi-totalité des tâches — seul sprint_debut est fiable
+  // (même bug corrigé dans sprintEligibility.ts).
+  const faitAutoTaches     = taches.filter(ta => ta.type_tache !== 'Conteneur' && selectedIds.includes(ta.sprint_debut ?? '') && ta.statut === 'Fait')
   const totalJoursRealises = faitAutoTaches.reduce((s, ta) => s + (ta.effort_realise_j ?? 0), 0)
   const etpAutoCalc        = totalJoursRealises / JOURS_ETP_TRIM
 
@@ -478,7 +481,7 @@ function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintId
                   // `ta.sprint` (ancien champ) porte une valeur par défaut sur la
                   // quasi-totalité des tâches, y compris jamais planifiées — seul
                   // sprint_debut est fiable (même bug corrigé dans sprintEligibility.ts).
-                  const faitN = sp ? taches.filter(ta => ta.sprint_debut === num && ta.statut === 'Fait').length : 0
+                  const faitN = sp ? taches.filter(ta => ta.type_tache !== 'Conteneur' && ta.sprint_debut === num && ta.statut === 'Fait').length : 0
                   return (
                     <div key={num} className="flex items-center gap-1 px-2 py-1 bg-purple/10 rounded-lg text-purple">
                       <span className="text-xs font-semibold">Sprint {num}</span>
@@ -516,7 +519,7 @@ function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintId
                 <div className="divide-y divide-border/50 max-h-64 overflow-y-auto">
                   {availableSprints.filter(s => !selectedIds.includes(s.numero)).map(sprint => {
                     const sel = tempSelection.includes(sprint.numero)
-                    const faitInSprint = taches.filter(ta => ta.sprint_debut === sprint.numero && ta.statut === 'Fait')
+                    const faitInSprint = taches.filter(ta => ta.type_tache !== 'Conteneur' && ta.sprint_debut === sprint.numero && ta.statut === 'Fait')
                     const effortReal   = faitInSprint.reduce((acc, ta) => acc + (ta.effort_realise_j ?? 0), 0)
                     return (
                       <div key={sprint.numero}

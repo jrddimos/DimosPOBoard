@@ -12,7 +12,11 @@ export const RAG_CONFIG_DEFAULT: RagConfig = {
   blocages:   { amber: 1,  red: 3  },
 }
 
-export type Statut = 'À faire' | 'En cours' | 'Fait' | 'Bloqué'
+// "Transféré" ne vit jamais sur taches.statut (jamais écrit par l'app à cet
+// endroit) — uniquement sur tache_iterations.statut, pour marquer une
+// itération dont le reste à faire a été reporté vers un autre sprint/le
+// backlog plutôt que terminée (voir useTransferToNextIteration).
+export type Statut = 'À faire' | 'En cours' | 'Fait' | 'Bloqué' | 'Transféré'
 export type Moscow = 'Must Have' | 'Should Have' | 'Could Have' | "Won't Have"
 export type TypeFonction = 'Fonction principale' | 'Fonction secondaire' | 'Fonction support' | 'Fonction exclue'
 export type SprintStatut = 'planifie' | 'en_cours' | 'pause' | 'cloture'

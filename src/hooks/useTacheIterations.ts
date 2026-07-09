@@ -17,11 +17,12 @@ export interface TacheIteration {
   statut: Statut
   resultat: string | null
   commentaire: string | null
+  effort_realise_j: number | null
   created_at: string
   closed_at: string | null
 }
 
-const STATUTS_TERMINAUX: Statut[] = ['Fait', 'Bloqué']
+const STATUTS_TERMINAUX: Statut[] = ['Fait', 'Bloqué', 'Transféré']
 
 // id_tache n'est unique qu'au sein d'un produit (UNIQUE(produit_id, id_tache),
 // cf. migration 0037) — deux produits peuvent avoir chacun une tâche
@@ -235,5 +236,89 @@ export function useProduitIterations(produitId: number | null) {
     },
     staleTime: 10_000,
     enabled: !!produitId,
+  })
+}
+
+// Clôture d'un sprint sur une US qui a démarré mais n'est pas terminée :
+// fige l'itération en cours avec le temps réellement passé sur CE sprint
+// (statut 'Transféré', jamais choisi manuellement), puis crée l'itération
+// suivante avec le reste à faire (jamais négatif) dans le sprint de
+// destination (ou le backlog si destSprint est null). Comme
+// useCreateIteration, fige d'abord l'état actuel de la tâche comme
+// itération 1 si aucune itération n'existe encore.
+export function useTransferToNextIteration() {
+  const qc = useQueryClient()
+  const { produitActif } = useProduit()
+  const updateTache = useUpdateTache()
+
+  return useMutation({
+    mutationFn: async (payload: {
+      id_tache: string
+      tempsPasse: number
+      closingSprint: string
+      destSprint: string | null
+    }) => {
+      if (!produitActif) throw new Error('Aucun produit sélectionné')
+
+      const [{ data: currentTache, error: tacheError }, { data: existing, error: iterError }] = await Promise.all([
+        supabase.from('taches').select('*').eq('id_tache', payload.id_tache).eq('produit_id', produitActif.id).single(),
+        supabase.from('tache_iterations').select('*').eq('id_tache', payload.id_tache).eq('produit_id', produitActif.id).order('numero'),
+      ])
+      if (tacheError) throw tacheError
+      if (iterError) throw iterError
+      const iterations = (existing ?? []) as TacheIteration[]
+
+      const closingNumero = iterations.length ? Math.max(...iterations.map(i => i.numero)) : 1
+      const effortInitial = iterations.length
+        ? iterations.find(i => i.numero === closingNumero)?.effort_j ?? 0
+        : currentTache.effort_j ?? 0
+
+      if (iterations.length === 0) {
+        const { error: freezeError } = await supabase.from('tache_iterations').insert({
+          produit_id: produitActif.id, id_tache: payload.id_tache, numero: 1,
+          objectif: null, criteres: currentTache.criteres,
+          effort_j: currentTache.effort_j, assigne_a: currentTache.assigne_a,
+          sprint: payload.closingSprint, statut: currentTache.statut,
+          resultat: null, commentaire: currentTache.commentaire,
+        })
+        if (freezeError) throw freezeError
+      }
+
+      const { error: closeErr } = await supabase.from('tache_iterations')
+        .update({ statut: 'Transféré', effort_realise_j: payload.tempsPasse, closed_at: new Date().toISOString() })
+        .eq('produit_id', produitActif.id).eq('id_tache', payload.id_tache).eq('numero', closingNumero)
+      if (closeErr) throw closeErr
+
+      const reste = Math.max(0, effortInitial - payload.tempsPasse)
+
+      const { data: newIter, error: insErr } = await supabase.from('tache_iterations')
+        .insert({
+          produit_id: produitActif.id, id_tache: payload.id_tache, numero: closingNumero + 1,
+          objectif: null, criteres: currentTache.criteres, effort_j: reste,
+          assigne_a: currentTache.assigne_a, sprint: payload.destSprint, statut: 'En cours',
+          resultat: null, commentaire: currentTache.commentaire,
+        })
+        .select()
+        .single()
+      if (insErr) throw insErr
+
+      await updateTache.mutateAsync({
+        id_tache: payload.id_tache,
+        updates: {
+          effort_j: reste,
+          sprint: payload.destSprint ?? '',
+          sprint_debut: payload.destSprint,
+          statut: 'En cours',
+        },
+      })
+
+      return newIter as TacheIteration
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['tache_iterations', data.id_tache] })
+      qc.invalidateQueries({ queryKey: ['taches', produitActif?.id ?? null] })
+      qc.invalidateQueries({ queryKey: ['tache_iterations_counts', produitActif?.id ?? null] })
+      qc.invalidateQueries({ queryKey: ['tache_iterations_all', produitActif?.id ?? null] })
+    },
   })
 }

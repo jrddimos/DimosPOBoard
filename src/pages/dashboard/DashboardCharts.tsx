@@ -17,10 +17,13 @@ import type { Tache, Statut, Sprint } from '@/types'
 // ── Palette statuts (reprend les couleurs pill- déjà établies dans index.css, ajustées pour la validation daltonisme) ──
 const STATUT_ORDER: Statut[] = ['À faire', 'En cours', 'Fait', 'Bloqué']
 const STATUT_COLORS: Record<Statut, string> = {
-  'À faire': '#6366F1',
-  'En cours': '#F59E0B',
-  'Fait':     '#10B981',
-  'Bloqué':   '#F43F5E',
+  'À faire':   '#6366F1',
+  'En cours':  '#F59E0B',
+  'Fait':      '#10B981',
+  'Bloqué':    '#F43F5E',
+  // N'apparaît jamais dans STATUT_ORDER (jamais sur taches.statut) — entrée
+  // requise par Record<Statut,...> une fois le type élargi.
+  'Transféré': '#94A3B8',
 }
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
@@ -249,7 +252,10 @@ export function PortfolioStatutsChart({ produits, allTaches }: {
   produits: Produit[]; allTaches: Tache[]
 }) {
   if (produits.length === 0) return null
-  const statutRows = produits.map(p => ({ label: p.nom, taches: allTaches.filter(t => t.produit_id === p.id) }))
+  const statutRows = produits.map(p => ({
+    label: p.nom,
+    taches: allTaches.filter(t => t.produit_id === p.id && t.type_tache !== 'Conteneur'),
+  }))
   return <StackedStatutRows rows={statutRows} />
 }
 
@@ -419,7 +425,10 @@ function buildRoadmapRows(taches: Tache[], sprintDates: Map<string, { start: Dat
     let start: Date | null = null
     let end: Date | null = null
     groupTaches.forEach(t => {
-      const sp = t.sprint ? sprintDates.get(t.sprint) : undefined
+      // `t.sprint` (l'ancien champ) porte une valeur par défaut ('S01'
+      // constaté en base) sur la quasi-totalité des tâches — seul
+      // sprint_debut est fiable (même bug corrigé dans sprintEligibility.ts).
+      const sp = t.sprint_debut ? sprintDates.get(t.sprint_debut) : undefined
       if (!sp) return
       if (start === null || sp.start.getTime() < start.getTime()) start = sp.start
       if (end === null || sp.end.getTime() > end.getTime()) end = sp.end

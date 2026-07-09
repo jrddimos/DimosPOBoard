@@ -20,7 +20,7 @@ function mkIter(overrides: Partial<TacheIteration> = {}): TacheIteration {
   return {
     id: 1, produit_id: 1, id_tache: 'US-001', numero: 1, objectif: null, criteres: null,
     effort_j: null, assigne_a: null, sprint: null, statut: 'À faire', resultat: null,
-    commentaire: null, created_at: '2026-01-01T00:00:00Z', closed_at: null,
+    commentaire: null, effort_realise_j: null, created_at: '2026-01-01T00:00:00Z', closed_at: null,
     ...overrides,
   }
 }

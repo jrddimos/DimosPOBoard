@@ -969,16 +969,25 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
       confirmLabel:'Supprimer définitivement',variant:'danger',
     })
     if(!ok) return
-    for(const id of ids) await deleteTache.mutateAsync(id)
-    toast(`✅ ${ids.length} tâche(s) supprimée(s) de l'Epic`)
+    try {
+      for(const id of ids) await deleteTache.mutateAsync(id)
+      toast(`✅ ${ids.length} tâche(s) supprimée(s) de l'Epic`)
+    } catch(e) {
+      toast(e instanceof Error ? e.message : 'Erreur lors de la suppression', 'error')
+    }
   }
 
   async function deleteIds(ids:string[]):Promise<boolean>{
     const ok=await confirm({title:`Supprimer ${ids.length>1?`${ids.length} éléments`:ids[0]} ?`,message:'Action irréversible. Les tâches et leurs sous-tâches seront supprimées.',confirmLabel:'Supprimer',variant:'danger'})
     if(!ok) return false
-    for(const id of ids) await deleteTache.mutateAsync(id)
-    toast(`✅ ${ids.length} élément(s) supprimé(s)`)
-    return true
+    try {
+      for(const id of ids) await deleteTache.mutateAsync(id)
+      toast(`✅ ${ids.length} élément(s) supprimé(s)`)
+      return true
+    } catch(e) {
+      toast(e instanceof Error ? e.message : 'Erreur lors de la suppression', 'error')
+      return false
+    }
   }
 
   return (

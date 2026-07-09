@@ -13,7 +13,7 @@ import { supabase } from '@/lib/supabase'
 import { downloadCSV, naturalCompare, buildTacheIndex } from '@/lib/utils'
 import { isEligibleForBacklog, isInThisSprint, buildEligibleTree } from '@/lib/sprintEligibility'
 import { TacheTree } from '@/components/tache/TacheTree'
-import { useProduitIterations, useUpdateIteration, type TacheIteration } from '@/hooks/useTacheIterations'
+import { useProduitIterations, useUpdateIteration, useTransferToNextIteration, type TacheIteration } from '@/hooks/useTacheIterations'
 // @react-pdf/renderer et exceljs sont lourds (~800 Ko à eux deux) : chargés
 // à la demande au clic sur export, pas au chargement de la page.
 import { METIERS_DEFAULT, SPRINTS_LIST, BRAND_COLORS } from '@/constants'
@@ -159,15 +159,17 @@ function SprintsTab() {
   const [openRevChecklist, setOpenRevChecklist] = useState(true)
   const [closeModal,     setCloseModal]     = useState(false)
   const [tacheDest,      setTacheDest]      = useState<Record<string, 'next' | 'backlog'>>({})
+  const [tempsPasse,     setTempsPasse]     = useState<Record<string, string>>({})
   const [plannedStart,   setPlannedStart]   = useState('')
   const [plannedWeeks,   setPlannedWeeks]   = useState(2)
+  const transferIteration = useTransferToNextIteration()
 
   const sprint     = sprints.find(s => s.numero === selected)
   // `t.sprint` (l'ancien champ, avant sprint_debut/sprint_fin) porte une
   // valeur par défaut ('S01' constaté en base) sur la quasi-totalité des
   // tâches, y compris jamais planifiées — seul sprint_debut est fiable ici
   // (même bug que celui corrigé dans src/lib/sprintEligibility.ts).
-  const spTaches   = taches.filter(t => !t.parent_id && t.sprint_debut === selected)
+  const spTaches   = taches.filter(t => !t.parent_id && t.type_tache !== 'Conteneur' && t.sprint_debut === selected)
   const unfinished = spTaches.filter(t => t.statut !== 'Fait')
   const statLabel: { [k: string]: string } = { planifie: 'planifié', en_cours: 'en cours', pause: 'en pause', cloture: 'clôturé' }
 
@@ -237,7 +239,7 @@ function SprintsTab() {
       if (unfinished.length > 0) {
         const dest: Record<string, 'next' | 'backlog'> = {}
         unfinished.forEach(t => { dest[t.id_tache] = nextSprint ? 'next' : 'backlog' })
-        setTacheDest(dest); setCloseModal(true); return
+        setTacheDest(dest); setTempsPasse({}); setCloseModal(true); return
       }
       await doClose(computeStats(spTaches)); return
     }
@@ -274,10 +276,21 @@ function SprintsTab() {
   async function confirmClose() {
     const stats = computeStats(spTaches)
     for (const [id_tache, dest] of Object.entries(tacheDest)) {
-      if (dest === 'next' && nextSprint)
-        await updateTache.mutateAsync({ id_tache, updates: { sprint: nextSprint, sprint_debut: nextSprint } })
-      else
+      const t = unfinished.find(u => u.id_tache === id_tache)
+      const destSprint = dest === 'next' && nextSprint ? nextSprint : null
+      if (t && t.statut !== 'À faire') {
+        // US démarrée : on fige le temps passé sur ce sprint et on reporte
+        // le reste à faire sur une nouvelle itération (voir
+        // useTransferToNextIteration) plutôt que de juste déplacer la tâche.
+        await transferIteration.mutateAsync({
+          id_tache, tempsPasse: Number(tempsPasse[id_tache]) || 0,
+          closingSprint: selected, destSprint,
+        })
+      } else if (destSprint) {
+        await updateTache.mutateAsync({ id_tache, updates: { sprint: destSprint, sprint_debut: destSprint } })
+      } else {
         await updateTache.mutateAsync({ id_tache, updates: { sprint: '', sprint_debut: null, sprint_fin: null } })
+      }
     }
     await doClose(stats)
     setCloseModal(false)
@@ -320,30 +333,45 @@ function SprintsTab() {
                 className="ds-btn ds-btn-sm flex-1">Tout → Backlog</button>
             </div>
             <div className="flex flex-col gap-2 px-5 py-4 overflow-y-auto flex-1">
-              {unfinished.map(t => (
-                <div key={t.id_tache} className="flex items-center gap-2 p-2.5 rounded-xl bg-bg text-xs">
-                  <span className="font-semibold text-indigo-600 w-16 shrink-0">{t.id_tache}</span>
-                  <span className="flex-1 truncate text-navy">{t.titre}</span>
-                  <div className="flex gap-1 shrink-0">
-                    {nextSprint && (
-                      <button onClick={() => setTacheDest(p => ({ ...p, [t.id_tache]: 'next' }))}
+              {unfinished.map(t => {
+                const demarree = t.statut !== 'À faire'
+                return (
+                <div key={t.id_tache} className="flex flex-col gap-1.5 p-2.5 rounded-xl bg-bg text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-indigo-600 w-16 shrink-0">{t.id_tache}</span>
+                    <span className="flex-1 truncate text-navy">{t.titre}</span>
+                    <div className="flex gap-1 shrink-0">
+                      {nextSprint && (
+                        <button onClick={() => setTacheDest(p => ({ ...p, [t.id_tache]: 'next' }))}
+                          className={cn('px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors',
+                            tacheDest[t.id_tache] === 'next' ? 'bg-indigo-500 text-white' : 'bg-border/60 text-subtle hover:bg-indigo-100')}>
+                          {nextSprint}
+                        </button>
+                      )}
+                      <button onClick={() => setTacheDest(p => ({ ...p, [t.id_tache]: 'backlog' }))}
                         className={cn('px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors',
-                          tacheDest[t.id_tache] === 'next' ? 'bg-indigo-500 text-white' : 'bg-border/60 text-subtle hover:bg-indigo-100')}>
-                        {nextSprint}
+                          tacheDest[t.id_tache] === 'backlog' ? 'bg-slate-700 text-white' : 'bg-border/60 text-subtle hover:bg-slate-100')}>
+                        Backlog
                       </button>
-                    )}
-                    <button onClick={() => setTacheDest(p => ({ ...p, [t.id_tache]: 'backlog' }))}
-                      className={cn('px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors',
-                        tacheDest[t.id_tache] === 'backlog' ? 'bg-slate-700 text-white' : 'bg-border/60 text-subtle hover:bg-slate-100')}>
-                      Backlog
-                    </button>
+                    </div>
                   </div>
+                  {demarree && (
+                    <div className="flex items-center gap-1.5 pl-[72px]">
+                      <span className="text-subtle">Jours passés sur ce sprint</span>
+                      <input type="number" min={0} step={0.5} placeholder="0"
+                        value={tempsPasse[t.id_tache] ?? ''}
+                        onChange={e => setTempsPasse(p => ({ ...p, [t.id_tache]: e.target.value }))}
+                        className="ds-input text-xs w-16 py-0.5" />
+                      <span className="text-subtle/70">/ {t.effort_j ?? 0}j estimés</span>
+                    </div>
+                  )}
                 </div>
-              ))}
+                )
+              })}
             </div>
             <div className="flex gap-3 justify-end px-5 py-4 border-t border-border">
               <button onClick={() => setCloseModal(false)} className="ds-btn ds-btn-sm">Annuler</button>
-              <button onClick={confirmClose} disabled={updateTache.isPending}
+              <button onClick={confirmClose} disabled={updateTache.isPending || transferIteration.isPending}
                 className="ds-btn-primary ds-btn-sm">Clôturer le sprint</button>
             </div>
           </div>
@@ -382,7 +410,7 @@ function SprintsTab() {
 
             {selected && (
               <div className="flex items-center gap-1.5 sm:ml-auto flex-wrap">
-                <button onClick={() => action('start')} disabled={sprint?.statut === 'en_cours'}
+                <button onClick={() => action('start')} disabled={sprint?.statut === 'en_cours' || sprint?.statut === 'cloture'}
                   className="ds-btn ds-btn-sm flex items-center gap-1.5 bg-emerald-500 text-white border-emerald-500 hover:bg-emerald-600 disabled:opacity-40">
                   <Play size={12} /> Démarrer
                 </button>
@@ -390,8 +418,8 @@ function SprintsTab() {
                   className="ds-btn ds-btn-sm flex items-center gap-1.5 bg-amber-500 text-white border-amber-500 hover:bg-amber-600 disabled:opacity-40">
                   <Pause size={12} /> Pause
                 </button>
-                <button onClick={() => action('close')}
-                  className="ds-btn-primary ds-btn-sm flex items-center gap-1.5">
+                <button onClick={() => action('close')} disabled={sprint?.statut === 'cloture'}
+                  className="ds-btn-primary ds-btn-sm flex items-center gap-1.5 disabled:opacity-40">
                   <CheckCircle2 size={12} /> Clôturer
                 </button>
                 {sprint?.statut === 'cloture' && (
@@ -573,7 +601,7 @@ function SprintsTab() {
         )}
 
         {/* ── US pleine largeur ──────────────────────────────── */}
-        <SprintTaskManager selected={selected} taches={taches} showTasks={showTasks} setShowTasks={setShowTasks} />
+        <SprintTaskManager selected={selected} taches={taches} showTasks={showTasks} setShowTasks={setShowTasks} isCloture={sprint?.statut === 'cloture'} />
       </div>
     </>
   )
@@ -885,8 +913,9 @@ function MetiersTab() {
 }
 
 // ── Composant gestion US du sprint ───────────────────────────
-function SprintTaskManager({ selected, taches, showTasks, setShowTasks }: {
+function SprintTaskManager({ selected, taches, showTasks, setShowTasks, isCloture }: {
   selected: string; taches: ReturnType<typeof useTaches>['data']; showTasks: boolean; setShowTasks: (v: boolean) => void
+  isCloture: boolean
 }) {
   const { produitActif } = useProduit()
   const updateTache = useUpdateTache()
@@ -958,6 +987,7 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks }: {
   const epicAValider = epicAll.filter(needsValidation)
 
   async function assignToSprint(t: Tache) {
+    if (isCloture) { toast('Sprint clôturé : lecture seule', 'error'); return }
     if (t.type_tache === 'Conteneur') return
     const iters = itersOf(t.id_tache)
     const eligible = iters.filter(it => it.statut === 'À faire' && !it.sprint)
@@ -977,6 +1007,7 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks }: {
   }
 
   async function doRemove(t: Tache) {
+    if (isCloture) { toast('Sprint clôturé : lecture seule', 'error'); return }
     const iters = itersOf(t.id_tache)
     if (iters.length === 0) {
       await updateTache.mutateAsync({ id_tache: t.id_tache, updates: { sprint: '', sprint_debut: null } })
@@ -1018,8 +1049,10 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks }: {
             Itér. {active.numero}{active.objectif ? ` · ${active.objectif.slice(0, 24)}` : ''}
           </span>
         )}
-        <button onClick={() => doRemove(t)} title="Retirer du sprint"
-          className="p-1 rounded hover:bg-rose-50 text-subtle hover:text-rose-600"><X size={11} /></button>
+        {!isCloture && (
+          <button onClick={() => doRemove(t)} title="Retirer du sprint"
+            className="p-1 rounded hover:bg-rose-50 text-subtle hover:text-rose-600"><X size={11} /></button>
+        )}
       </div>
     )
   }
@@ -1054,13 +1087,16 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks }: {
           <div className="ds-card-title mb-0 flex-1">US du sprint {selected} ({spTachesCount})</div>
           {showTasks ? <ChevronDown size={14} className="text-subtle" /> : <ChevronRight size={14} className="text-subtle" />}
         </button>
-        {selected && (
+        {selected && !isCloture && (
           <div className="flex items-center gap-2">
             <button onClick={() => { setShowAdd(s => !s); setSelection(new Set()); setShowEpicAdd(false) }}
               className="ds-btn ds-btn-sm flex items-center gap-1"><Plus size={11} /> Ajouter US</button>
             <button onClick={() => { setShowEpicAdd(s => !s); setQuickEpic(''); setShowAdd(false) }}
               className="ds-btn ds-btn-sm flex items-center gap-1"><Zap size={11} /> Ajouter un Epic</button>
           </div>
+        )}
+        {selected && isCloture && (
+          <span className="text-[11px] font-semibold text-subtle bg-bg px-2 py-1 rounded-lg">Sprint clôturé — lecture seule</span>
         )}
       </div>
 

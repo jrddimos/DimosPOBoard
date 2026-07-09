@@ -78,10 +78,11 @@ export const MOSCOW_STYLE: Record<string, { bg: string; text: string }> = {
 }
 
 export const STATUT_STYLE: Record<string, { bg: string; text: string }> = {
-  'À faire':  { bg: '#F1F5F9', text: '#475569' },
-  'En cours': { bg: '#FEF3C7', text: '#92600A' },
-  'Fait':     { bg: '#D1FAE5', text: '#065F46' },
-  'Bloqué':   { bg: '#FEE2E2', text: '#991B1B' },
+  'À faire':   { bg: '#F1F5F9', text: '#475569' },
+  'En cours':  { bg: '#FEF3C7', text: '#92600A' },
+  'Fait':      { bg: '#D1FAE5', text: '#065F46' },
+  'Bloqué':    { bg: '#FEE2E2', text: '#991B1B' },
+  'Transféré': { bg: '#E2E8F0', text: '#334155' },
 }
 
 // Config Tailwind pour StatusPicker (dropdown de statut éditable) — distincte de STATUT_STYLE (hex, pour badges statiques)

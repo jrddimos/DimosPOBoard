@@ -311,7 +311,10 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const trimSprintArr   = [...trimSprintSet].sort()
   const trimSprintLabel = trimSprintArr.length > 0 ? `${trimSprintArr[0]} → ${trimSprintArr[trimSprintArr.length-1]}` : ''
 
-  const racinesTrim     = racines.filter(t => t.sprint && trimSprintSet.has(t.sprint))
+  // `t.sprint` (l'ancien champ) porte une valeur par défaut ('S01' constaté
+  // en base) sur la quasi-totalité des tâches — seul sprint_debut est fiable
+  // (même bug corrigé dans sprintEligibility.ts).
+  const racinesTrim     = racines.filter(t => t.sprint_debut && trimSprintSet.has(t.sprint_debut))
   const totalUSTrim     = racinesTrim.length
   const faitUSTrim      = racinesTrim.filter(t => t.statut === 'Fait').length
   const enCoursTrim     = racinesTrim.filter(t => t.statut === 'En cours').length
@@ -1336,17 +1339,17 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
           ) },
           { key: 'chart_roadmap', label: 'Roadmap', minW: 6, minH: 4, defaultSize: { w: 12, h: 6 }, content: (
             <ChartWidget title={`Roadmap — ${produit.nom}`}>
-              <LazyRoadmapChart produit={produit} taches={taches} sprints={allSprints} epicColors={epicColorsMap} jalonColors={jalonColorsMap} />
+              <LazyRoadmapChart produit={produit} taches={racines} sprints={allSprints} epicColors={epicColorsMap} jalonColors={jalonColorsMap} />
             </ChartWidget>
           ) },
           { key: 'chart_statuts', label: 'Graphe statuts', minW: 3, minH: 3, defaultSize: { w: 6, h: 5 }, content: (
             <ChartWidget title="Répartition des statuts">
-              <LazyStatutsChart taches={taches} />
+              <LazyStatutsChart taches={racines} />
             </ChartWidget>
           ) },
           { key: 'chart_epics', label: 'Graphe épics', minW: 3, minH: 3, defaultSize: { w: 6, h: 5 }, content: (
             <ChartWidget title="Tâches par épic">
-              <LazyEpicsChart taches={taches} epicColors={epicColorsMap} />
+              <LazyEpicsChart taches={racines} epicColors={epicColorsMap} />
             </ChartWidget>
           ) },
           { key: 'chart_tendance', label: 'Tendance sprints', minW: 4, minH: 3, defaultSize: { w: 12, h: 5 }, content: (
