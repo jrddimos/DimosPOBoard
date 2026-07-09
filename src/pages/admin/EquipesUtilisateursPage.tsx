@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { useToast } from '@/hooks/useToast'
-import { useEquipes, useUtilisateurs, useCreateEquipe, useUpdateEquipe, useDeleteEquipe, useLastSignInDates } from '@/hooks/useEquipes'
+import { useEquipes, useUtilisateurs, useCreateEquipe, useUpdateEquipe, useDeleteEquipe, useLastSignInDates, useUserEmails } from '@/hooks/useEquipes'
 import { useAllRoles, useInviteUser, useSetRoleGlobal, useUpdateProfile, useSetUserEquipes, useUploadAvatar, useUpsertRoleProduit, useDeleteRoleProduit, useDeleteUser, usePendingProfiles, useCreatePendingProfile, useDeletePendingProfile, useSendInvitationToPending, useUpdatePendingProfile } from '@/hooks/useUserManagement'
 import type { PendingProfile } from '@/hooks/useUserManagement'
 import { useProduits } from '@/hooks/useProduits'
@@ -9,9 +9,10 @@ import { confirm } from '@/components/ui/ConfirmModal'
 import { BRAND_COLORS } from '@/constants'
 import type { RoleProduit, UserProfile } from '@/contexts/AuthContext'
 import type { Equipe } from '@/types'
-import { Plus, X, Pencil, Trash2, Users, UserPlus, Shield, ChevronDown, ChevronRight, Camera, Mail, Clock, Send, Search, ArrowUpDown } from 'lucide-react'
+import { Plus, X, Pencil, Trash2, Users, UserPlus, Shield, ChevronDown, ChevronRight, Camera, Mail, Clock, Send, Search, ArrowUpDown, KeyRound } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Spinner } from '@/components/ui/Spinner'
+import { supabase } from '@/lib/supabase'
 
 const ROLE_COLORS: Record<RoleProduit, string> = {
   po:      'bg-slate-100 text-slate-600',
@@ -359,6 +360,7 @@ export default function EquipesUtilisateursPage() {
   const { data: equipes      = [], isLoading: loadEq } = useEquipes()
   const { data: utilisateurs = [], isLoading: loadU  } = useUtilisateurs()
   const { data: lastSignIn   = new Map<string, string | null>() } = useLastSignInDates(isAdmin)
+  const { data: userEmails   = new Map<string, string | null>() } = useUserEmails(isAdmin)
   const { data: allRoles     = [] }                    = useAllRoles()
   const { data: produits     = [] }                    = useProduits()
 
@@ -511,6 +513,20 @@ export default function EquipesUtilisateursPage() {
     if (!await confirm({ title: "Supprimer l'utilisateur ?", message: `"${name}" sera définitivement supprimé.`, confirmLabel: 'Supprimer', variant: 'danger' })) return
     await deleteUser.mutateAsync(u.user_id)
     toast(`"${name}" supprimé`)
+  }
+
+  async function sendPasswordReset(u: UserProfile) {
+    const name = `${u.prenom ?? ''} ${u.nom ?? u.display_name ?? u.user_id}`.trim()
+    const email = userEmails.get(u.user_id)
+    if (!email) { toast('Email introuvable pour cet utilisateur', 'error'); return }
+    if (!await confirm({
+      title: 'Envoyer un lien de réinitialisation ?',
+      message: `Un email de réinitialisation de mot de passe sera envoyé à "${name}" (${email}).`,
+      confirmLabel: 'Envoyer',
+    })) return
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin })
+    if (error) { toast(error.message, 'error'); return }
+    toast(`Lien de réinitialisation envoyé à ${email}`)
   }
 
   function openInvite() {
@@ -681,6 +697,11 @@ export default function EquipesUtilisateursPage() {
             <button onClick={() => isEditing ? setEditingUser(null) : startEdit(u)}
               className={cn('p-1.5 rounded hover:bg-bg text-subtle hover:text-navy transition-colors', isEditing && 'bg-bg text-navy')}>
               <Pencil size={12} />
+            </button>
+            <button onClick={() => sendPasswordReset(u)} title="Envoyer un lien de réinitialisation de mot de passe"
+              disabled={!userEmails.get(u.user_id)}
+              className="p-1.5 rounded hover:bg-indigo-50 text-subtle hover:text-indigo-600 transition-colors disabled:opacity-30 disabled:pointer-events-none">
+              <KeyRound size={12} />
             </button>
             {!isMe && (
               <>

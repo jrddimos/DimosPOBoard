@@ -82,6 +82,23 @@ export function useLastSignInDates(enabled = true) {
   })
 }
 
+// Emails des utilisateurs (admin uniquement) — pour déclencher l'envoi d'un
+// lien de réinitialisation de mot de passe à la place d'un utilisateur.
+export function useUserEmails(enabled = true) {
+  return useQuery({
+    queryKey: ['user-emails'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('get_user_emails')
+      if (error) throw error
+      const map = new Map<string, string | null>()
+      ;(data ?? []).forEach((r: { user_id: string; email: string | null }) => map.set(r.user_id, r.email))
+      return map
+    },
+    staleTime: 60_000,
+    enabled,
+  })
+}
+
 // ── Sync equipe sur les tâches ────────────────────────────────
 export function useSyncEquipesTaches() {
   const qc = useQueryClient()
