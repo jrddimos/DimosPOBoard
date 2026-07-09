@@ -1,4 +1,17 @@
 // ── Constantes Dimos D3X+ ─────────────────────────────────────
+import type { ExigenceType, ExigenceCriticite } from '@/hooks/useDod'
+
+export const EXIGENCE_TYPE_CFG: Record<ExigenceType, { label: string; className: string }> = {
+  fonctionnelle: { label: 'Fonctionnelle', className: 'bg-brand/10 text-brand' },
+  performance:   { label: 'Performance',   className: 'bg-blue/10 text-blue' },
+  securite:      { label: 'Sécurité',      className: 'bg-red/10 text-red' },
+  cout:          { label: 'Coût',          className: 'bg-orange/10 text-orange' },
+}
+export const CRITICITE_CFG: Record<ExigenceCriticite, { label: string; dot: string }> = {
+  haute:   { label: 'Criticité haute',   dot: 'bg-red' },
+  moyenne: { label: 'Criticité moyenne', dot: 'bg-orange' },
+  basse:   { label: 'Criticité basse',   dot: 'bg-border' },
+}
 
 export const EPIC_LIST = [
   'EPIC 1 — Architecture & CDC',

@@ -54,7 +54,12 @@ export function useCreateEpic() {
   return useMutation({
     mutationFn: async ({ code, nom, couleur, bg_couleur }: { code: string; nom: string; couleur: string; bg_couleur: string }) => {
       if (!produitActif) throw new Error('Aucun produit sélectionné')
-      const { error } = await supabase.from('epics').insert({ produit_id: produitActif.id, code, nom, couleur, bg_couleur })
+      // Toujours à la suite des Epics existants : sans `ordre` explicite, la
+      // valeur par défaut (NULL) passerait EN PREMIER dans la liste (tri
+      // ascendant = NULLS FIRST par défaut côté Postgres), pas à la fin.
+      const { data: existing } = await supabase.from('epics').select('ordre').eq('produit_id', produitActif.id)
+      const maxOrdre = (existing ?? []).reduce((m, e) => Math.max(m, e.ordre ?? 0), 0)
+      const { error } = await supabase.from('epics').insert({ produit_id: produitActif.id, code, nom, couleur, bg_couleur, ordre: maxOrdre + 1 })
       if (error) throw error
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['epics', produitActif?.id] }),

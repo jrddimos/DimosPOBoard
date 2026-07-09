@@ -9,7 +9,7 @@ import { useUtilisateurs, useEquipes } from '@/hooks/useEquipes'
 import { useFinanceConfig } from '@/hooks/useFinanceConfig'
 import { useFaitTransitions } from '@/hooks/useActivityLog'
 import { trimEtpCostEur } from '@/utils/produitMetrics'
-import { cn } from '@/lib/utils'
+import { cn, buildTacheIndex, isUS } from '@/lib/utils'
 import { AlertTriangle, Check, CheckCircle, XCircle, CornerDownRight, ListPlus, Lock, Pencil, Plus, X } from 'lucide-react'
 import type { Produit, RisqueItem, ActionLop } from '@/hooks/useProduits'
 import { useEpicsByProduit, epicFullName } from '@/hooks/useEpics'
@@ -289,7 +289,8 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const closedTrims = trims.filter(t => t.cloture)
 
   // ── Statistiques backlog (auto) ──────────────────────────────
-  const racines = taches.filter(t => !t.parent_id)
+  const byId = useMemo(() => buildTacheIndex(taches), [taches])
+  const racines = taches.filter(t => isUS(t, byId))
 
   const totalUS    = racines.length
   const faitUS     = racines.filter(t => t.statut === 'Fait').length
@@ -328,7 +329,11 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   // ── Statistiques sprint sélectionné ─────────────────────────
   const sortedSprints    = [...allSprints].sort((a, b) => String(a.numero).localeCompare(String(b.numero)))
   const effectiveSprint  = selectedSprintNum ?? sprintActif?.numero ?? sortedSprints[sortedSprints.length - 1]?.numero ?? null
-  const racinesSprint    = racines.filter(t => t.sprint === effectiveSprint)
+  // `t.sprint` (l'ancien champ, avant sprint_debut/sprint_fin) porte une
+  // valeur par défaut ('S01' constaté en base) sur la quasi-totalité des
+  // tâches, y compris jamais planifiées — seul sprint_debut est fiable
+  // (même bug corrigé dans src/lib/sprintEligibility.ts).
+  const racinesSprint    = racines.filter(t => t.sprint_debut === effectiveSprint)
   const totalUSSprint    = racinesSprint.length
   const faitUSSprint     = racinesSprint.filter(t => t.statut === 'Fait').length
   const enCoursSprint    = racinesSprint.filter(t => t.statut === 'En cours').length

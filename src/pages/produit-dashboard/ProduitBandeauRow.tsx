@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, CheckCircle, XCircle } from 'lucide-react'
 import { Tooltip } from '@/components/ui/Tooltip'
-import { cn } from '@/lib/utils'
+import { cn, buildTacheIndex, isUS } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { useFinanceConfig } from '@/hooks/useFinanceConfig'
 import { useTachesByProduit } from '@/hooks/useTaches'
@@ -90,7 +90,8 @@ export function ProduitBandeauRow({
   const { data: taches = [] } = useTachesByProduit(produit.id)
   const { data: finConfig }   = useFinanceConfig()
   const today   = useMemo(() => new Date(), [])
-  const racines = useMemo(() => taches.filter(t => !t.parent_id), [taches])
+  const byId = useMemo(() => buildTacheIndex(taches), [taches])
+  const racines = useMemo(() => taches.filter(t => isUS(t, byId)), [taches, byId])
 
   // Sprints (requête directe pour ne pas dépendre de ProduitContext)
   const { data: allSprints = [] } = useQuery({
@@ -117,8 +118,12 @@ export function ProduitBandeauRow({
     : (sprintActif ?? lastClosed)
   const effectiveSprint  = effectiveSprintObj?.numero ?? null   // string | null
 
+  // `t.sprint` (l'ancien champ, avant sprint_debut/sprint_fin) porte une
+  // valeur par défaut ('S01' constaté en base) sur la quasi-totalité des
+  // tâches, y compris jamais planifiées — seul sprint_debut est fiable
+  // (même bug corrigé dans src/lib/sprintEligibility.ts).
   const racinesSprint = useMemo(() =>
-    effectiveSprint !== null ? racines.filter(t => t.sprint === effectiveSprint) : [],
+    effectiveSprint !== null ? racines.filter(t => t.sprint_debut === effectiveSprint) : [],
     [racines, effectiveSprint]
   )
 

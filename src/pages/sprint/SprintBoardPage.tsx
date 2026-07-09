@@ -10,7 +10,7 @@ import { useToast } from '@/hooks/useToast'
 import { SPRINTS_LIST } from '@/constants'
 import { useEpics, epicFullName } from '@/hooks/useEpics'
 import { useJalons } from '@/hooks/useJalons'
-import { sprintInRange, hasPendingCriteres, serializeCriteres, parseCriteres } from '@/lib/utils'
+import { sprintInRange, hasPendingCriteres, serializeCriteres, parseCriteres, buildTacheIndex, isUS } from '@/lib/utils'
 import type { CritereItem } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { confirm } from '@/components/ui/ConfirmModal'
@@ -302,20 +302,21 @@ export default function SprintBoardPage() {
   }, [taches])
 
   const sprint4Board = activeTab === 'current' ? (sprintActif?.numero ?? null) : allSprint
+  const byId = useMemo(() => buildTacheIndex(taches), [taches])
 
   const boardTaches = useMemo(() => {
     const q = search.trim().toLowerCase()
     return taches.filter(t => {
-      if (t.parent_id) return false
+      if (!isUS(t, byId)) return false
       if (!sprint4Board) return false
-      if (!sprintInRange(t.sprint ?? '', t.sprint_debut, t.sprint_fin, sprint4Board)) return false
+      if (!sprintInRange(t.sprint_debut, t.sprint_fin, sprint4Board)) return false
       if (filterEpic  && t.epic  !== filterEpic)  return false
       if (filterJalon && t.jalon !== filterJalon) return false
       if (onlyMine && t.assigne_a !== profile?.trigramme) return false
       if (q && !t.id_tache.toLowerCase().includes(q) && !t.titre.toLowerCase().includes(q)) return false
       return true
     }).sort((a, b) => (a.ordre_kanban ?? Infinity) - (b.ordre_kanban ?? Infinity))
-  }, [taches, sprint4Board, filterEpic, filterJalon, onlyMine, search, profile?.trigramme])
+  }, [taches, byId, sprint4Board, filterEpic, filterJalon, onlyMine, search, profile?.trigramme])
 
   const isReadOnly = activeTab === 'all' || (sprint4Board ? closedSprints.includes(sprint4Board) : false)
     || !(produitActif ? canWrite(produitActif.id) : false)
@@ -324,8 +325,8 @@ export default function SprintBoardPage() {
     const allSubs = childMap[taskId] ?? []
     if (!sprint4Board) return allSubs
     return allSubs.filter(s =>
-      !s.sprint && !s.sprint_debut ? true :
-      sprintInRange(s.sprint ?? '', s.sprint_debut, s.sprint_fin, sprint4Board)
+      !s.sprint_debut ? true :
+      sprintInRange(s.sprint_debut, s.sprint_fin, sprint4Board)
     )
   }
 
@@ -334,7 +335,7 @@ export default function SprintBoardPage() {
   // car un essai réalisé n'est pas forcément un essai conforme (c'est ce
   // qui déclenche les boucles P1 → P2 → P3).
   async function proposeVerification(done: Tache) {
-    if (done.parent_id) return
+    if (!isUS(done, byId)) return
     const codesOf = (t: Tache) => (t.lien_dod ?? '').split(/[,;]/).map(s => s.trim()).filter(Boolean)
     const codes = codesOf(done)
     if (!codes.length) return
@@ -342,7 +343,7 @@ export default function SprintBoardPage() {
       .map(code => dodItems.find(d => d.code === code))
       .filter((d): d is typeof dodItems[number] => !!d && d.actif && !d.verifiee)
       .filter(d => taches
-        .filter(t => !t.parent_id && codesOf(t).includes(d.code))
+        .filter(t => isUS(t, byId) && codesOf(t).includes(d.code))
         .every(t => t.id_tache === done.id_tache || t.statut === 'Fait'))
     if (!ready.length) return
     const ok = await confirm({

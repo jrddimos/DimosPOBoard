@@ -8,7 +8,7 @@ import { useUtilisateurs } from '@/hooks/useEquipes'
 import { useProduits } from '@/hooks/useProduits'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/hooks/useToast'
-import { sprintInRange } from '@/lib/utils'
+import { sprintInRange, buildTacheIndex, isUS, isSousTache } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import {
   User, ChevronDown, ChevronRight, UserPlus, X,
@@ -81,56 +81,58 @@ export default function MonTravailPage() {
     return map
   }, [taches])
 
+  const byId = useMemo(() => buildTacheIndex(taches), [taches])
+
   const myTaches = useMemo(() => {
     if (!selMembre) return []
     return taches.filter(t =>
-      !t.parent_id &&
+      isUS(t, byId) &&
       t.assigne_a?.split(/[,;\s]+/).map(s => s.trim()).includes(selMembre)
     )
-  }, [taches, selMembre])
+  }, [taches, byId, selMembre])
 
   const mySubTaches = useMemo(() => {
     if (!selMembre) return []
     return taches.filter(t =>
-      t.parent_id &&
+      isSousTache(t, byId) &&
       t.assigne_a?.split(/[,;\s]+/).map(s => s.trim()).includes(selMembre)
     )
-  }, [taches, selMembre])
+  }, [taches, byId, selMembre])
 
   const sprintTaches  = myTaches.filter(t =>
-    sprintActif && sprintInRange(t.sprint ?? '', t.sprint_debut, t.sprint_fin, sprintActif.numero)
+    sprintActif && sprintInRange(t.sprint_debut, t.sprint_fin, sprintActif.numero)
   )
   const backlogTaches = myTaches.filter(t =>
-    !sprintActif || !sprintInRange(t.sprint ?? '', t.sprint_debut, t.sprint_fin, sprintActif.numero)
+    !sprintActif || !sprintInRange(t.sprint_debut, t.sprint_fin, sprintActif.numero)
   )
 
   const sprintEquipes = useMemo(() => {
     if (!sprintActif) return []
     return Array.from(new Set(
-      taches.filter(t => !t.parent_id && sprintInRange(t.sprint ?? '', t.sprint_debut, t.sprint_fin, sprintActif.numero) && t.equipe)
+      taches.filter(t => isUS(t, byId) && sprintInRange(t.sprint_debut, t.sprint_fin, sprintActif.numero) && t.equipe)
         .map(t => t.equipe!)
     )).sort()
-  }, [taches, sprintActif])
+  }, [taches, byId, sprintActif])
 
   const sprintMetiers = useMemo(() => {
     if (!sprintActif) return []
     return Array.from(new Set(
-      taches.filter(t => !t.parent_id && sprintInRange(t.sprint ?? '', t.sprint_debut, t.sprint_fin, sprintActif.numero) && t.metier)
+      taches.filter(t => isUS(t, byId) && sprintInRange(t.sprint_debut, t.sprint_fin, sprintActif.numero) && t.metier)
         .map(t => t.metier!)
     )).sort()
-  }, [taches, sprintActif])
+  }, [taches, byId, sprintActif])
 
   const unassignedTaches = useMemo(() => {
     if (!sprintActif) return []
     return taches.filter(t =>
-      !t.parent_id &&
+      isUS(t, byId) &&
       !t.assigne_a &&
       t.statut !== 'Fait' &&
-      sprintInRange(t.sprint ?? '', t.sprint_debut, t.sprint_fin, sprintActif.numero) &&
+      sprintInRange(t.sprint_debut, t.sprint_fin, sprintActif.numero) &&
       (filterEquipe ? t.equipe === filterEquipe : true) &&
       (filterMetier ? t.metier === filterMetier : true)
     )
-  }, [taches, sprintActif, filterEquipe, filterMetier])
+  }, [taches, byId, sprintActif, filterEquipe, filterMetier])
 
   async function changeStatut(id_tache: string, statut: Statut) {
     await updateTache.mutateAsync({ id_tache, updates: { statut } })

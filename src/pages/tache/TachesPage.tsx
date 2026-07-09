@@ -7,17 +7,22 @@ import { useTaches, useCreateTache, useUpdateTache, useDeleteTache, useCreateSou
 import { useTacheDependances, useAddDependance, useRemoveDependance, isBloqueeParDependance } from '@/hooks/useTacheDependances'
 import { TacheExtras } from '@/components/tache/TacheExtras'
 import { SousTacheModal } from '@/components/tache/SousTacheModal'
+import { QuickAddModal } from '@/components/tache/QuickAddModal'
+import { NewIterationModal } from '@/components/tache/NewIterationModal'
+import { FastTaskBoard } from '@/components/tache/FastTaskBoard'
+import { TacheTree } from '@/components/tache/TacheTree'
+import { useTacheIterations, useCreateIteration, useUpdateIteration, useIterationCounts, type TacheIteration } from '@/hooks/useTacheIterations'
 import { useSprintActif, useClosedSprints } from '@/hooks/useSprints'
 import { useEquipes, useUtilisateurs } from '@/hooks/useEquipes'
 import { useToast } from '@/hooks/useToast'
 import { confirm } from '@/components/ui/ConfirmModal'
 import { MOSCOW_LIST, SPRINTS_LIST, METIERS_DEFAULT } from '@/constants'
-import { useEpics, epicFullName } from '@/hooks/useEpics'
+import { useEpics, useCreateEpic, epicFullName } from '@/hooks/useEpics'
 import { useJalons } from '@/hooks/useJalons'
-import { Search, Lock, Plus, Copy, Trash2, ChevronRight, ChevronDown, X, CornerDownRight, FilePlus, SlidersHorizontal, BookOpen, Target, AlignJustify } from 'lucide-react'
+import { Search, Lock, Plus, Copy, Trash2, ChevronRight, ChevronDown, X, CornerDownRight, FilePlus, SlidersHorizontal, BookOpen, Target, AlignJustify, StickyNote, RotateCcw } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
 import { ToggleGroup } from '@/components/ui/ToggleGroup'
-import { cn, parseCriteres, serializeCriteres, hasPendingCriteres, epicShortName, epicCode, naturalCompare } from '@/lib/utils'
+import { cn, parseCriteres, serializeCriteres, hasPendingCriteres, epicCode, epicShortName, naturalCompare, buildTacheIndex, isSousTache, effortEffectif } from '@/lib/utils'
 import type { CritereItem } from '@/lib/utils'
 import { CriteresEditor } from '@/components/ui/CriteresEditor'
 import { StatusPicker } from '@/components/ui/StatusPicker'
@@ -53,7 +58,8 @@ function PriorityPicker({ value, onChange }: { value: string; onChange: (p: stri
 
 // Liste par défaut ; la création est une vue dédiée accessible via le bouton primaire.
 // Dupliquer / Supprimer sont des actions contextuelles (panneau + sélection multiple).
-type ViewKey = 'list'|'add'
+// 'fast' : board de post-it (capture rapide, voir FastTaskBoard.tsx).
+type ViewKey = 'list'|'add'|'fast'
 
 // ── Regroupement + filtres de la liste (repris de l'ancien Backlog) ──
 type GroupBy = 'epic'|'jalon'|'none'
@@ -89,9 +95,67 @@ function Grp({label,children,col2,className}:{label:React.ReactNode;children:Rea
   </div>
 }
 
+// Détail d'une itération (boucle de rework) dans le panneau de tâche —
+// objectif/résultat en état local avec sauvegarde au blur (évite de spammer
+// l'API à chaque frappe), critères/statut sauvegardés immédiatement comme
+// partout ailleurs dans ce panneau.
+function IterationCard({iteration,membres,onUpdate}:{
+  iteration:TacheIteration
+  membres:UserProfile[]
+  onUpdate:(updates:Partial<Pick<TacheIteration,'objectif'|'criteres'|'effort_j'|'assigne_a'|'sprint'|'statut'|'resultat'|'commentaire'>>)=>void
+}) {
+  const [objectif,setObjectif]=useState(iteration.objectif??'')
+  const [resultat,setResultat]=useState(iteration.resultat??'')
+  const [effortJ,setEffortJ]=useState(String(iteration.effort_j??''))
+  const [commentaire,setCommentaire]=useState(iteration.commentaire??'')
+  useEffect(()=>{
+    setObjectif(iteration.objectif??'')
+    setResultat(iteration.resultat??'')
+    setEffortJ(String(iteration.effort_j??''))
+    setCommentaire(iteration.commentaire??'')
+  },[iteration.id])
+
+  return (
+    <div className="bg-bg border border-border rounded-xl p-3 flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-bold text-navy">Itération {iteration.numero}</span>
+        <StatusPicker value={iteration.statut} onChange={s=>onUpdate({statut:s})} />
+      </div>
+      <textarea value={objectif} onChange={e=>setObjectif(e.target.value)} onBlur={()=>onUpdate({objectif})}
+        className="ds-textarea text-xs" rows={2} placeholder="Objectif de cette itération…" />
+      <CriteresEditor items={parseCriteres(iteration.criteres)}
+        onChange={items=>onUpdate({criteres:serializeCriteres(items)})} compact />
+      <div className="grid grid-cols-3 gap-2">
+        <div>
+          <span className="ds-label mb-1 block">Effort (j)</span>
+          <input type="number" value={effortJ} onChange={e=>setEffortJ(e.target.value)}
+            onBlur={()=>onUpdate({effort_j:Number(effortJ)||0})} className="ds-input text-xs" min={0} step={0.5}/>
+        </div>
+        <div>
+          <span className="ds-label mb-1 block">Assigné à</span>
+          <AssignPicker value={iteration.assigne_a} membres={membres} onAssign={a=>onUpdate({assigne_a:a})} />
+        </div>
+        <div>
+          <span className="ds-label mb-1 block">Sprint</span>
+          <SelectPicker value={iteration.sprint??''} onChange={s=>onUpdate({sprint:s})}
+            options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
+        </div>
+      </div>
+      <div onBlur={()=>onUpdate({commentaire})}>
+        <span className="ds-label mb-1 block">Commentaire PO</span>
+        <MentionField as="textarea" value={commentaire} onChange={setCommentaire}
+          membres={membres} className="ds-textarea text-xs" rows={2}/>
+      </div>
+      <textarea value={resultat} onChange={e=>setResultat(e.target.value)} onBlur={()=>onUpdate({resultat})}
+        className="ds-textarea text-xs" rows={2} placeholder="Résultat / conclusion de cette itération…" />
+    </div>
+  )
+}
+
 export default function TachesPage() {
   const [params] = useSearchParams()
   const [view,setView] = useState<ViewKey>('list')
+  const [jumpSansEpic,setJumpSansEpic] = useState(false)
   useEffect(()=>{
     // Compat anciens liens : tab=add ouvre la création, tout le reste va sur la liste
     setView(params.get('tab')==='add'?'add':'list')
@@ -118,6 +182,7 @@ export default function TachesPage() {
   const equipeNoms = equipes.filter(e=>e.actif).map(e=>e.nom)
   const membresActifs = membres.filter(m=>m.actif)
   const canEditTasks = produitActif ? canWrite(produitActif.id) : false
+  const sansEpicCount = parents.filter(t=>!t.epic).length
 
   return (
     <Layout>
@@ -126,9 +191,20 @@ export default function TachesPage() {
         {canEditTasks&&(
           <div className="ml-auto flex items-center gap-2">
             {view==='list' ? (
-              <button onClick={()=>setView('add')} className="ds-btn-primary flex items-center gap-1.5">
-                <Plus size={13}/> Nouvelle tâche
-              </button>
+              <>
+                {sansEpicCount>0 && (
+                  <button onClick={()=>{setJumpSansEpic(true);setView('list')}}
+                    className="text-xs font-semibold text-orange bg-orange/10 border border-orange/20 px-2.5 py-1.5 rounded-lg hover:bg-orange/20 transition-colors">
+                    {sansEpicCount} à compléter
+                  </button>
+                )}
+                <button onClick={()=>setView('fast')} className="ds-btn flex items-center gap-1.5">
+                  <StickyNote size={13}/> Fast Task
+                </button>
+                <button onClick={()=>setView('add')} className="ds-btn-primary flex items-center gap-1.5">
+                  <Plus size={13}/> Nouvelle tâche
+                </button>
+              </>
             ) : (
               <button onClick={()=>setView('list')} className="ds-btn flex items-center gap-1.5">
                 ← Retour à la liste
@@ -143,7 +219,8 @@ export default function TachesPage() {
         </div>
       ) : <>
         {view==='add' &&<AddTab  sprintActif={sprintActif?.numero} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} createTache={createTache} createSub={createSub} updateTache={updateTache} parents={parents} allTaches={taches} toast={toast} initTitre={params.get('titre')??''} initParentId={params.get('parent_id')??''}/>}
-        {view==='list'&&<EditTab taches={taches} parents={parents} allTaches={taches} closedSprints={closedSprints} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} updateTache={updateTache} createTache={createTache} deleteTache={deleteTache} createSub={createSub} toast={toast} produitId={produitActif?.id ?? null} dependances={dependances} addDependance={addDependance} removeDependance={removeDependance} userId={user?.id ?? null} initFocusId={params.get('focus')??''}/>}
+        {view==='fast' && <FastTaskBoard canWrite={canEditTasks} />}
+        {view==='list'&&<EditTab taches={taches} parents={parents} allTaches={taches} closedSprints={closedSprints} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} updateTache={updateTache} createTache={createTache} deleteTache={deleteTache} createSub={createSub} toast={toast} produitId={produitActif?.id ?? null} dependances={dependances} addDependance={addDependance} removeDependance={removeDependance} userId={user?.id ?? null} initFocusId={params.get('focus')??''} initShowSansEpic={jumpSansEpic}/>}
       </>}
     </Layout>
   )
@@ -262,6 +339,38 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
     return m
   },[allTaches])
 
+  const byId=useMemo(()=>buildTacheIndex(allTaches),[allTaches])
+  // Conteneurs + toute US (racine ou déjà rattachée à un conteneur) — jamais
+  // une sous-tâche, pour ne pas créer un 4ᵉ niveau de hiérarchie.
+  const validParentOptions=useMemo(()=>allTaches.filter(t=>!isSousTache(t,byId)),[allTaches,byId])
+
+  // Une fois l'Epic choisi, on ne propose que les Conteneurs/US de cet Epic,
+  // sous forme d'arborescence (Conteneur puis ses US indentées dessous).
+  const parentOptionsTree=useMemo(()=>{
+    const pool=(form.epic?validParentOptions.filter(t=>t.epic===form.epic):validParentOptions)
+      .filter(t=>t.id_tache!==editTask?.id_tache)
+    const opts:{value:string;label:string}[]=[]
+    pool.filter(t=>t.type_tache==='Conteneur').forEach(c=>{
+      opts.push({value:c.id_tache,label:`${c.id_tache} — ${c.titre} (Conteneur)`})
+      pool.filter(t=>t.parent_id===c.id_tache).forEach(u=>opts.push({value:u.id_tache,label:`  ↳ ${u.id_tache} — ${u.titre}`}))
+    })
+    pool.filter(t=>!t.parent_id&&t.type_tache!=='Conteneur').forEach(t=>opts.push({value:t.id_tache,label:`${t.id_tache} — ${t.titre}`}))
+    return opts
+  },[validParentOptions,form.epic,editTask])
+
+  // Rattacher une tâche à un parent (Conteneur ou US) hérite silencieusement
+  // de ses attributs de classement — cohérent avec SousTacheModal.
+  function handleParentChange(v:string){
+    setParentId(v)
+    if(!v) return
+    const parent=allTaches.find(p=>p.id_tache===v)
+    if(!parent) return
+    setForm(f=>({...f,
+      epic:parent.epic??f.epic, jalon:parent.jalon??f.jalon, moscow:parent.moscow??f.moscow,
+      priorite:parent.priorite??f.priorite, equipe:parent.equipe??f.equipe, metier:parent.metier??f.metier,
+    }))
+  }
+
   const filteredParents=useMemo(()=>parents.filter(t=>{
     if(!search) return true
     const q=search.toLowerCase()
@@ -358,64 +467,73 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
               </div>
             </div>
           )}
-          {/* Ligne 1 : tâche parente + epic + jalon + MoSCoW + priorité */}
+          {/* Ligne 1 : epic + tâche parente + jalon + MoSCoW + priorité */}
           <div className="grid grid-cols-5 gap-4">
-            <Grp label={<>Tâche parente <span className="font-normal text-subtle/60">(vide = principale)</span></>}>
-              <SelectPicker value={parentId} onChange={setParentId}
-                options={parents.map(p=>({value:p.id_tache,label:`${p.id_tache} — ${p.titre}`}))}
-                placeholder="— Principale —" searchable className={isEditing?'opacity-50 pointer-events-none':''}/>
-            </Grp>
             <Grp label="Epic">
               <SelectPicker value={form.epic} onChange={v=>setForm(f=>({...f,epic:v}))}
                 options={epicsList.map(e=>({value:epicFullName(e),label:epicFullName(e)}))} placeholder="-- Epic --" searchable/>
             </Grp>
-            <Grp label="Jalon - Incrément majeur">
+            {form.type_tache!=='Conteneur' && <Grp label={<>Tâche parente <span className="font-normal text-subtle/60">(vide = principale)</span></>}>
+              <SelectPicker value={parentId} onChange={handleParentChange}
+                options={parentOptionsTree}
+                placeholder="— Principale —" searchable className={isEditing?'opacity-50 pointer-events-none':''}/>
+            </Grp>}
+            {form.type_tache!=='Conteneur' && <Grp label="Jalon - Incrément majeur">
               <SelectPicker value={form.jalon} onChange={v=>setForm(f=>({...f,jalon:v}))}
                 options={jalonsList.map(j=>({value:j.code,label:j.code}))} placeholder="-- Jalon - Incrément majeur --"/>
-            </Grp>
-            <Grp label="MoSCoW">
+            </Grp>}
+            {form.type_tache!=='Conteneur' && <Grp label="MoSCoW">
               <MoSCoWPicker value={form.moscow} onChange={v=>setForm(f=>({...f,moscow:v}))}/>
-            </Grp>
-            <Grp label="Priorité">
+            </Grp>}
+            {form.type_tache!=='Conteneur' && <Grp label="Priorité">
               <PriorityPicker value={form.priorite} onChange={p=>setForm(f=>({...f,priorite:p}))} />
-            </Grp>
+            </Grp>}
           </div>
           {/* Ligne 2 : titre */}
           <Grp label="Titre *"><input value={form.titre} onChange={set('titre')} className="ds-input" placeholder="Ex: Conception mécanique avaloir"/></Grp>
+          <label className="flex items-center gap-2 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-navy cursor-pointer">
+            <input type="checkbox" className="accent-indigo-500" checked={form.type_tache==='Conteneur'}
+              onChange={e=>{
+                const checked=e.target.checked
+                setForm(f=>({...f,type_tache:checked?'Conteneur':'Tâche'}))
+                if(checked) setParentId('') // un Conteneur reste toujours racine
+              }}/>
+            Ceci est un conteneur de regroupement (Feature/sous-système — pas un item de travail réel)
+          </label>
           {/* Ligne 3 : User Story + Critères */}
-          <div className="grid grid-cols-2 gap-4">
+          {form.type_tache!=='Conteneur' && <div className="grid grid-cols-2 gap-4">
             <Grp label="User Story"><textarea value={form.description} onChange={set('description')} className="ds-textarea" rows={3} placeholder="En tant que… je veux… afin de…"/></Grp>
             <Grp label="Critères d'acceptation (DoD)">
               <div className="ds-input min-h-[80px] flex flex-col">
                 <CriteresEditor items={critereItems} onChange={setCritereItems} />
               </div>
             </Grp>
-          </div>
+          </div>}
           {/* Ligne 4 : champs secondaires */}
           <div className="grid grid-cols-8 gap-4">
-            <Grp label="Sprint début">
+            {form.type_tache!=='Conteneur' && <Grp label="Sprint début">
               <SelectPicker value={form.sprint_debut} onChange={v=>setForm(f=>({...f,sprint_debut:v}))}
                 options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
-            </Grp>
-            <Grp label="Sprint fin">
+            </Grp>}
+            {form.type_tache!=='Conteneur' && <Grp label="Sprint fin">
               <SelectPicker value={form.sprint_fin} onChange={v=>setForm(f=>({...f,sprint_fin:v}))}
                 options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="Même sprint"/>
-            </Grp>
-            <Grp label="Effort (j)"><input type="number" value={form.effort_j} onChange={set('effort_j')} className="ds-input" min={0} step={0.5}/></Grp>
-            <Grp label="Assigné à">
+            </Grp>}
+            {form.type_tache!=='Conteneur' && <Grp label="Effort (j)"><input type="number" value={form.effort_j} onChange={set('effort_j')} className="ds-input" min={0} step={0.5}/></Grp>}
+            {form.type_tache!=='Conteneur' && <Grp label="Assigné à">
               <div className="pt-1">
                 <AssignPicker value={form.assigne_a} membres={membresActifs} onAssign={setMembre} />
               </div>
-            </Grp>
-            <Grp label="Équipe">
+            </Grp>}
+            {form.type_tache!=='Conteneur' && <Grp label="Équipe">
               <SelectPicker value={form.equipe} onChange={v=>setForm(f=>({...f,equipe:v}))}
                 options={equipeNoms.map(e=>({value:e,label:e}))} placeholder="-- Équipe --"/>
-            </Grp>
-            <Grp label="Thème">
+            </Grp>}
+            {form.type_tache!=='Conteneur' && <Grp label="Thème">
               <SelectPicker value={form.metier} onChange={v=>setForm(f=>({...f,metier:v}))}
                 options={METIERS_DEFAULT.map(m=>({value:m,label:m}))} placeholder="-- Thème --" searchable/>
-            </Grp>
-            <Grp label="Type de fonction">
+            </Grp>}
+            {form.type_tache!=='Conteneur' && <Grp label="Type de fonction">
               <SelectPicker value={form.type_fonction} onChange={v=>setForm(f=>({...f,type_fonction:v}))}
                 options={[
                   {value:'Fonction principale',label:'Principale'},
@@ -423,8 +541,8 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
                   {value:'Fonction support',label:'Support'},
                   {value:'Fonction exclue',label:'Exclue'},
                 ]} placeholder="-- Type --"/>
-            </Grp>
-            <Grp label="Exigences"><DodLinkPicker value={form.lien_dod} onChange={v=>setForm(f=>({...f,lien_dod:v}))} items={dodItems}/></Grp>
+            </Grp>}
+            {form.type_tache!=='Conteneur' && <Grp label="Exigences"><DodLinkPicker value={form.lien_dod} onChange={v=>setForm(f=>({...f,lien_dod:v}))} items={dodItems}/></Grp>}
           </div>
           {/* Ligne 5 : commentaire + boutons */}
           <div className="grid grid-cols-2 gap-4 items-end">
@@ -436,7 +554,7 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
               <button type="submit" className={cn('ds-btn-primary',isEditing&&'bg-indigo-500 border-indigo-600')} disabled={isPending}>
                 {isEditing ? '💾 Modifier' : '✅ Créer'}
               </button>
-              {isEditing&&(
+              {isEditing&&editTask&&!isSousTache(editTask,byId)&&(
                 <button type="button" onClick={()=>setSousTacheParent(editTask)}
                   className="ds-btn flex items-center gap-1 text-indigo-600 border-indigo-300 hover:bg-indigo-50">
                   <CornerDownRight size={12}/> Sous-tâche
@@ -539,30 +657,36 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
   )
 }
 
-function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,updateTache,createTache,deleteTache,createSub,toast,allTaches,produitId,dependances,addDependance,removeDependance,userId,initFocusId}:{
+function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,updateTache,createTache,deleteTache,createSub,toast,allTaches,produitId,dependances,addDependance,removeDependance,userId,initFocusId,initShowSansEpic}:{
   taches:Tache[];parents:Tache[];allTaches:Tache[];closedSprints:string[];equipeNoms:string[]
   membresActifs:UserProfile[];equipes:Equipe[]
   updateTache:ReturnType<typeof useUpdateTache>;createTache:ReturnType<typeof useCreateTache>;deleteTache:ReturnType<typeof useDeleteTache>
   createSub:ReturnType<typeof useCreateSousTache>;toast:ReturnType<typeof useToast>
   produitId:number|null;dependances:import('@/hooks/useTacheDependances').TacheDependance[]
   addDependance:ReturnType<typeof useAddDependance>;removeDependance:ReturnType<typeof useRemoveDependance>
-  userId:string|null;initFocusId?:string
+  userId:string|null;initFocusId?:string;initShowSansEpic?:boolean
 }) {
   const { data: dodItems=[] } = useDod()
   const { data: epicsList=[] } = useEpics()
+  const { data: iterationCounts=new Map<string,number>() } = useIterationCounts(produitId)
+  const createEpic = useCreateEpic()
+  const { isAdmin } = useAuth()
   const { data: jalonsList=[] } = useJalons()
   const epicColorMap = useMemo(() => new Map(epicsList.map(e => [epicFullName(e), e.couleur])), [epicsList])
   const epicBgMap = useMemo(() => new Map(epicsList.map(e => [epicFullName(e), e.bg_couleur])), [epicsList])
   const jalonColorMap = useMemo(() => new Map(jalonsList.map(j => [j.code, j.couleur])), [jalonsList])
   const jalonCodes = useMemo(() => jalonsList.map(j => j.code), [jalonsList])
   const [search,setSearch]=useState('')
-  const [groupBy,setGroupBy]=useState<GroupBy>('epic')
+  // Par Epic ne peut pas montrer les tâches sans Epic (rien à regrouper
+  // dessous) — on démarre sur "Aucun" quand on arrive via "à compléter".
+  const [groupBy,setGroupBy]=useState<GroupBy>(initShowSansEpic?'none':'epic')
   const [selEpics,setSelEpics]=useState<string[]>([])
   const [selJalons,setSelJalons]=useState<string[]>([])
   const [selStatuts,setSelStatuts]=useState<string[]>([])
   const [selMoscows,setSelMoscows]=useState<string[]>([])
   const [selTypes,setSelTypes]=useState<string[]>([])
-  const [showFilters,setShowFilters]=useState(false)
+  const [showSansEpic,setShowSansEpic]=useState(!!initShowSansEpic)
+  const [showFilters,setShowFilters]=useState(!!initShowSansEpic)
   const [page,setPage]=useState(1)
   const [selected,setSelected]=useState<string[]>([])
   const [panelId,setPanelId]=useState<string|null>(null)
@@ -572,31 +696,36 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
   const [bulk,setBulk]=useState<Record<string,string>>({statut:'',epic:'',jalon:'',sprint_debut:'',moscow:'',equipe:'',assigne_a:'',metier:'',priorite:''})
   const [dupTarget,setDupTarget]=useState('')
   const [sousTacheParent,setSousTacheParent]=useState<Tache|null>(null)
+  const [quickAdd,setQuickAdd]=useState<{epicLabel:string;conteneurParent?:Tache}|null>(null)
 
   const childMap:Record<string,Tache[]>={}
   taches.filter(t=>t.parent_id).forEach(c=>{if(!childMap[c.parent_id!]) childMap[c.parent_id!]=[]; childMap[c.parent_id!].push(c)})
 
+  const byId=useMemo(()=>buildTacheIndex(allTaches),[allTaches])
+  // Conteneurs + toute US (racine ou déjà rattachée à un conteneur) — jamais
+  // une sous-tâche, pour ne pas créer un 4ᵉ niveau de hiérarchie.
+  const validParentOptions=useMemo(()=>allTaches.filter(t=>!isSousTache(t,byId)),[allTaches,byId])
+
   const epicListe=useMemo(()=>[...new Set(parents.map(t=>t.epic).filter(Boolean))].sort(naturalCompare),[parents])
 
   function toggleIn<T>(arr:T[],val:T):T[] { return arr.includes(val)?arr.filter(x=>x!==val):[...arr,val] }
-  const activeFilterCount=selEpics.length+selJalons.length+selStatuts.length+selMoscows.length+selTypes.length+(search?1:0)
+  const activeFilterCount=selEpics.length+selJalons.length+selStatuts.length+selMoscows.length+selTypes.length+(search?1:0)+(showSansEpic?1:0)
   const hasActiveFilters=activeFilterCount>0
-  function resetFilters(){setSelEpics([]);setSelJalons([]);setSelStatuts([]);setSelMoscows([]);setSelTypes([]);setSearch('');setPage(1)}
+  function resetFilters(){setSelEpics([]);setSelJalons([]);setSelStatuts([]);setSelMoscows([]);setSelTypes([]);setSearch('');setShowSansEpic(false);setPage(1)}
 
   const filtered=useMemo(()=>parents.filter(t=>{
     if(search&&!t.titre.toLowerCase().includes(search.toLowerCase())&&!t.id_tache.toLowerCase().includes(search.toLowerCase())) return false
+    if(showSansEpic&&t.epic) return false
     if(selEpics.length&&!selEpics.includes(t.epic??'')) return false
     if(selJalons.length&&!selJalons.includes(t.jalon??'')) return false
     if(selStatuts.length&&!selStatuts.includes(t.statut)) return false
     if(selMoscows.length&&!selMoscows.includes(t.moscow??'')) return false
     if(selTypes.length&&!selTypes.includes(t.type_fonction??'')) return false
     return true
-  }),[parents,search,selEpics,selJalons,selStatuts,selMoscows,selTypes])
+  }),[parents,search,showSansEpic,selEpics,selJalons,selStatuts,selMoscows,selTypes])
 
   function effJ(t:Tache):number{
-    const subs=childMap[t.id_tache]??[]
-    if(subs.length===0) return t.effort_j??0
-    return subs.reduce((s,c)=>s+(c.effort_j??0),0)
+    return effortEffectif(t,childMap)
   }
   const totalEffort=filtered.reduce((s,t)=>s+effJ(t),0)
   const PAGE_SIZE=50
@@ -606,23 +735,117 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
   },[filtered,page])
   const totalPages=Math.ceil(filtered.length/PAGE_SIZE)
 
+  // Regroupement sur l'ensemble filtré (pas la page en cours) : sinon un Epic
+  // dont les tâches sont réparties sur deux pages apparaît deux fois (une
+  // fois par page), chacune avec un sous-ensemble différent de ses tâches.
   const groups:{key:string;tasks:Tache[]}[] =
-    groupBy==='epic'  ? epicListe.map(e=>({key:e,tasks:filteredPaged.filter(t=>t.epic===e)})).filter(g=>g.tasks.length) :
-    groupBy==='jalon' ? jalonCodes.map(j=>({key:j,tasks:filteredPaged.filter(t=>t.jalon===j)})).filter(g=>g.tasks.length) :
+    groupBy==='epic'  ? epicListe.map(e=>({key:e,tasks:filtered.filter(t=>t.epic===e)})).filter(g=>g.tasks.length) :
+    groupBy==='jalon' ? jalonCodes.map(j=>({key:j,tasks:filtered.filter(t=>t.jalon===j)})).filter(g=>g.tasks.length) :
     [{key:'all',tasks:filteredPaged}]
 
   const panelTask=panelId?taches.find(t=>t.id_tache===panelId):null
 
+  const {data:iterations=[]}=useTacheIterations(panelId,produitId)
+  const createIteration=useCreateIteration()
+  const updateIteration=useUpdateIteration()
+  const [selectedIterationId,setSelectedIterationId]=useState<number|null>(null)
+  const [showNewIteration,setShowNewIteration]=useState(false)
+  useEffect(()=>{setSelectedIterationId(null);setShowNewIteration(false)},[panelId])
+  // Par défaut, la dernière itération créée — ou aucune tant que la tâche
+  // n'a jamais été reprise (voir useCreateIteration : la 1ʳᵉ itération n'est
+  // figée en base qu'au moment où une 2ᵉ est créée).
+  const currentIteration=selectedIterationId?iterations.find(it=>it.id===selectedIterationId):iterations[iterations.length-1]
+  // Dès qu'une itération existe, effort/assigné/sprint/critères/commentaire
+  // vivent sur l'itération courante (IterationCard) — les montrer aussi sur
+  // le formulaire principal doublonnerait l'info et prêterait à confusion.
+  const hasIterations=iterations.length>0
+
   function openPanel(t:Tache){
-    const subs = childMap[t.id_tache] ?? []
-    // Effort effectif : somme des sous-tâches si elles existent
-    const effectiveEffort = subs.length > 0
-      ? subs.reduce((s, c) => s + (c.effort_j ?? 0), 0)
-      : (t.effort_j ?? 0)
+    const effectiveEffort = effortEffectif(t,childMap)
     setPanelId(t.id_tache)
-    setEditForm({titre:t.titre,statut:t.statut,sprint:t.sprint??'',sprint_debut:t.sprint_debut??'',sprint_fin:t.sprint_fin??'',effort_j:effectiveEffort,priorite:t.priorite??'',moscow:t.moscow??'Must Have',assigne_a:t.assigne_a??'',equipe:t.equipe??'',metier:t.metier??'',jalon:t.jalon??'',epic:t.epic??'',type_fonction:t.type_fonction??'Fonction principale',description:t.description??'',criteres:t.criteres??'',lien_dod:t.lien_dod??'',commentaire:t.commentaire??''})
+    setEditForm({titre:t.titre,statut:t.statut,sprint:t.sprint??'',sprint_debut:t.sprint_debut??'',sprint_fin:t.sprint_fin??'',effort_j:effectiveEffort,priorite:t.priorite??'',moscow:t.moscow??'Must Have',assigne_a:t.assigne_a??'',equipe:t.equipe??'',metier:t.metier??'',jalon:t.jalon??'',epic:t.epic??'',type_fonction:t.type_fonction??'Fonction principale',description:t.description??'',criteres:t.criteres??'',lien_dod:t.lien_dod??'',commentaire:t.commentaire??'',parent_id:t.parent_id??''})
   }
   function setF(k:string){return(e:React.ChangeEvent<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>)=>setEditForm(f=>({...f,[k]:e.target.value}))}
+
+  // Ligne de tableau, réutilisée pour les racines (Conteneur ou US) ET pour
+  // les US rattachées à un Conteneur (indent=true) — ces dernières restent
+  // de vraies US (toutes les colonnes, propre bouton "SS"), contrairement
+  // aux sous-tâches feuilles qui gardent le résumé abrégé "↳ id — titre".
+  // Un Conteneur n'a jamais lui-même de parent (garanti côté création/panneau),
+  // donc la récursion s'arrête toujours à ce seul niveau d'indentation.
+  function renderRow(t:Tache,indent:boolean){
+    const subs=childMap[t.id_tache]??[]
+    const isClosed=closedSprints.includes(t.sprint??'')
+    const isExp=expanded.includes(t.id_tache)
+    const isConteneur=t.type_tache==='Conteneur'
+    const spDisplay=(t.sprint_debut&&t.sprint_fin&&t.sprint_debut!==t.sprint_fin)
+      ?`${t.sprint_debut}→${t.sprint_fin}`:(t.sprint_debut||t.sprint||'—')
+    return (
+      <React.Fragment key={t.id_tache}>
+        <tr className={cn('cursor-pointer',isConteneur&&'bg-slate-50/60',selected.includes(t.id_tache)&&'bg-indigo-50',panelId===t.id_tache&&'!bg-indigo-100')}
+          onClick={()=>openPanel(t)}>
+          <td onClick={e=>e.stopPropagation()}>
+            <input type="checkbox" checked={selected.includes(t.id_tache)} className="accent-indigo-500 w-3.5 h-3.5"
+              onChange={e=>setSelected(prev=>e.target.checked?[...prev,t.id_tache]:prev.filter(x=>x!==t.id_tache))}/>
+          </td>
+          <td className="font-semibold text-indigo-600 whitespace-nowrap">
+            <div className={cn('flex items-center gap-1',indent&&'pl-4')}>
+              {indent&&<CornerDownRight size={10} className="text-subtle shrink-0"/>}
+              {isClosed&&<Lock size={9} className="text-subtle"/>}
+              {t.id_tache}
+              {subs.length>0&&(
+                <button onClick={e=>{e.stopPropagation();setExpanded(prev=>prev.includes(t.id_tache)?prev.filter(x=>x!==t.id_tache):[...prev,t.id_tache])}} className="text-subtle hover:text-indigo-600">
+                  {isExp?<ChevronDown size={11}/>:<ChevronRight size={11}/>}
+                </button>
+              )}
+              {subs.length>0&&<span className="bg-indigo-100 text-indigo-600 px-1 rounded text-xs font-semibold">{subs.filter(s=>s.statut==='Fait').length}/{subs.length}</span>}
+            </div>
+          </td>
+          <td className="max-w-[200px]"><div className="truncate font-medium flex items-center gap-1.5">
+            {isConteneur && <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">Conteneur</span>}
+            {t.titre}
+          </div></td>
+          <td>{t.type_fonction?<TypeFonctionBadge value={t.type_fonction}/>:<span className="text-subtle">—</span>}</td>
+          <td>
+            <div className="flex items-center gap-1.5">
+              <StatutBadge value={t.statut}/>
+              {(()=>{const blockers=isBloqueeParDependance(t.id_tache,dependances,allTaches)
+                return blockers.length>0 && (
+                  <span title={`Bloquée par : ${blockers.join(', ')}`}
+                    className="text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                    ⛔ {blockers.length}
+                  </span>
+                )})()}
+            </div>
+          </td>
+          <td className="text-center">{t.priorite?<PrioBadge value={t.priorite}/>:<span className="text-subtle">—</span>}</td>
+          <td>{t.moscow?<MoscowBadge value={t.moscow}/>:<span className="text-subtle">—</span>}</td>
+          <td><EpicBadge value={t.epic??''} color={epicColorMap.get(t.epic??'') ?? undefined} bg={epicBgMap.get(t.epic??'') ?? undefined}/></td>
+          <td className="text-center">{t.jalon?<JalonBadge value={t.jalon} color={jalonColorMap.get(t.jalon)}/>:<span className="text-subtle">—</span>}</td>
+          <td className="text-subtle whitespace-nowrap text-xs">{spDisplay}</td>
+          <td className="text-xs font-semibold text-navy">{t.assigne_a||<span className="text-subtle font-normal">—</span>}</td>
+          <td className="text-xs text-subtle truncate max-w-[120px]">{t.equipe||'—'}</td>
+          <td className="text-xs text-subtle truncate max-w-[140px]">{t.metier||'—'}</td>
+          <td onClick={e=>e.stopPropagation()}>
+            {!isClosed&&!isSousTache(t,byId)&&(
+              <button onClick={()=>setSousTacheParent(t)}
+                className="ds-btn ds-btn-sm flex items-center gap-1"><CornerDownRight size={11}/> SS</button>
+            )}
+          </td>
+        </tr>
+        {isExp&&(isConteneur
+          ? subs.map(s=>renderRow(s,true))
+          : subs.map(s=>(
+              <tr key={s.id_tache} className="cursor-pointer !bg-bg/50" onClick={()=>openPanel(s)}>
+                <td/><td className="pl-8 text-subtle whitespace-nowrap">↳ {s.id_tache}</td>
+                <td className="italic text-subtle">{s.titre}</td>
+                <td><StatutBadge value={s.statut}/></td>
+                <td colSpan={10}/>
+              </tr>
+            )))}
+      </React.Fragment>
+    )
+  }
 
   // Ouvre automatiquement la tâche visée par une notification (?focus=ID_TACHE)
   useEffect(()=>{
@@ -630,7 +853,14 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
     const t=taches.find(x=>x.id_tache===initFocusId)
     if(t){
       openPanel(t)
-      if(t.parent_id) setExpanded(prev=>prev.includes(t.parent_id!)?prev:[...prev,t.parent_id!])
+      // Déplie tout le chemin (jusqu'à 2 ancêtres : Conteneur > US > sous-tâche)
+      const toExpand:string[]=[]
+      if(t.parent_id){
+        toExpand.push(t.parent_id)
+        const parentTask=taches.find(x=>x.id_tache===t.parent_id)
+        if(parentTask?.parent_id) toExpand.push(parentTask.parent_id)
+      }
+      if(toExpand.length) setExpanded(prev=>[...new Set([...prev,...toExpand])])
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[initFocusId,taches.length])
@@ -677,23 +907,77 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
     setBulk({statut:'',epic:'',jalon:'',sprint_debut:'',moscow:'',equipe:'',assigne_a:'',metier:'',priorite:''})
   }
 
-  // Duplique des US parentes (avec leurs sous-tâches) vers un sprint cible ('' = backlog)
+  // Duplique une tâche ET toute sa descendance (childMap) : gère aussi bien
+  // une simple US (+ sous-tâches) qu'un Conteneur (+ US qu'il contient, elles-
+  // mêmes avec leurs sous-tâches) — même logique récursive dans les deux cas.
+  async function duplicateTacheRecursive(t:Tache,newParentId:string|null,opts:{epic?:string;sprint?:string}={}):Promise<Tache>{
+    const sprintFields = opts.sprint!==undefined ? {sprint:opts.sprint,sprint_debut:opts.sprint,sprint_fin:opts.sprint} : {}
+    const newT=await createTache.mutateAsync({
+      ...t,id:undefined,id_tache:undefined,parent_id:newParentId,
+      epic:opts.epic??t.epic,statut:'À faire',iteration:(t.iteration??1)+1,
+      ...(newParentId?{}:{commentaire:`Dupliqué depuis ${t.id_tache}`}),
+      ...sprintFields,
+    } as Partial<Tache>)
+    for(const child of (childMap[t.id_tache]??[])) await duplicateTacheRecursive(child,newT.id_tache,opts)
+    return newT
+  }
+
+  // Duplique des tâches racines (US ou Conteneur, avec tout leur contenu) vers un sprint cible ('' = backlog)
   async function duplicateIds(ids:string[],target:string){
     let count=0
     for(const id of ids){
       const t=parents.find(p=>p.id_tache===id); if(!t) continue
-      const newT=await createTache.mutateAsync({...t,id:undefined,id_tache:undefined,sprint:target||'',sprint_debut:target||'',sprint_fin:target||'',statut:'À faire',iteration:(t.iteration??1)+1,commentaire:`Dupliqué depuis ${t.id_tache}`} as Partial<Tache>)
+      await duplicateTacheRecursive(t,null,{sprint:target})
       count++
-      for(const s of (childMap[t.id_tache]??[])) await createTache.mutateAsync({...s,id:undefined,id_tache:undefined,parent_id:newT.id_tache,sprint:target||'',statut:'À faire',iteration:(s.iteration??1)+1} as Partial<Tache>)
     }
-    toast(`✅ ${count} US dupliquée(s) vers ${target||'le backlog'}`)
+    toast(`✅ ${count} élément(s) dupliqué(s) vers ${target||'le backlog'}`)
+  }
+
+  // Duplique un Epic entier : crée un nouvel Epic (code suivant disponible)
+  // puis duplique récursivement tout son contenu (Conteneurs/US/sous-tâches).
+  async function duplicateEpic(epicLabel:string){
+    const epic=epicsList.find(e=>epicFullName(e)===epicLabel); if(!epic) return
+    const ok=await confirm({title:`Dupliquer l'Epic "${epic.nom}" ?`,message:'Toutes les tâches de cet Epic (Conteneurs, US, sous-tâches) seront dupliquées dans un nouvel Epic.',confirmLabel:'Dupliquer'})
+    if(!ok) return
+    const nums=epicsList.map(e=>parseInt(e.code.replace(/\D/g,''),10)).filter(n=>!isNaN(n))
+    const nextNum=nums.length?Math.max(...nums)+1:1
+    const newCode=`EPIC ${nextNum}`
+    const newNom=`${epic.nom} (copie)`
+    await createEpic.mutateAsync({code:newCode,nom:newNom,couleur:epic.couleur??'#4A4CC8',bg_couleur:epic.bg_couleur??'#EEF2FF'})
+    const newEpicLabel=epicFullName({code:newCode,nom:newNom})
+    const roots=parents.filter(t=>t.epic===epicLabel)
+    for(const t of roots) await duplicateTacheRecursive(t,null,{epic:newEpicLabel})
+    toast(`✅ Epic dupliqué : ${newCode} — ${newNom}`)
+  }
+
+  // Vide un Epic : supprime TOUTES ses tâches (Conteneurs, US, sous-tâches),
+  // récursivement via la vraie hiérarchie (childMap) — pas via le seul champ
+  // texte `epic` des tâches, qui peut être désynchronisé sur des descendants
+  // (ex: bulk-edit de l'Epic sur une US sans cascade sur ses sous-tâches).
+  // Réservé aux admins : action destructive et irréversible sur tout un Epic.
+  function collectSubtreeIds(t:Tache):string[]{
+    const subs=childMap[t.id_tache]??[]
+    return [t.id_tache, ...subs.flatMap(collectSubtreeIds)]
+  }
+  async function clearEpic(epicLabel:string){
+    const roots=parents.filter(t=>t.epic===epicLabel)
+    const ids=roots.flatMap(collectSubtreeIds)
+    if(!ids.length){ toast('Aucune tâche dans cet Epic','error'); return }
+    const ok=await confirm({
+      title:`Vider l'Epic "${epicShortName(epicLabel)}" ?`,
+      message:`⚠️ Attention : ${ids.length} tâche(s) (Conteneurs, US, sous-tâches) de cet Epic vont être supprimées DÉFINITIVEMENT. Cette action est irréversible.`,
+      confirmLabel:'Supprimer définitivement',variant:'danger',
+    })
+    if(!ok) return
+    for(const id of ids) await deleteTache.mutateAsync(id)
+    toast(`✅ ${ids.length} tâche(s) supprimée(s) de l'Epic`)
   }
 
   async function deleteIds(ids:string[]):Promise<boolean>{
-    const ok=await confirm({title:`Supprimer ${ids.length>1?`${ids.length} US`:ids[0]} ?`,message:'Action irréversible. Les tâches et leurs sous-tâches seront supprimées.',confirmLabel:'Supprimer',variant:'danger'})
+    const ok=await confirm({title:`Supprimer ${ids.length>1?`${ids.length} éléments`:ids[0]} ?`,message:'Action irréversible. Les tâches et leurs sous-tâches seront supprimées.',confirmLabel:'Supprimer',variant:'danger'})
     if(!ok) return false
     for(const id of ids) await deleteTache.mutateAsync(id)
-    toast(`✅ ${ids.length} US supprimée(s)`)
+    toast(`✅ ${ids.length} élément(s) supprimé(s)`)
     return true
   }
 
@@ -755,6 +1039,12 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                 )})}
               </div>
             </div>
+            <div className="flex items-center gap-2">
+              <span className="ds-label shrink-0">Autre</span>
+              <FilterChip label="Epic manquant (à compléter)" active={showSansEpic}
+                onClick={()=>{setShowSansEpic(v=>!v);setPage(1)}}
+                activeBg="#EA580C" activeText="#fff"/>
+            </div>
           </div>
           <div className="flex items-center gap-4 flex-wrap">
             <div className="flex items-center gap-2">
@@ -785,7 +1075,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
         {selected.length>0&&(
           <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-indigo-600">{selected.length} US sélectionnée(s) — appliquer à toutes :</span>
+              <span className="text-xs font-bold text-indigo-600">{selected.length} élément(s) sélectionné(s) — appliquer à toutes :</span>
               <button onClick={()=>setSelected([])} className="text-subtle hover:text-red transition-colors"><X size={13}/></button>
             </div>
             <div className="flex flex-wrap gap-2 items-center">
@@ -795,8 +1085,8 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                 options={['P1','P2','P3','P4'].map(p=>({value:p,label:p}))} placeholder="Priorité…"/>
               <SelectPicker value={bulk.moscow} onChange={v=>setBulk(b=>({...b,moscow:v}))} className="w-32"
                 options={MOSCOW_LIST.map(m=>({value:m,label:m}))} placeholder="MoSCoW…"/>
-              <SelectPicker value={bulk.epic} onChange={v=>setBulk(b=>({...b,epic:v}))} className="w-44"
-                options={epicsList.map(e=>({value:epicFullName(e),label:e.code}))} placeholder="Epic…" searchable/>
+              <SelectPicker value={bulk.epic} onChange={v=>setBulk(b=>({...b,epic:v}))} className="w-64"
+                options={epicsList.map(e=>({value:epicFullName(e),label:epicFullName(e)}))} placeholder="Epic…" searchable/>
               <SelectPicker value={bulk.jalon} onChange={v=>setBulk(b=>({...b,jalon:v}))} className="w-52"
                 options={jalonCodes.map(j=>({value:j,label:j}))} placeholder="Jalon - Incrément majeur…"/>
               <SelectPicker value={bulk.sprint_debut} onChange={v=>setBulk(b=>({...b,sprint_debut:v}))} className="w-32"
@@ -857,11 +1147,22 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
           )}
         </div>
 
-        {/* ── Vue desktop : tableau ── */}
+        {/* ── Vue desktop : arbre façon explorateur pour "par Epic", tableau sinon ── */}
         <div className="hidden md:block bg-card border border-border rounded-xl overflow-x-auto">
+          {groupBy==='epic' ? (
+            <TacheTree
+              filtered={filtered} childMap={childMap} epicsList={epicsList} epicColorMap={epicColorMap}
+              byId={byId} allTaches={allTaches} selected={selected}
+              onToggleSelect={(id,checked)=>setSelected(prev=>checked?[...prev,id]:prev.filter(x=>x!==id))}
+              panelId={panelId} onOpenPanel={openPanel} dependances={dependances} updateTache={updateTache}
+              onDuplicateEpic={duplicateEpic} isAdmin={isAdmin} onClearEpic={clearEpic}
+              onQuickAdd={(epicLabel,conteneurParent)=>setQuickAdd({epicLabel,conteneurParent})}
+              onAddSousTache={setSousTacheParent} iterationCounts={iterationCounts}
+            />
+          ) : (
           <table className="ds-table" style={{minWidth:'1400px'}}>
             <thead><tr>
-              <th className="w-8 shrink-0"><input type="checkbox" className="accent-indigo-500"
+              <th className="w-8 shrink-0"><input type="checkbox" className="accent-indigo-500 w-3.5 h-3.5"
                 onChange={e=>setSelected(e.target.checked?filteredPaged.map(t=>t.id_tache):[])}
                 checked={selected.length===filteredPaged.length&&filteredPaged.length>0}/></th>
               <th>ID</th>
@@ -885,8 +1186,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                     <tr className="group-row">
                       <td colSpan={14}>
                         <div className="flex items-center gap-2">
-                          {groupBy==='epic'&&<div className="w-2 h-2 rounded-sm" style={{background:epicColorMap.get(group.key)??'#4A4CC8'}}/>}
-                          {groupBy==='epic'?epicShortName(group.key):`Jalon - Incrément majeur ${group.key}`}
+                          {`Jalon - Incrément majeur ${group.key}`}
                           <span className="text-subtle font-normal text-xs ml-1">
                             {group.tasks.length} US · {group.tasks.reduce((s,t)=>s+effJ(t),0)}j
                           </span>
@@ -894,78 +1194,14 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                       </td>
                     </tr>
                   )}
-                  {group.tasks.map(t=>{
-                const subs=childMap[t.id_tache]??[]
-                const isClosed=closedSprints.includes(t.sprint??'')
-                const isExp=expanded.includes(t.id_tache)
-                const spDisplay=(t.sprint_debut&&t.sprint_fin&&t.sprint_debut!==t.sprint_fin)
-                  ?`${t.sprint_debut}→${t.sprint_fin}`:(t.sprint_debut||t.sprint||'—')
-                return (
-                  <React.Fragment key={t.id_tache}>
-                    <tr className={cn('cursor-pointer',selected.includes(t.id_tache)&&'bg-indigo-50',panelId===t.id_tache&&'!bg-indigo-100')}
-                      onClick={()=>openPanel(t)}>
-                      <td onClick={e=>e.stopPropagation()}>
-                        <input type="checkbox" checked={selected.includes(t.id_tache)} className="accent-indigo-500"
-                          onChange={e=>setSelected(prev=>e.target.checked?[...prev,t.id_tache]:prev.filter(x=>x!==t.id_tache))}/>
-                      </td>
-                      <td className="font-semibold text-indigo-600 whitespace-nowrap">
-                        <div className="flex items-center gap-1">
-                          {isClosed&&<Lock size={9} className="text-subtle"/>}
-                          {t.id_tache}
-                          {subs.length>0&&(
-                            <button onClick={e=>{e.stopPropagation();setExpanded(prev=>prev.includes(t.id_tache)?prev.filter(x=>x!==t.id_tache):[...prev,t.id_tache])}} className="text-subtle hover:text-indigo-600">
-                              {isExp?<ChevronDown size={11}/>:<ChevronRight size={11}/>}
-                            </button>
-                          )}
-                          {subs.length>0&&<span className="bg-indigo-100 text-indigo-600 px-1 rounded text-xs font-semibold">{subs.filter(s=>s.statut==='Fait').length}/{subs.length}</span>}
-                        </div>
-                      </td>
-                      <td className="max-w-[200px]"><div className="truncate font-medium">{t.titre}</div></td>
-                      <td>{t.type_fonction?<TypeFonctionBadge value={t.type_fonction}/>:<span className="text-subtle">—</span>}</td>
-                      <td>
-                        <div className="flex items-center gap-1.5">
-                          <StatutBadge value={t.statut}/>
-                          {(()=>{const blockers=isBloqueeParDependance(t.id_tache,dependances,allTaches)
-                            return blockers.length>0 && (
-                              <span title={`Bloquée par : ${blockers.join(', ')}`}
-                                className="text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                                ⛔ {blockers.length}
-                              </span>
-                            )})()}
-                        </div>
-                      </td>
-                      <td className="text-center">{t.priorite?<PrioBadge value={t.priorite}/>:<span className="text-subtle">—</span>}</td>
-                      <td>{t.moscow?<MoscowBadge value={t.moscow}/>:<span className="text-subtle">—</span>}</td>
-                      <td><EpicBadge value={t.epic??''} color={epicColorMap.get(t.epic??'') ?? undefined} bg={epicBgMap.get(t.epic??'') ?? undefined}/></td>
-                      <td className="text-center">{t.jalon?<JalonBadge value={t.jalon} color={jalonColorMap.get(t.jalon)}/>:<span className="text-subtle">—</span>}</td>
-                      <td className="text-subtle whitespace-nowrap text-xs">{spDisplay}</td>
-                      <td className="text-xs font-semibold text-navy">{t.assigne_a||<span className="text-subtle font-normal">—</span>}</td>
-                      <td className="text-xs text-subtle truncate max-w-[120px]">{t.equipe||'—'}</td>
-                      <td className="text-xs text-subtle truncate max-w-[140px]">{t.metier||'—'}</td>
-                      <td onClick={e=>e.stopPropagation()}>
-                        {!isClosed&&!t.parent_id&&(
-                          <button onClick={()=>setSousTacheParent(t)}
-                            className="ds-btn ds-btn-sm flex items-center gap-1"><CornerDownRight size={11}/> SS</button>
-                        )}
-                      </td>
-                    </tr>
-                    {isExp&&subs.map(s=>(
-                      <tr key={s.id_tache} className="cursor-pointer !bg-bg/50" onClick={()=>openPanel(s)}>
-                        <td/><td className="pl-8 text-subtle whitespace-nowrap">↳ {s.id_tache}</td>
-                        <td className="italic text-subtle">{s.titre}</td>
-                        <td><StatutBadge value={s.statut}/></td>
-                        <td colSpan={10}/>
-                      </tr>
-                    ))}
-                  </React.Fragment>
-                )
-              })}
+                  {group.tasks.map(t=>renderRow(t,false))}
                 </React.Fragment>
               ))}
             </tbody>
           </table>
+          )}
         </div>
-        {totalPages>1&&(
+        {groupBy==='none'&&totalPages>1&&(
           <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-card">
             <span className="text-xs text-subtle">
               {Math.min((page-1)*PAGE_SIZE+1,filtered.length)}–{Math.min(page*PAGE_SIZE,filtered.length)} sur {filtered.length} US
@@ -989,15 +1225,48 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
           <div className="ds-card max-h-[80vh] md:max-h-full md:h-full overflow-y-auto rounded-b-none md:rounded-xl shadow-2xl">
             {/* Header */}
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs font-semibold text-indigo-600">{panelTask.id_tache}</span>
+              <span className="text-xs font-semibold text-indigo-600 flex items-center gap-1.5">
+                {panelTask.id_tache}
+                {panelTask.type_tache==='Conteneur' && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">Conteneur</span>}
+              </span>
               <button onClick={()=>setPanelId(null)} className="p-1 rounded-lg hover:bg-slate-50 text-slate-400 hover:text-navy"><X size={13}/></button>
             </div>
             <h3 className="text-sm font-semibold text-navy leading-snug mb-1.5 line-clamp-2">{panelTask.titre}</h3>
-            {!panelTask.parent_id&&(
+            {!isSousTache(panelTask,byId)&&(
               <button onClick={()=>setSousTacheParent(panelTask)}
                 className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-700 font-medium mb-3">
                 <CornerDownRight size={12}/> Ajouter une sous-tâche
               </button>
+            )}
+
+            {/* Itérations : boucles de rework trackées (conception → commande
+                → essai → validation, répétées) sans dupliquer la tâche —
+                masqué pour les Conteneurs (purement organisationnels). */}
+            {panelTask.type_tache!=='Conteneur' && (
+              <div className="mb-3">
+                <div className="flex items-center gap-1.5 flex-wrap mb-2">
+                  {iterations.map(it=>(
+                    <button key={it.id} onClick={()=>setSelectedIterationId(it.id)}
+                      className={cn('text-[11px] font-semibold px-2 py-1 rounded-full border transition-colors',
+                        (currentIteration?.id===it.id)?'bg-indigo-600 text-white border-indigo-600':'bg-bg text-subtle border-border hover:border-indigo-300')}>
+                      It. {it.numero} {it.statut==='Fait'?'✓':it.statut==='Bloqué'?'⛔':'·'}
+                    </button>
+                  ))}
+                  <button onClick={()=>setShowNewIteration(true)}
+                    className="text-[11px] font-semibold px-2 py-1 rounded-full border border-dashed border-indigo-300 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1">
+                    <RotateCcw size={11}/> Nouvelle itération
+                  </button>
+                </div>
+                {currentIteration ? (
+                  <IterationCard iteration={currentIteration} membres={membresActifs}
+                    onUpdate={updates=>updateIteration.mutate({
+                      id:currentIteration.id,id_tache:panelTask.id_tache,updates,
+                      syncToTache:currentIteration.id===iterations[iterations.length-1]?.id,
+                    })}/>
+                ) : (
+                  <p className="text-[11px] text-subtle italic">Aucune itération enregistrée — cette tâche n'a pas encore été reprise.</p>
+                )}
+              </div>
             )}
 
             <div className="flex flex-col">
@@ -1011,6 +1280,27 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                   />
                 </Grp>
               </div>
+
+              {/* Tâche parente : rattacher/déplacer sous un conteneur ou une autre US.
+                  Un Conteneur reste toujours racine (jamais de champ ici pour lui).
+                  Si la tâche a elle-même des sous-tâches, seul un Conteneur (ou aucun
+                  parent) est autorisé comme destination — sinon on créerait un 4ᵉ niveau. */}
+              {panelTask.type_tache!=='Conteneur' && (
+              <div className="mt-4 pt-3 border-t-2 border-slate-300">
+                <Grp label={<>Tâche parente <span className="font-normal text-subtle/60">(vide = principale)</span></>}>
+                  <SelectPicker value={String(editForm.parent_id??'')} onChange={v=>setEditForm(f=>({...f,parent_id:v}))}
+                    options={((childMap[panelTask.id_tache]??[]).length>0
+                        ? validParentOptions.filter(p=>p.type_tache==='Conteneur')
+                        : validParentOptions
+                      ).filter(p=>p.id_tache!==panelTask.id_tache)
+                      .map(p=>({value:p.id_tache,label:`${p.id_tache} — ${p.titre}${p.type_tache==='Conteneur'?' (Conteneur)':''}`}))}
+                    placeholder="— Principale —" searchable/>
+                </Grp>
+                {(childMap[panelTask.id_tache]??[]).length>0 && (
+                  <p className="text-xs text-subtle italic mt-1">Cette tâche a ses propres sous-tâches : elle ne peut être rattachée qu'à un Conteneur (ou rester principale).</p>
+                )}
+              </div>
+              )}
 
               {/* Classification : Epic, Type fonction, Jalon, Priorité */}
               <div className="grid grid-cols-6 gap-3 mt-4 pt-3 border-t-2 border-slate-300">
@@ -1033,39 +1323,49 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                 </Grp>
               </div>
 
-              {/* Priorité, MoSCoW, Effort, Assigné */}
-              <div className="grid grid-cols-6 gap-3 mt-4 pt-3 border-t-2 border-slate-300">
+              {/* Priorité, MoSCoW, + Effort/Assigné si la tâche n'a pas
+                  encore d'itération (au-delà, ces champs vivent sur
+                  l'itération courante — les montrer ici doublonnerait). */}
+              <div className={cn('grid gap-3 mt-4 pt-3 border-t-2 border-slate-300',hasIterations?'grid-cols-3':'grid-cols-6')}>
                 <Grp label="Priorité" className="col-span-1">
                   <PriorityPicker value={String(editForm.priorite??'')} onChange={p=>setEditForm(f=>({...f,priorite:p}))} />
                 </Grp>
                 <Grp label="MoSCoW" className="col-span-2">
                   <MoSCoWPicker value={String(editForm.moscow??'')} onChange={m=>setEditForm(f=>({...f,moscow:m}))}/>
                 </Grp>
-                <Grp label="Effort (j)" className="col-span-1">
-                  {panelTask && (childMap[panelTask.id_tache]??[]).length > 0 ? (
-                    <div className="ds-input text-xs bg-slate-50 text-navy font-semibold flex items-center gap-1.5 cursor-not-allowed">
-                      <span>∑ {(childMap[panelTask.id_tache]??[]).reduce((s,c)=>s+(c.effort_j??0),0)}j</span>
-                      <span className="text-[11px] text-slate-400 font-normal">{(childMap[panelTask.id_tache]??[]).length} ss</span>
-                    </div>
-                  ) : (
-                    <input type="number" value={Number(editForm.effort_j??0)} onChange={setF('effort_j')} className="ds-input text-xs" min={0} step={0.5}/>
-                  )}
-                </Grp>
-                <Grp label="Assigné à" className="col-span-2">
-                  <AssignPicker value={String(editForm.assigne_a??'')} membres={membresActifs} onAssign={setMembre} />
-                </Grp>
+                {!hasIterations && (
+                  <>
+                    <Grp label="Effort (j)" className="col-span-1">
+                      {panelTask && (childMap[panelTask.id_tache]??[]).length > 0 ? (
+                        <div className="ds-input text-xs bg-slate-50 text-navy font-semibold flex items-center gap-1.5 cursor-not-allowed">
+                          <span>∑ {(childMap[panelTask.id_tache]??[]).reduce((s,c)=>s+(c.effort_j??0),0)}j</span>
+                          <span className="text-[11px] text-slate-400 font-normal">{(childMap[panelTask.id_tache]??[]).length} ss</span>
+                        </div>
+                      ) : (
+                        <input type="number" value={Number(editForm.effort_j??0)} onChange={setF('effort_j')} className="ds-input text-xs" min={0} step={0.5}/>
+                      )}
+                    </Grp>
+                    <Grp label="Assigné à" className="col-span-2">
+                      <AssignPicker value={String(editForm.assigne_a??'')} membres={membresActifs} onAssign={setMembre} />
+                    </Grp>
+                  </>
+                )}
               </div>
 
-              {/* Planning : Sprint début/fin, Équipe, Thème */}
-              <div className="grid grid-cols-4 gap-3 mt-4 pt-3 border-t-2 border-slate-300">
-                <Grp label="Sprint début">
-                  <SelectPicker value={String(editForm.sprint_debut??'')} onChange={v=>setEditForm(f=>({...f,sprint_debut:v}))}
-                    options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
-                </Grp>
-                <Grp label="Sprint fin">
-                  <SelectPicker value={String(editForm.sprint_fin??'')} onChange={v=>setEditForm(f=>({...f,sprint_fin:v}))}
-                    options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
-                </Grp>
+              {/* Planning : Sprint début/fin (masqué si itérations, cf. ci-dessus), Équipe, Thème */}
+              <div className={cn('grid gap-3 mt-4 pt-3 border-t-2 border-slate-300',hasIterations?'grid-cols-2':'grid-cols-4')}>
+                {!hasIterations && (
+                  <>
+                    <Grp label="Sprint début">
+                      <SelectPicker value={String(editForm.sprint_debut??'')} onChange={v=>setEditForm(f=>({...f,sprint_debut:v}))}
+                        options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
+                    </Grp>
+                    <Grp label="Sprint fin">
+                      <SelectPicker value={String(editForm.sprint_fin??'')} onChange={v=>setEditForm(f=>({...f,sprint_fin:v}))}
+                        options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
+                    </Grp>
+                  </>
+                )}
                 <Grp label="Équipe">
                   <SelectPicker value={String(editForm.equipe??'')} onChange={v=>setEditForm(f=>({...f,equipe:v}))}
                     options={equipeNoms.map(e=>({value:e,label:e}))} placeholder="-- Équipe --"/>
@@ -1076,29 +1376,33 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
                 </Grp>
               </div>
 
-              {/* Contenu : User Story + Critères côte à côte */}
-              <div className="grid grid-cols-2 gap-3 mt-4 pt-3 border-t-2 border-slate-300">
+              {/* Contenu : User Story (+ Critères si pas d'itération, cf. ci-dessus) */}
+              <div className={cn('grid gap-3 mt-4 pt-3 border-t-2 border-slate-300',hasIterations?'grid-cols-1':'grid-cols-2')}>
                 <Grp label="User Story"><textarea value={String(editForm.description??'')} onChange={setF('description')} className="ds-textarea text-xs" rows={5}/></Grp>
-                <Grp label="Critères d'acceptation (DoD)">
-                  <div className="ds-input min-h-[110px] flex flex-col">
-                    <CriteresEditor
-                      items={parseCriteres(String(editForm.criteres??''))}
-                      onChange={items=>setEditForm(f=>({...f,criteres:serializeCriteres(items)}))}
-                      compact
-                    />
-                  </div>
-                </Grp>
+                {!hasIterations && (
+                  <Grp label="Critères d'acceptation (DoD)">
+                    <div className="ds-input min-h-[110px] flex flex-col">
+                      <CriteresEditor
+                        items={parseCriteres(String(editForm.criteres??''))}
+                        onChange={items=>setEditForm(f=>({...f,criteres:serializeCriteres(items)}))}
+                        compact
+                      />
+                    </div>
+                  </Grp>
+                )}
               </div>
 
-              {/* Exigences + Commentaire PO */}
-              <div className="grid grid-cols-[220px_1fr] gap-3 mt-4 pt-3 border-t-2 border-slate-300">
+              {/* Exigences (+ Commentaire PO si pas d'itération, cf. ci-dessus) */}
+              <div className={cn('grid gap-3 mt-4 pt-3 border-t-2 border-slate-300',hasIterations?'grid-cols-1':'grid-cols-[220px_1fr]')}>
                 <Grp label="Exigences">
                   <DodLinkPicker value={String(editForm.lien_dod??'')} onChange={v=>setEditForm(f=>({...f,lien_dod:v}))} items={dodItems}/>
                 </Grp>
-                <Grp label="Commentaire PO">
-                  <MentionField as="textarea" value={String(editForm.commentaire??'')} onChange={v=>setEditForm(f=>({...f,commentaire:v}))}
-                    membres={membresActifs} className="ds-textarea text-xs" rows={2}/>
-                </Grp>
+                {!hasIterations && (
+                  <Grp label="Commentaire PO">
+                    <MentionField as="textarea" value={String(editForm.commentaire??'')} onChange={v=>setEditForm(f=>({...f,commentaire:v}))}
+                      membres={membresActifs} className="ds-textarea text-xs" rows={2}/>
+                  </Grp>
+                )}
               </div>
 
               {/* Dépendances entre tâches */}
@@ -1164,7 +1468,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
             </div>
             <div className="flex gap-2 mt-3 pt-3 border-t-2 border-slate-300">
               <button onClick={savePanel} className="ds-btn-primary flex-1" disabled={updateTache.isPending}>✓ Sauvegarder</button>
-              {!panelTask.parent_id&&(
+              {!isSousTache(panelTask,byId)&&(
                 <button onClick={()=>duplicateIds([panelTask.id_tache],'')} disabled={createTache.isPending}
                   title="Dupliquer vers le backlog (avec sous-tâches)"
                   className="ds-btn flex items-center gap-1"><Copy size={12}/> Dupliquer</button>
@@ -1187,6 +1491,42 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
           onCreate={async payload=>{
             const res=await createSub.mutateAsync({parentId:sousTacheParent.id_tache,payload})
             toast(`✅ ${res.id_tache} créée`)
+          }}
+        />
+      )}
+
+      {quickAdd&&(
+        <QuickAddModal
+          epicLabel={quickAdd.epicLabel}
+          conteneurParent={quickAdd.conteneurParent}
+          membres={membresActifs}
+          onClose={()=>setQuickAdd(null)}
+          onCreate={async payload=>{
+            if(quickAdd.conteneurParent){
+              const res=await createSub.mutateAsync({parentId:quickAdd.conteneurParent.id_tache,payload})
+              toast(`✅ ${res.id_tache} créée`)
+            } else {
+              const res=await createTache.mutateAsync(payload)
+              toast(`✅ ${res.id_tache} créée`)
+            }
+          }}
+        />
+      )}
+
+      {showNewIteration&&panelTask&&(
+        <NewIterationModal
+          taskTitre={panelTask.titre}
+          numeroSuivant={(iterations[iterations.length-1]?.numero??1)+1}
+          initCriteres={iterations[iterations.length-1]?.criteres??panelTask.criteres}
+          initEffort={iterations[iterations.length-1]?.effort_j??panelTask.effort_j}
+          initAssigneA={iterations[iterations.length-1]?.assigne_a??panelTask.assigne_a}
+          initSprint={iterations[iterations.length-1]?.sprint??panelTask.sprint_debut??panelTask.sprint}
+          membres={membresActifs}
+          onClose={()=>setShowNewIteration(false)}
+          onCreate={async payload=>{
+            const it=await createIteration.mutateAsync({id_tache:panelTask.id_tache,...payload})
+            setSelectedIterationId(it.id)
+            toast(`✅ Itération ${it.numero} créée`)
           }}
         />
       )}

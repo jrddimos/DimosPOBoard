@@ -9,7 +9,7 @@ import { useAllFaitTransitions } from '@/hooks/useActivityLog'
 import { useAuth } from '@/contexts/AuthContext'
 import { useProduit } from '@/contexts/ProduitContext'
 import { useToast } from '@/hooks/useToast'
-import { cn } from '@/lib/utils'
+import { cn, buildTacheIndex, isUS } from '@/lib/utils'
 import {
   LayoutGrid, Package, CalendarDays, LayoutDashboard, Globe,
 } from 'lucide-react'
@@ -61,9 +61,10 @@ export default function DashboardPage() {
       setViewProduitId(produitActif.id)
   }, [mode])
 
+  const byId = useMemo(() => buildTacheIndex(taches), [taches])
   const allParents = useMemo(
-    () => taches.filter((t: Tache) => !t.parent_id && !templateIds.has(t.produit_id as number)),
-    [taches, produits]
+    () => taches.filter((t: Tache) => isUS(t, byId) && !templateIds.has(t.produit_id as number)),
+    [taches, byId, produits]
   )
 
   const metricsMap = useMemo(() => {

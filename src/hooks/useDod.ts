@@ -50,16 +50,20 @@ export function useDod() {
   })
 }
 
+// Le code ("EX 1.1") n'est plus saisi par l'appelant : il est posé
+// automatiquement par le trigger `recompute_dod_codes` (migration 0031)
+// selon la position (catégorie + ordre). On insère avec un code temporaire
+// garanti unique, aussitôt remplacé dans la même transaction.
 export function useCreateDodItem() {
   const qc = useQueryClient()
   const { produitActif } = useProduit()
 
   return useMutation({
-    mutationFn: async (payload: Omit<DodItem, 'id' | 'created_at' | 'produit_id'>) => {
+    mutationFn: async (payload: Omit<DodItem, 'id' | 'created_at' | 'produit_id' | 'code'>) => {
       if (!produitActif) throw new Error('Aucun produit sélectionné')
       const { data, error } = await supabase
         .from('dod')
-        .insert({ ...payload, produit_id: produitActif.id })
+        .insert({ ...payload, produit_id: produitActif.id, code: `TMP-${crypto.randomUUID()}` })
         .select()
         .single()
       if (error) throw error

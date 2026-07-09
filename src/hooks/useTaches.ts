@@ -55,29 +55,42 @@ export function useCreateTache() {
     mutationFn: async (payload: Partial<Tache>) => {
       if (!produitActif) throw new Error('Aucun produit sélectionné')
 
-      // Générer id_tache unique au produit
-      const { data: all } = await supabase
-        .from('taches')
-        .select('id_tache')
-        .eq('produit_id', produitActif.id)
-        .like('id_tache', 'US-%')
-      const nums = (all ?? []).map(t => parseInt(t.id_tache.replace('US-', ''), 10)).filter(Boolean)
-      const next = nums.length ? Math.max(...nums) + 1 : 1
-      const id_tache = `US-${String(next).padStart(3, '0')}`
+      // Lire le numéro max puis insérer laisse une fenêtre de course entre
+      // deux créations quasi simultanées sur le même produit (ex: plusieurs
+      // personnes qui cliquent "+" sur le board Fast Task en même temps) :
+      // les deux peuvent lire le même "prochain numéro" avant que l'un des
+      // deux inserts ne soit committé. La contrainte UNIQUE(produit_id,
+      // id_tache) (migration 0037) transforme cette collision silencieuse en
+      // erreur détectable — on relit alors le nouveau max et on réessaie,
+      // au lieu de faire échouer la création pour l'utilisateur.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const { data: all } = await supabase
+          .from('taches')
+          .select('id_tache')
+          .eq('produit_id', produitActif.id)
+          .like('id_tache', 'US-%')
+        const nums = (all ?? []).map(t => parseInt(t.id_tache.replace('US-', ''), 10)).filter(Boolean)
+        const next = nums.length ? Math.max(...nums) + 1 : 1
+        const id_tache = `US-${String(next).padStart(3, '0')}`
 
-      const { data, error } = await supabase
-        .from('taches')
-        .insert({
-          ...payload,
-          id_tache,
-          produit_id: produitActif.id,
-          statut: payload.statut ?? 'À faire',
-          iteration: payload.iteration ?? 1,
-        })
-        .select()
-        .single()
-      if (error) throw error
-      return data as Tache
+        const { data, error } = await supabase
+          .from('taches')
+          .insert({
+            ...payload,
+            id_tache,
+            produit_id: produitActif.id,
+            statut: payload.statut ?? 'À faire',
+            iteration: payload.iteration ?? 1,
+          })
+          .select()
+          .single()
+        if (!error) return data as Tache
+        if (error.code !== '23505') throw error
+        // Collision détectée (id_tache déjà pris entre-temps) : on réessaie
+        // avec le numéro suivant, sauf à la dernière tentative.
+        if (attempt === 4) throw error
+      }
+      throw new Error('Impossible de générer un identifiant de tâche unique après plusieurs tentatives')
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['taches', produitActif?.id ?? null] })

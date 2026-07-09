@@ -1,32 +1,35 @@
 import { useState, useEffect, useRef } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { Layout } from '@/components/layout/Layout'
 import { useProduit } from '@/contexts/ProduitContext'
 import { Spinner } from '@/components/ui/Spinner'
-import { SprintStatutBadge, StatutBadge } from '@/components/ui/Badge'
+import { SprintStatutBadge } from '@/components/ui/Badge'
 import { useSprints, useSprintActif, useUpsertSprint, useDeleteSprint } from '@/hooks/useSprints'
 import { useTaches, useUpdateTache } from '@/hooks/useTaches'
 import { useToast } from '@/hooks/useToast'
 import { confirm } from '@/components/ui/ConfirmModal'
 import { supabase } from '@/lib/supabase'
-import { downloadCSV, naturalCompare } from '@/lib/utils'
+import { downloadCSV, naturalCompare, buildTacheIndex } from '@/lib/utils'
+import { isEligibleForBacklog, isInThisSprint, buildEligibleTree } from '@/lib/sprintEligibility'
+import { TacheTree } from '@/components/tache/TacheTree'
+import { useProduitIterations, useUpdateIteration, type TacheIteration } from '@/hooks/useTacheIterations'
 // @react-pdf/renderer et exceljs sont lourds (~800 Ko à eux deux) : chargés
 // à la demande au clic sur export, pas au chargement de la page.
 import { METIERS_DEFAULT, SPRINTS_LIST, BRAND_COLORS } from '@/constants'
-import { useEpics, useCreateEpic, useUpdateEpic, useDeleteEpic, epicFullName } from '@/hooks/useEpics'
+import { useEpics, useCreateEpic, useUpdateEpic, useDeleteEpic, epicFullName, type Epic } from '@/hooks/useEpics'
 import { useJalons, useCreateJalon, useUpdateJalon, useDeleteJalon } from '@/hooks/useJalons'
 import { useDod } from '@/hooks/useDod'
 import {
   Pencil, Trash2, Plus, ChevronDown, ChevronRight, Check, X,
   Tag, Calendar, BookOpen, Target, Download, FileDown, Settings, Lock, Euro, Users,
-  Play, Pause, RotateCcw, CheckCircle2, Zap,
+  Play, Pause, RotateCcw, CheckCircle2, Zap, Wrench,
 } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
 import { SelectPicker } from '@/components/ui/SelectPicker'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
-import type { SprintStats } from '@/types'
+import type { SprintStats, Tache } from '@/types'
 import FinanceTab from '@/pages/admin/FinanceSetupPage'
 import EquipesTab from '@/pages/admin/EquipesUtilisateursPage'
 
@@ -109,7 +112,7 @@ export default function SetupPage() {
 }
 
 // ─── Inline edit field ────────────────────────────────────────
-function InlineEdit({ value, onSave, placeholder = '' }: { value: string; onSave: (v: string) => void; placeholder?: string }) {
+function InlineEdit({ value, onSave, placeholder = '', inputClassName = 'w-48' }: { value: string; onSave: (v: string) => void; placeholder?: string; inputClassName?: string }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal]         = useState(value)
   const ref                   = useRef<HTMLInputElement>(null)
@@ -124,7 +127,7 @@ function InlineEdit({ value, onSave, placeholder = '' }: { value: string; onSave
   return (
     <div className="flex items-center gap-1">
       <input ref={ref} value={val} onChange={e => setVal(e.target.value)}
-        className="ds-input py-0.5 text-sm font-semibold w-48"
+        className={cn('ds-input py-0.5 text-sm font-semibold', inputClassName)}
         onKeyDown={e => { if (e.key === 'Enter') { onSave(val); setEditing(false) } if (e.key === 'Escape') setEditing(false) }} />
       <button onClick={() => { onSave(val); setEditing(false) }}
         className="p-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100"><Check size={12} /></button>
@@ -160,7 +163,11 @@ function SprintsTab() {
   const [plannedWeeks,   setPlannedWeeks]   = useState(2)
 
   const sprint     = sprints.find(s => s.numero === selected)
-  const spTaches   = taches.filter(t => !t.parent_id && (t.sprint === selected || t.sprint_debut === selected))
+  // `t.sprint` (l'ancien champ, avant sprint_debut/sprint_fin) porte une
+  // valeur par défaut ('S01' constaté en base) sur la quasi-totalité des
+  // tâches, y compris jamais planifiées — seul sprint_debut est fiable ici
+  // (même bug que celui corrigé dans src/lib/sprintEligibility.ts).
+  const spTaches   = taches.filter(t => !t.parent_id && t.sprint_debut === selected)
   const unfinished = spTaches.filter(t => t.statut !== 'Fait')
   const statLabel: { [k: string]: string } = { planifie: 'planifié', en_cours: 'en cours', pause: 'en pause', cloture: 'clôturé' }
 
@@ -482,19 +489,21 @@ function SprintsTab() {
                   readOnly={!canEditObj}
                   className={cn('ds-textarea w-full resize-y', !canEditObj && 'cursor-not-allowed bg-bg/50')}
                   placeholder="Notes libres sur les objectifs…" />
-                <button onClick={() => setOpenObjChecklist(o => !o)}
-                  className="flex items-center gap-2 text-xs font-semibold text-navy hover:text-brand transition-colors">
-                  {openObjChecklist ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                  Objectifs clés ({items.length})
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setOpenObjChecklist(o => !o)}
+                    className="flex items-center gap-2 text-xs font-semibold text-navy hover:text-brand transition-colors">
+                    {openObjChecklist ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                    Objectifs clés ({items.length})
+                  </button>
                   {canEditObj && (
-                    <div className="flex gap-1 ml-auto" onClick={e => e.stopPropagation()}>
+                    <div className="flex gap-1 ml-auto">
                       <input value={newItem} onChange={e => setNewItem(e.target.value)}
                         onKeyDown={e => e.key === 'Enter' && addItem()}
                         className="ds-input text-xs h-6 px-2 w-32" placeholder="Ajouter…" />
                       <button onClick={addItem} className="ds-btn ds-btn-sm h-6 px-1.5"><Plus size={10} /></button>
                     </div>
                   )}
-                </button>
+                </div>
                 {openObjChecklist && (
                   items.length === 0
                     ? <p className="text-xs text-subtle italic pl-4">Aucun objectif clé</p>
@@ -608,6 +617,7 @@ function InlineList({ items, onRename, onDelete, onColorChange, colorFn, countFn
 }
 
 function EpicsTab() {
+  const qc = useQueryClient()
   const { data: taches = [] } = useTaches()
   const { data: epicsList = [] } = useEpics()
   const createEpic = useCreateEpic()
@@ -618,67 +628,149 @@ function EpicsTab() {
 
   const counts: Record<string, number> = {}
   taches.forEach(t => { if (t.epic) counts[t.epic] = (counts[t.epic] ?? 0) + 1 })
-  const colorMap = new Map(epicsList.map(e => [epicFullName(e), e.couleur ?? '#6366F1']))
-  const items = epicsList.map(e => epicFullName(e))
 
   async function add() {
-    const num = newNum.trim(), nom = newNom.trim()
-    if (!num || !nom) return
-    if (epicsList.some(e => e.code.toLowerCase() === num.toLowerCase())) { toast('Ce numéro d\'Epic existe déjà', 'error'); return }
+    // Juste un chiffre côté saisie ("14") — le préfixe "EPIC " est ajouté
+    // automatiquement pour former le vrai code ("EPIC 14"), tel qu'affiché
+    // ensuite dans l'arbre. Tolère aussi un "EPIC" déjà tapé par habitude.
+    const digits = newNum.trim().replace(/^epic\s*/i, '').trim()
+    const nom = newNom.trim()
+    if (!digits || !nom) return
+    const code = `EPIC ${digits}`
+    if (epicsList.some(e => e.code.toLowerCase() === code.toLowerCase())) { toast('Ce numéro d\'Epic existe déjà', 'error'); return }
     const couleur = BRAND_COLORS[epicsList.length % BRAND_COLORS.length]
-    await createEpic.mutateAsync({ code: num, nom, couleur, bg_couleur: `${couleur}22` })
-    toast(`Epic "${num} — ${nom}" ajouté`)
+    await createEpic.mutateAsync({ code, nom, couleur, bg_couleur: `${couleur}22` })
+    toast(`Epic "${code} — ${nom}" ajouté`)
     setNewNum(''); setNewNom('')
   }
 
-  async function rename(old: string, next: string) {
-    if (!next || next === old) return
-    const epic = epicsList.find(e => epicFullName(e) === old); if (!epic) return
-    if (epicsList.some(e => e.id !== epic.id && epicFullName(e).toLowerCase() === next.toLowerCase())) { toast('Cet Epic existe déjà', 'error'); return }
-    const ok = await confirm({ title: 'Renommer partout ?', message: `"${old}" → "${next}" dans toutes les tâches.`, confirmLabel: 'Renommer' }); if (!ok) return
-    // "next" est le libellé complet réédité dans InlineList (ex: "EPIC 1 — Nouveau nom") :
-    // on le redécoupe en code/nom pour rester cohérent avec le schéma séparé.
-    const [nextCode, ...rest] = next.split(' — ')
-    const nextNom = rest.join(' — ') || epic.nom
-    await updateEpic.mutateAsync({ id: epic.id, updates: { code: nextCode.trim() || epic.code, nom: nextNom.trim() } })
-    await supabase.from('taches').update({ epic: next }).eq('epic', old)
+  // Change juste le numéro (le "N°" édité isolément, comme à la création) —
+  // recalcule le libellé cascadé sur toutes les tâches qui référencent l'Epic.
+  async function changeNum(epic: Epic, rawNum: string) {
+    const digits = rawNum.trim().replace(/^epic\s*/i, '').trim()
+    if (!digits) return
+    const newCode = `EPIC ${digits}`
+    if (newCode === epic.code) return
+    if (epicsList.some(e => e.id !== epic.id && e.code.toLowerCase() === newCode.toLowerCase())) { toast('Ce numéro d\'Epic existe déjà', 'error'); return }
+    const ok = await confirm({ title: 'Changer le numéro d\'Epic ?', message: `"${epic.code}" → "${newCode}" dans toutes les tâches.`, confirmLabel: 'Changer' }); if (!ok) return
+    const old = epicFullName(epic)
+    const canonical = epicFullName({ code: newCode, nom: epic.nom })
+    await updateEpic.mutateAsync({ id: epic.id, updates: { code: newCode } })
+    await supabase.from('taches').update({ epic: canonical }).eq('epic', old)
+    qc.invalidateQueries({ queryKey: ['taches'] })
+    toast('Numéro d\'Epic changé')
+  }
+
+  async function renameNom(epic: Epic, rawNom: string) {
+    const nom = rawNom.trim()
+    if (!nom || nom === epic.nom) return
+    const ok = await confirm({ title: 'Renommer partout ?', message: `"${epic.nom}" → "${nom}" dans toutes les tâches.`, confirmLabel: 'Renommer' }); if (!ok) return
+    const old = epicFullName(epic)
+    const canonical = epicFullName({ code: epic.code, nom })
+    await updateEpic.mutateAsync({ id: epic.id, updates: { nom } })
+    await supabase.from('taches').update({ epic: canonical }).eq('epic', old)
+    qc.invalidateQueries({ queryKey: ['taches'] })
     toast('Epic renommé')
   }
 
-  async function changeColor(label: string, couleur: string) {
-    const epic = epicsList.find(e => epicFullName(e) === label); if (!epic) return
+  async function changeColor(epic: Epic, couleur: string) {
     await updateEpic.mutateAsync({ id: epic.id, updates: { couleur, bg_couleur: `${couleur}22` } })
   }
 
-  async function del(label: string) {
-    const epic = epicsList.find(e => epicFullName(e) === label); if (!epic) return
+  async function del(epic: Epic) {
     const ok = await confirm({ title: 'Supprimer cet Epic ?', message: `Les tâches perdront leur Epic.`, confirmLabel: 'Supprimer', variant: 'danger' }); if (!ok) return
     await deleteEpic.mutateAsync(epic.id)
-    await supabase.from('taches').update({ epic: '' }).eq('epic', label)
+    await supabase.from('taches').update({ epic: '' }).eq('epic', epicFullName(epic))
+    qc.invalidateQueries({ queryKey: ['taches'] })
     toast('Epic supprimé')
+  }
+
+  // Répare les tâches dont le champ epic correspond au même code d'Epic
+  // (ex: "EPIC 1") mais dont le texte complet diverge du référentiel —
+  // séquelle d'un ancien bug de cascade (espace en trop, tiret différent,
+  // etc.) qui rendait l'US invisible pour le SelectPicker du panneau détail
+  // tout en l'affichant dans le regroupement "par epic" (groupe fantôme).
+  // On matche sur le préfixe "code" plutôt que sur tout le texte normalisé
+  // car la différence peut porter sur le séparateur lui-même (—, –, -…),
+  // pas seulement sur les espaces.
+  async function repareIncoherences() {
+    let tachesReparees = 0
+    const detail: string[] = []
+    for (const epic of epicsList) {
+      const canonical = epicFullName(epic)
+      const codeEsc = epic.code.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const re = new RegExp('^' + codeEsc + '\\b', 'i')
+      const corrompus = [...new Set(taches.map(t => t.epic).filter(Boolean))]
+        .filter(raw => raw !== canonical && re.test(raw.trim()))
+      for (const raw of corrompus) {
+        const nb = taches.filter(t => t.epic === raw).length
+        tachesReparees += nb
+        detail.push(`"${raw}" (${nb}) → "${canonical}"`)
+        await supabase.from('taches').update({ epic: canonical }).eq('epic', raw)
+      }
+    }
+    qc.invalidateQueries({ queryKey: ['taches'] })
+    if (tachesReparees > 0) {
+      console.log('[Réparation Epics]', detail)
+      toast(`✅ ${tachesReparees} tâche(s) réparée(s)`)
+    } else {
+      const allRaws = [...new Set(taches.map(t => t.epic).filter(Boolean))]
+      console.log('[Réparation Epics] aucune incohérence détectée. Valeurs epic en base :', allRaws)
+      console.log('[Réparation Epics] référentiel epics :', epicsList.map(e => epicFullName(e)))
+      toast('Aucune incohérence trouvée — détail dans la console (F12)', 'error')
+    }
   }
 
   return (
     <div className="flex flex-col gap-4 max-w-2xl">
       <div className="ds-card flex items-end gap-2">
-        <div className="flex-none"><div className="ds-label mb-1">Numéro</div><input value={newNum} onChange={e => setNewNum(e.target.value)} className="ds-input w-28" placeholder="EPIC 14" /></div>
+        <div className="flex-none"><div className="ds-label mb-1">N° Epic</div>
+          <input value={newNum} onChange={e => setNewNum(e.target.value)} className="ds-input w-20" placeholder="14" inputMode="numeric" /></div>
         <div className="flex-1"><div className="ds-label mb-1">Nom</div><input value={newNom} onChange={e => setNewNom(e.target.value)} className="ds-input" placeholder="Nom de l'Epic" /></div>
-        <button onClick={add} disabled={createEpic.isPending || !newNum.trim() || !newNom.trim()}
+        <button onClick={add} disabled={createEpic.isPending || !newNum.trim().replace(/^epic\s*/i, '').trim() || !newNom.trim()}
           className="ds-btn-primary flex items-center gap-1"><Plus size={13} /> Ajouter</button>
       </div>
-      <p className="text-xs text-subtle -mt-2">Cliquez sur le nom pour le renommer, sur le carré pour changer sa couleur. Supprimer ne supprime pas les US mais vide leur champ Epic.</p>
-      {items.length === 0 ? (
+      <div className="flex items-center justify-between -mt-2">
+        <p className="text-xs text-subtle">Cliquez sur le numéro ou le nom pour les modifier, sur le carré pour changer la couleur. Supprimer ne supprime pas les US mais vide leur champ Epic.</p>
+        <button onClick={repareIncoherences} title="Recale le texte Epic des tâches dont le libellé a divergé du référentiel (espace en trop, etc.)"
+          className="ds-btn ds-btn-sm flex items-center gap-1 shrink-0"><Wrench size={11} /> Réparer les incohérences</button>
+      </div>
+      {epicsList.length === 0 ? (
         <p className="text-xs text-subtle italic">Aucun Epic défini pour ce produit.</p>
       ) : (
-        <InlineList items={items}
-          onRename={rename} onDelete={del} onColorChange={changeColor}
-          colorFn={s => colorMap.get(s) ?? '#6366F1'} countFn={s => counts[s] ?? 0} isSystem={() => false} />
+        <div className="flex flex-col gap-1.5">
+          {epicsList.map(epic => {
+            const label = epicFullName(epic)
+            const nb = counts[label] ?? 0
+            const num = epic.code.replace(/^epic\s*/i, '').trim()
+            return (
+              <div key={epic.id} className="flex items-center gap-3 p-2.5 bg-card rounded-xl border border-border group">
+                <label className="w-6 h-6 rounded-md shrink-0 cursor-pointer ring-1 ring-border/60 relative overflow-hidden" style={{ background: epic.couleur ?? '#6366F1' }} title="Changer la couleur">
+                  <input type="color" value={epic.couleur ?? '#6366F1'} onChange={e => changeColor(epic, e.target.value)}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                </label>
+                <InlineEdit value={num} onSave={v => changeNum(epic, v)} placeholder={num} inputClassName="w-16 font-mono" />
+                <div className="flex-1 min-w-0">
+                  <InlineEdit value={epic.nom} onSave={v => renameNom(epic, v)} placeholder={epic.nom} />
+                  <div className="text-xs text-subtle">{nb} US</div>
+                </div>
+                {nb === 0 && (
+                  <button onClick={() => del(epic)}
+                    className="p-1.5 rounded-lg max-md:opacity-100 opacity-0 group-hover:opacity-100 hover:bg-rose-50 text-subtle hover:text-rose-600 transition-all">
+                    <Trash2 size={12} />
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
       )}
     </div>
   )
 }
 
 function JalonsTab() {
+  const qc = useQueryClient()
   const { data: taches = [] } = useTaches()
   const { data: jalonsList = [] } = useJalons()
   const createJalon = useCreateJalon()
@@ -708,6 +800,7 @@ function JalonsTab() {
     const ok = await confirm({ title: 'Renommer partout ?', message: `"${old}" → "${next}" dans toutes les tâches.`, confirmLabel: 'Renommer' }); if (!ok) return
     await updateJalon.mutateAsync({ id: jalon.id, updates: { code: next } })
     await supabase.from('taches').update({ jalon: next }).eq('jalon', old)
+    qc.invalidateQueries({ queryKey: ['taches'] })
     toast('Jalon - Incrément majeur renommé')
   }
 
@@ -721,6 +814,7 @@ function JalonsTab() {
     const ok = await confirm({ title: 'Supprimer ce Jalon - Incrément majeur ?', message: `Les tâches perdront leur jalon - incrément majeur.`, confirmLabel: 'Supprimer', variant: 'danger' }); if (!ok) return
     await deleteJalon.mutateAsync(jalon.id)
     await supabase.from('taches').update({ jalon: null }).eq('jalon', code)
+    qc.invalidateQueries({ queryKey: ['taches'] })
     toast('Jalon - Incrément majeur supprimé')
   }
 
@@ -747,6 +841,7 @@ function MetiersTab() {
   // Les Thèmes (métiers) sont transverses à tous les produits : on ne les
   // scope pas au produit actif comme le fait useTaches(), sinon on ne voit
   // que les métiers utilisés dans le produit courant.
+  const qc = useQueryClient()
   const { data: taches = [] } = useQuery({
     queryKey: ['taches-metiers-global'],
     queryFn: async () => {
@@ -760,14 +855,18 @@ function MetiersTab() {
   const [nom, setNom] = useState('')
   const counts: Record<string, number> = {}; taches.forEach(t => { if (t.metier) counts[t.metier] = (counts[t.metier] ?? 0) + 1 })
   const metiers = Object.keys(counts).sort()
+  function invalidateTaches() {
+    qc.invalidateQueries({ queryKey: ['taches'] })
+    qc.invalidateQueries({ queryKey: ['taches-metiers-global'] })
+  }
   async function rename(old: string, next: string) {
     if (!next || next === old) return
     const ok = await confirm({ title: 'Renommer partout ?', message: `"${old}" → "${next}" dans toutes les tâches.`, confirmLabel: 'Renommer' }); if (!ok) return
-    await supabase.from('taches').update({ metier: next }).eq('metier', old); toast('Métier renommé')
+    await supabase.from('taches').update({ metier: next }).eq('metier', old); invalidateTaches(); toast('Métier renommé')
   }
   async function del(n: string) {
     const ok = await confirm({ title: 'Supprimer ce Métier ?', message: `Les tâches perdront leur métier.`, confirmLabel: 'Supprimer', variant: 'danger' }); if (!ok) return
-    await supabase.from('taches').update({ metier: null }).eq('metier', n); toast('Métier supprimé')
+    await supabase.from('taches').update({ metier: null }).eq('metier', n); invalidateTaches(); toast('Métier supprimé')
   }
   return (
     <div className="flex flex-col gap-4 max-w-xl">
@@ -789,8 +888,12 @@ function MetiersTab() {
 function SprintTaskManager({ selected, taches, showTasks, setShowTasks }: {
   selected: string; taches: ReturnType<typeof useTaches>['data']; showTasks: boolean; setShowTasks: (v: boolean) => void
 }) {
+  const { produitActif } = useProduit()
   const updateTache = useUpdateTache()
+  const updateIteration = useUpdateIteration()
   const { data: dodItems = [] } = useDod()
+  const { data: epicsList = [] } = useEpics()
+  const { data: iterationsMap = new Map<string, TacheIteration[]>() } = useProduitIterations(produitActif?.id ?? null)
   const toast       = useToast()
   const [showAdd,     setShowAdd]     = useState(false)
   const [showEpicAdd, setShowEpicAdd] = useState(false)
@@ -800,24 +903,40 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks }: {
   const [fStatut,   setFStatut]   = useState('')
   const [fMoscow,   setFMoscow]   = useState('')
   const [selection, setSelection] = useState<Set<string>>(new Set())
+  const [chosenIteration, setChosenIteration] = useState<Record<string, number>>({})
   const T = taches ?? []
+  const byId = buildTacheIndex(T)
+  const epicColorMap = new Map(epicsList.map(e => [epicFullName(e), e.couleur]))
+  const iterationCounts = new Map([...iterationsMap.entries()].map(([k, v]) => [k, v.length]))
 
-  const spTaches  = T.filter(t => !t.parent_id && (t.sprint === selected || t.sprint_debut === selected))
-  const available = T.filter(t => !t.parent_id && t.sprint !== selected && t.sprint_debut !== selected)
+  function itersOf(id_tache: string) { return iterationsMap.get(id_tache) ?? [] }
 
-  const epics   = [...new Set(available.map(t => t.epic).filter(Boolean))].sort(naturalCompare)
   const statuts = ['À faire', 'En cours', 'Fait', 'Bloqué']
   const moscows = ['Must Have', 'Should Have', 'Could Have', "Won't Have"]
 
-  const filtered = available.filter(t => {
+  function matchesBacklogFilters(t: Tache) {
     if (search  && !t.id_tache.toLowerCase().includes(search.toLowerCase()) && !t.titre.toLowerCase().includes(search.toLowerCase())) return false
     if (fEpic   && t.epic   !== fEpic)   return false
     if (fStatut && t.statut !== fStatut) return false
     if (fMoscow && t.moscow !== fMoscow) return false
     return true
-  })
+  }
 
-  const allFilteredSelected = filtered.length > 0 && filtered.every(t => selection.has(t.id_tache))
+  // US (pas Conteneur) éligibles au backlog, à plat — sert au sélecteur
+  // d'Epic et à l'ajout rapide en masse, indépendamment de la recherche
+  // texte (comme avant : la recherche ne filtre que la liste "Ajouter US").
+  const eligibleFlat = T.filter(t => t.type_tache !== 'Conteneur' && isEligibleForBacklog(t, itersOf(t.id_tache)))
+  const epics = [...new Set(eligibleFlat.map(t => t.epic).filter(Boolean))].sort(naturalCompare)
+
+  // Arbres pour les deux TacheTree : le prédicat inclut déjà les filtres de
+  // recherche pour "Ajouter US", afin qu'un Conteneur ne survive que s'il
+  // lui reste un enfant qui matche à la fois l'éligibilité ET les filtres.
+  const backlogTree = buildEligibleTree(T, t => isEligibleForBacklog(t, itersOf(t.id_tache)) && matchesBacklogFilters(t))
+  const sprintTree  = buildEligibleTree(T, t => isInThisSprint(t, selected, itersOf(t.id_tache)))
+  const backlogEpicsList = epicsList.filter(e => backlogTree.filtered.some(t => t.epic === epicFullName(e)))
+  const sprintEpicsList  = epicsList.filter(e => sprintTree.filtered.some(t => t.epic === epicFullName(e)))
+  const backlogFlatCount = eligibleFlat.filter(matchesBacklogFilters).length
+  const spTachesCount = T.filter(t => t.type_tache !== 'Conteneur' && isInThisSprint(t, selected, itersOf(t.id_tache))).length
 
   // Une US est "à valider" si elle n'a aucune exigence liée, ou si au moins
   // une de ses exigences liées n'est pas encore vérifiée. Une US dont TOUTES
@@ -831,56 +950,108 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks }: {
     return codes.length === 0 || !codes.every(c => verifiedCodes.has(c))
   }
 
-  const epicAll      = quickEpic ? available.filter(t => t.epic === quickEpic) : []
+  // Exclues du lot bulk (Epic entier) : les tâches à ≥2 itérations éligibles
+  // — pas de sélecteur possible en masse, on ne veut pas planifier
+  // silencieusement "la première" itération venue.
+  const epicAll      = quickEpic ? eligibleFlat.filter(t => t.epic === quickEpic &&
+    itersOf(t.id_tache).filter(it => it.statut === 'À faire' && !it.sprint).length <= 1) : []
   const epicAValider = epicAll.filter(needsValidation)
 
-  function toggleOne(id: string) {
-    setSelection(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
-  }
-  function toggleAll() {
-    setSelection(prev => {
-      const s = new Set(prev)
-      if (allFilteredSelected) filtered.forEach(t => s.delete(t.id_tache))
-      else filtered.forEach(t => s.add(t.id_tache))
-      return s
-    })
-  }
-
-  async function removeFromSprint(id_tache: string) {
-    await updateTache.mutateAsync({ id_tache, updates: { sprint: '', sprint_debut: null } })
-    toast(`${id_tache} retiré du sprint`)
+  async function assignToSprint(t: Tache) {
+    if (t.type_tache === 'Conteneur') return
+    const iters = itersOf(t.id_tache)
+    const eligible = iters.filter(it => it.statut === 'À faire' && !it.sprint)
+    if (eligible.length === 0) {
+      await updateTache.mutateAsync({ id_tache: t.id_tache, updates: { sprint: selected, sprint_debut: selected } })
+      return
+    }
+    const iter = eligible.find(it => it.id === chosenIteration[t.id_tache]) ?? eligible[0]
+    const isLatest = iter.numero === Math.max(...iters.map(i => i.numero))
+    await updateIteration.mutateAsync({ id: iter.id, id_tache: t.id_tache, updates: { sprint: selected }, syncToTache: isLatest })
   }
 
-  async function addIds(ids: string[]) {
-    if (!ids.length) return
-    for (const id_tache of ids)
-      await updateTache.mutateAsync({ id_tache, updates: { sprint: selected, sprint_debut: selected } })
-    toast(`${ids.length} US ajoutée(s) au sprint ${selected}`)
+  async function assignMany(ts: Tache[]) {
+    if (!ts.length) return
+    for (const t of ts) await assignToSprint(t)
+    toast(`${ts.length} US ajoutée(s) au sprint ${selected}`)
+  }
+
+  async function doRemove(t: Tache) {
+    const iters = itersOf(t.id_tache)
+    if (iters.length === 0) {
+      await updateTache.mutateAsync({ id_tache: t.id_tache, updates: { sprint: '', sprint_debut: null } })
+      toast(`${t.id_tache} retiré du sprint`)
+      return
+    }
+    const iter = iters.find(it => it.sprint === selected)
+    if (!iter) return
+    const isLatest = iter.numero === Math.max(...iters.map(i => i.numero))
+    await updateIteration.mutateAsync({ id: iter.id, id_tache: t.id_tache, updates: { sprint: null }, syncToTache: isLatest })
+    toast(`${t.id_tache} (itér. ${iter.numero}) retiré du sprint`)
   }
 
   async function addSelection() {
     if (!selection.size) return
-    await addIds([...selection])
+    const ts = [...selection].map(id => byId.get(id)).filter((t): t is Tache => !!t)
+    await assignMany(ts)
     setSelection(new Set())
     setShowAdd(false)
   }
 
   async function addEpicAll() {
-    await addIds(epicAll.map(t => t.id_tache))
+    await assignMany(epicAll)
     setShowEpicAdd(false)
     setQuickEpic('')
   }
   async function addEpicAValider() {
-    await addIds(epicAValider.map(t => t.id_tache))
+    await assignMany(epicAValider)
     setShowEpicAdd(false)
     setQuickEpic('')
+  }
+
+  function renderSprintExtra(t: Tache) {
+    const active = itersOf(t.id_tache).find(it => it.sprint === selected)
+    return (
+      <div className="flex items-center gap-1">
+        {active && (
+          <span title={active.objectif ?? ''} className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full truncate max-w-[160px]">
+            Itér. {active.numero}{active.objectif ? ` · ${active.objectif.slice(0, 24)}` : ''}
+          </span>
+        )}
+        <button onClick={() => doRemove(t)} title="Retirer du sprint"
+          className="p-1 rounded hover:bg-rose-50 text-subtle hover:text-rose-600"><X size={11} /></button>
+      </div>
+    )
+  }
+
+  function renderBacklogExtra(t: Tache) {
+    const eligible = itersOf(t.id_tache).filter(it => it.statut === 'À faire' && !it.sprint)
+    if (eligible.length < 2) return null
+    const chosenId = chosenIteration[t.id_tache] ?? eligible[0].id
+    return (
+      <div className="flex items-center gap-1">
+        {eligible.map(it => (
+          <button key={it.id} onClick={() => setChosenIteration(p => ({ ...p, [t.id_tache]: it.id }))}
+            title={[
+              `Itération ${it.numero}`,
+              `Objectif : ${it.objectif || '—'}`,
+              `Effort estimé : ${it.effort_j ?? '—'}j`,
+              `Assigné : ${it.assigne_a || '—'}`,
+            ].join('\n')}
+            className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded-full border',
+              chosenId === it.id ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-card text-subtle border-border hover:border-indigo-300')}>
+            Itér. {it.numero}
+          </button>
+        ))}
+      </div>
+    )
   }
 
   return (
     <div className="ds-card">
       <div className="flex items-center gap-2 mb-2">
         <button className="flex items-center gap-2 flex-1" onClick={() => setShowTasks(!showTasks)}>
-          <div className="ds-card-title mb-0 flex-1">US du sprint {selected} ({spTaches.length})</div>
+          <div className="ds-card-title mb-0 flex-1">US du sprint {selected} ({spTachesCount})</div>
           {showTasks ? <ChevronDown size={14} className="text-subtle" /> : <ChevronRight size={14} className="text-subtle" />}
         </button>
         {selected && (
@@ -942,39 +1113,27 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks }: {
               options={moscows.map(m => ({ value: m, label: m }))} />
           </div>
 
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-bg/60 border-b border-border text-xs text-subtle font-semibold">
-            <input type="checkbox" checked={allFilteredSelected} onChange={toggleAll}
-              className="w-3.5 h-3.5 accent-indigo-600 shrink-0" />
-            <span className="w-16 shrink-0">ID</span>
-            <span className="flex-1">Titre</span>
-            <span className="w-20 text-center shrink-0">Epic</span>
-            <span className="w-20 text-center shrink-0">Statut</span>
-            <span className="w-20 text-center shrink-0">MoSCoW</span>
-            <span className="w-10 text-right shrink-0">Effort</span>
-          </div>
-
-          <div className="max-h-64 overflow-y-auto divide-y divide-border">
-            {filtered.length === 0
+          <div className="max-h-64 overflow-y-auto">
+            {backlogTree.filtered.length === 0
               ? <div className="py-6 text-center text-subtle text-xs">Aucune US disponible</div>
-              : filtered.map(t => (
-                <label key={t.id_tache}
-                  className={cn('flex items-center gap-2 px-3 py-2 text-xs cursor-pointer transition-colors',
-                    selection.has(t.id_tache) ? 'bg-indigo-50/60' : 'hover:bg-bg/60')}>
-                  <input type="checkbox" checked={selection.has(t.id_tache)} onChange={() => toggleOne(t.id_tache)}
-                    className="w-3.5 h-3.5 accent-indigo-600 shrink-0" />
-                  <span className="font-semibold text-indigo-600 w-16 shrink-0">{t.id_tache}</span>
-                  <span className="flex-1 truncate text-navy">{t.titre}</span>
-                  <span className="w-20 text-center truncate text-subtle">{t.epic || '—'}</span>
-                  <span className="w-20 text-center shrink-0"><StatutBadge value={t.statut} /></span>
-                  <span className="w-20 text-center truncate text-subtle text-[11px]">{t.moscow || '—'}</span>
-                  <span className="w-10 text-right text-subtle shrink-0">{t.effort_j ?? 0}j</span>
-                </label>
-              ))
+              : (
+                <TacheTree
+                  filtered={backlogTree.filtered} childMap={backlogTree.childMap}
+                  epicsList={backlogEpicsList} epicColorMap={epicColorMap} byId={byId} allTaches={T}
+                  selected={[...selection]} onToggleSelect={(id, checked) => setSelection(prev => {
+                    const s = new Set(prev); checked ? s.add(id) : s.delete(id); return s
+                  })}
+                  panelId={null} onOpenPanel={() => {}} dependances={[]} updateTache={updateTache}
+                  onDuplicateEpic={() => {}} isAdmin={false} onClearEpic={() => {}} onQuickAdd={() => {}}
+                  onAddSousTache={() => {}} iterationCounts={iterationCounts} renderExtra={renderBacklogExtra}
+                  showExpandControls={false}
+                />
+              )
             }
           </div>
 
           <div className="flex items-center justify-between px-3 py-2 bg-bg border-t border-border">
-            <span className="text-xs text-subtle">{filtered.length} US · {selection.size} sélectionnée(s)</span>
+            <span className="text-xs text-subtle">{backlogFlatCount} US · {selection.size} sélectionnée(s)</span>
             <div className="flex gap-2">
               <button onClick={() => { setShowAdd(false); setSelection(new Set()) }}
                 className="ds-btn ds-btn-sm">Annuler</button>
@@ -989,17 +1148,21 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks }: {
 
       {/* ── US du sprint ───────────────────────────────────── */}
       {showTasks && (
-        <div className="max-h-80 overflow-y-auto border border-border rounded-xl divide-y divide-border">
-          {spTaches.length ? spTaches.map(t => (
-            <div key={t.id_tache} className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-bg/50">
-              <span className="font-semibold text-indigo-600 w-16 shrink-0">{t.id_tache}</span>
-              <span className="flex-1 truncate text-navy">{t.titre}</span>
-              <StatutBadge value={t.statut} />
-              <span className="text-subtle">{t.effort_j ?? 0}j</span>
-              <button onClick={() => removeFromSprint(t.id_tache)} title="Retirer du sprint"
-                className="p-1 rounded hover:bg-rose-50 text-subtle hover:text-rose-600 shrink-0"><X size={11} /></button>
-            </div>
-          )) : <div className="py-6 text-center text-subtle text-xs">Aucune US dans ce sprint</div>}
+        <div className="max-h-80 overflow-y-auto border border-border rounded-xl">
+          {sprintTree.filtered.length === 0
+            ? <div className="py-6 text-center text-subtle text-xs">Aucune US dans ce sprint</div>
+            : (
+              <TacheTree
+                filtered={sprintTree.filtered} childMap={sprintTree.childMap}
+                epicsList={sprintEpicsList} epicColorMap={epicColorMap} byId={byId} allTaches={T}
+                selected={[]} onToggleSelect={() => {}}
+                panelId={null} onOpenPanel={() => {}} dependances={[]} updateTache={updateTache}
+                onDuplicateEpic={() => {}} isAdmin={false} onClearEpic={() => {}} onQuickAdd={() => {}}
+                onAddSousTache={() => {}} iterationCounts={iterationCounts} renderExtra={renderSprintExtra}
+                showExpandControls={false}
+              />
+            )
+          }
         </div>
       )}
     </div>

@@ -1,0 +1,18 @@
+-- Corrige un risque de collision d'ID : `useCreateTache` génère `id_tache`
+-- ("US-XXX") en lisant le numéro max existant PUIS en insérant — si deux
+-- personnes créent une tâche sur le même produit à quelques millisecondes
+-- d'écart (typique du board Fast Task, où "+" peut être cliqué en rafale par
+-- plusieurs personnes), les deux lectures peuvent arriver avant qu'aucun des
+-- deux inserts ne soit committé, et produire deux tâches DIFFÉRENTES avec le
+-- même id_tache — silencieusement, car aucune contrainte ne l'empêchait.
+--
+-- L'unicité est par PRODUIT (pas globale) : la génération de `id_tache` est
+-- elle-même scopée par produit_id (voir useCreateTache), donc "US-001" existe
+-- légitimement dans plusieurs produits à la fois. La contrainte doit donc
+-- porter sur (produit_id, id_tache), pas sur id_tache seul.
+--
+-- Si cette migration échoue avec "could not create unique index... is
+-- duplicated", c'est qu'une collision a déjà eu lieu par le passé : il faudra
+-- renommer manuellement l'une des deux lignes concernées (visible dans le
+-- message d'erreur) avant de rejouer ce script.
+ALTER TABLE taches ADD CONSTRAINT taches_produit_id_tache_unique UNIQUE (produit_id, id_tache);

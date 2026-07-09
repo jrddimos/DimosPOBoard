@@ -1,7 +1,70 @@
 import { clsx, type ClassValue } from 'clsx'
+import type { Tache } from '@/types'
 
 export function cn(...inputs: ClassValue[]) {
   return clsx(inputs)
+}
+
+export function buildTacheIndex(taches: Tache[]): Map<string, Tache> {
+  return new Map(taches.map(t => [t.id_tache, t]))
+}
+
+// Une US "réelle" (tâche principale) : pas un Conteneur, et si elle a un
+// parent, ce parent est un Conteneur (regroupement pur). Une US peut donc
+// être racine OU rattachée à un Conteneur — dans les deux cas elle compte
+// comme un item de travail à part entière (effort, métriques, Kanban...).
+export function isUS(t: Tache, byId: Map<string, Tache>): boolean {
+  if (t.type_tache === 'Conteneur') return false
+  if (!t.parent_id) return true
+  return byId.get(t.parent_id)?.type_tache === 'Conteneur'
+}
+
+// Une vraie sous-tâche : elle a un parent, et ce parent n'est PAS un
+// Conteneur (donc son parent est une US) — feuille de l'arbre à 3 niveaux.
+export function isSousTache(t: Tache, byId: Map<string, Tache>): boolean {
+  if (!t.parent_id) return false
+  return byId.get(t.parent_id)?.type_tache !== 'Conteneur'
+}
+
+// Effort effectif récursif : somme des sous-tâches si elles existent, sinon
+// l'effort propre. Permet à un Conteneur de remonter le bon total même si
+// une de ses US a elle-même des sous-tâches (2 niveaux de rollup).
+export function effortEffectif(t: Tache, childMap: Record<string, Tache[]>): number {
+  const subs = childMap[t.id_tache] ?? []
+  if (subs.length === 0) return t.effort_j ?? 0
+  return subs.reduce((s, c) => s + effortEffectif(c, childMap), 0)
+}
+
+// Numérotation d'affichage recalculée à la volée — jamais persistée,
+// jamais utilisée comme référence (id_tache/code restent les identifiants
+// stables). Clé "epic::<label complet>" → "1", clé id_tache → "1.2"/"1.2.1".
+// Un Conteneur ne consomme pas de numéro : ses enfants continuent la
+// séquence de l'Epic comme s'il n'existait pas.
+export function computeTacheNumbers(
+  orderedEpicLabels: string[],
+  tasksByEpicLabel: (label: string) => Tache[],
+  childMap: Record<string, Tache[]>,
+  byId: Map<string, Tache>,
+): Map<string, string> {
+  const numbers = new Map<string, string>()
+  orderedEpicLabels.forEach((label, epicIdx) => {
+    const tasks = tasksByEpicLabel(label)
+    if (!tasks.length) return
+    numbers.set(`epic::${label}`, String(epicIdx + 1))
+    let usCounter = 0
+    const walk = (list: Tache[]) => {
+      for (const t of list) {
+        if (t.type_tache === 'Conteneur') { walk(childMap[t.id_tache] ?? []); continue }
+        if (!isUS(t, byId)) continue
+        usCounter++
+        const num = `${epicIdx + 1}.${usCounter}`
+        numbers.set(t.id_tache, num)
+        ;(childMap[t.id_tache] ?? []).forEach((s, i) => numbers.set(s.id_tache, `${num}.${i + 1}`))
+      }
+    }
+    walk(tasks)
+  })
+  return numbers
 }
 
 // Tri "naturel" : F2 < F10 et F1 < F1.1 < F2, contrairement au tri
@@ -16,8 +79,12 @@ export function codeMajor(code: string): string {
   return idx === -1 ? code : code.slice(0, idx)
 }
 
-export function sprintInRange(sprint: string, debut: string | null, fin: string | null, target: string): boolean {
-  if (sprint === target) return true
+// `taches.sprint` (l'ancien champ, avant sprint_debut/sprint_fin) porte une
+// valeur par défaut ('S01' constaté en base) sur la quasi-totalité des
+// tâches, y compris jamais planifiées — ce n'est pas un signal fiable, on ne
+// se base donc que sur sprint_debut/sprint_fin (systématiquement synchronisés
+// ensemble par l'app à chaque planification réelle).
+export function sprintInRange(debut: string | null, fin: string | null, target: string): boolean {
   if (debut === target) return true
   if (debut && fin && debut <= target && fin >= target) return true
   return false

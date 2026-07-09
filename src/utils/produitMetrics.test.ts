@@ -70,6 +70,18 @@ describe('computeProduitMetrics', () => {
     expect(m.backlogPct).toBe(50)
   })
 
+  it('exclut les tâches Conteneur (regroupement) une fois filtrées par l\'appelant', () => {
+    const taches = [
+      mkTache({ id_tache: 'US-001', statut: 'Fait' }),
+      mkTache({ id_tache: 'US-002', statut: 'À faire', type_tache: 'Conteneur' }),
+    ]
+    const racines = taches.filter(t => t.type_tache !== 'Conteneur')
+    const m = computeProduitMetrics(mkProduit(), racines, finConfig, new Date(2026, 5, 1))
+    expect(m.totalUS).toBe(1)
+    expect(m.faitUS).toBe(1)
+    expect(m.backlogPct).toBe(100)
+  })
+
   it('ragBlGlobal passe au rouge au-delà de 2 blocages/risques cumulés', () => {
     const taches = [
       mkTache({ id_tache: 'US-001', statut: 'Bloqué' }),
