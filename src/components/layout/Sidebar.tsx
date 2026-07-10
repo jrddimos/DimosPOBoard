@@ -25,7 +25,7 @@ import {
   ChevronDown, LogOut, ClipboardCheck, User, Clock, X,
   Package, CalendarClock, BarChart3, Camera, TrendingUp,
   StickyNote, Plus, Check, ArrowRight, ChevronRight, ChevronLeft, Sun, Moon, Layers, Bell, Search, Square, Timer,
-  SlidersHorizontal, MessageCircle, Send, Lightbulb, ThumbsUp, ThumbsDown, Archive,
+  SlidersHorizontal, MessageCircle, Send, Lightbulb, ThumbsUp, ThumbsDown, Archive, Milestone,
 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
@@ -718,6 +718,7 @@ export const GLOBAL_NAV: NavItem[] = [
   { id: 'reunion',      label: 'Réunions',               href: '/reunions',          icon: <CalendarClock size={15} />   },
   { id: 'plan-charges', label: 'Plan de charges',        href: '/plan-charges',      icon: <TrendingUp size={15} />      },
   { id: 'produits',     label: 'Produits',               href: '/produits',          icon: <Package size={15} />         },
+  { id: 'roadmap',      label: 'Roadmap',                href: '/roadmap',           icon: <Milestone size={15} />       },
 ]
 
 export const PRODUCT_NAV: NavItem[] = [

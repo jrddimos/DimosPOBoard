@@ -20,6 +20,7 @@ import ReunionDetailPage      from '@/pages/reunion/ReunionDetailPage'
 import ProduitDashboardPage  from '@/pages/produit-dashboard/ProduitDashboardPage'
 import ProduitConfigPage     from '@/pages/produit-config/ProduitConfigPage'
 import PlanChargesPage       from '@/pages/plancharges/PlanChargesPage'
+import RoadmapPage           from '@/pages/roadmap/RoadmapPage'
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({
@@ -86,6 +87,7 @@ function AppRoutes() {
       {/* Accessibles sans produit */}
       <Route path="/"            element={<DashboardPage />} />
       <Route path="/setup"       element={<SetupPage />} />
+      <Route path="/roadmap"     element={<RoadmapPage />} />
       {/* Nécessitent un produit */}
       {/* Compat : Backlog a été fusionné dans Tâches */}
       <Route path="/backlog"     element={<Navigate to="/taches" replace />} />

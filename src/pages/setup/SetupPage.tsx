@@ -37,7 +37,11 @@ type SetupTab = 'sprints'|'epics'|'jalons'|'metiers'|'export'|'finance'|'equipes
 
 // Thèmes est ouvert à tous (lecture seule pour les non-admins) ; Finance et
 // Équipes restent réservés aux admins, comme avant leur fusion dans Setup.
-const GLOBAL_TABS_ALL   = [{ key: 'metiers' as SetupTab, label: 'Thèmes',                 icon: <Tag size={12} /> }]
+// (La Roadmap multi-produits a été déplacée vers /roadmap, menu Global —
+// plus un onglet Setup, voir src/pages/roadmap/RoadmapPage.tsx.)
+const GLOBAL_TABS_ALL   = [
+  { key: 'metiers' as SetupTab, label: 'Thèmes',                 icon: <Tag size={12} /> },
+]
 const GLOBAL_TABS_ADMIN = [
   { key: 'finance' as SetupTab, label: 'Finance',                icon: <Euro size={12} /> },
   { key: 'equipes' as SetupTab, label: 'Équipes & Utilisateurs',  icon: <Users size={12} /> },
@@ -750,7 +754,7 @@ function EpicsTab() {
   }
 
   return (
-    <div className="flex flex-col gap-4 max-w-2xl">
+    <div className="flex flex-col gap-4 max-w-2xl 3xl:max-w-4xl">
       <div className="ds-card flex items-end gap-2">
         <div className="flex-none"><div className="ds-label mb-1">N° Epic</div>
           <input value={newNum} onChange={e => setNewNum(e.target.value)} className="ds-input w-20" placeholder="14" inputMode="numeric" /></div>
@@ -847,7 +851,7 @@ function JalonsTab() {
   }
 
   return (
-    <div className="flex flex-col gap-4 max-w-xl">
+    <div className="flex flex-col gap-4 max-w-xl 3xl:max-w-3xl">
       <div className="ds-card flex items-end gap-2">
         <div><div className="ds-label mb-1">Code</div><input value={code} onChange={e => setCode(e.target.value.toUpperCase())} className="ds-input w-20" maxLength={5} placeholder="I7" /></div>
         <button onClick={add} disabled={createJalon.isPending || !code.trim()}
@@ -897,7 +901,7 @@ function MetiersTab() {
     await supabase.from('taches').update({ metier: null }).eq('metier', n); invalidateTaches(); toast('Métier supprimé')
   }
   return (
-    <div className="flex flex-col gap-4 max-w-xl">
+    <div className="flex flex-col gap-4 max-w-xl 3xl:max-w-3xl">
       <div className="ds-card flex items-end gap-2">
         <div className="flex-1"><div className="ds-label mb-1">Nom</div><input value={nom} onChange={e => setNom(e.target.value)} className="ds-input" placeholder="Ex: Mécatronique" /></div>
         <button onClick={() => { if (!nom) return; toast(`Métier "${nom}" ajouté`); setNom('') }}

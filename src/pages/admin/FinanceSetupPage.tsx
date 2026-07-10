@@ -117,7 +117,7 @@ export default function FinanceSetupPage() {
         </div>
       )}
 
-      <div className="max-w-3xl mx-auto space-y-5">
+      <div className="max-w-3xl 3xl:max-w-5xl mx-auto space-y-5">
 
         {/* ── Bandeau récap ── */}
         {recap.equipesAvecTjm > 0 && (

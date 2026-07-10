@@ -11,7 +11,7 @@ import { useProduit } from '@/contexts/ProduitContext'
 import { useToast } from '@/hooks/useToast'
 import { cn, buildTacheIndex, isUS } from '@/lib/utils'
 import {
-  LayoutGrid, Package, CalendarDays, LayoutDashboard, Globe,
+  LayoutGrid, Package, LayoutDashboard,
 } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
 import { ToggleGroup } from '@/components/ui/ToggleGroup'
@@ -142,39 +142,8 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Filtre périmètre (mode multi) */}
-        {mode === 'multi' && accessibles.length > 1 && (
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-xs text-subtle font-medium">Périmètre :</span>
-            {accessibles.map(p => {
-              const on = selectedIds === null || selectedIds.has(p.id)
-              return (
-                <button key={p.id} onClick={() => toggleProduit(p.id)}
-                  className={cn(
-                    'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-all border',
-                    on ? 'text-white border-transparent' : 'bg-card text-subtle border-border hover:border-navy/30'
-                  )}
-                  style={on ? { background: p.couleur ?? '#4A4CC8' } : {}}>
-                  {p.nom}
-                </button>
-              )
-            })}
-            {selectedIds !== null && selectedIds.size < accessibles.length && (
-              <button onClick={() => setSelectedIds(new Set(accessibles.map(p => p.id)))}
-                className="px-2.5 py-1 rounded-full text-xs text-subtle hover:text-navy border border-dashed border-border">
-                Tout
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Toggle scope (mode multi) */}
-        {mode === 'multi' && (
-          <ToggleGroup value={scope} onChange={setScope} className="ml-auto" options={[
-            { key: 'global', label: 'Global',    icon: <Globe size={11}/> },
-            { key: 'trim',   label: 'Trimestre', icon: <CalendarDays size={11}/> },
-          ]} />
-        )}
+        {/* Le périmètre et le scope vivent dans la rangée de contrôles du
+            cockpit (mode multi) pour ne garder qu'une seule barre d'outils. */}
       </div>
 
       {/* ══ MODE MULTI-PRODUITS ══════════════════════════════════ */}
@@ -191,6 +160,11 @@ export default function DashboardPage() {
                 produits={accessibles.filter(p => selectedIds === null || selectedIds.has(p.id))}
                 metricsMap={metricsMap}
                 scope={scope}
+                setScope={setScope}
+                accessibles={accessibles}
+                selectedIds={selectedIds}
+                toggleProduit={toggleProduit}
+                selectAll={() => setSelectedIds(new Set(accessibles.map(p => p.id)))}
                 allTaches={allParents}
                 faitDoneMap={faitDoneMap}
                 navigate={navigate}

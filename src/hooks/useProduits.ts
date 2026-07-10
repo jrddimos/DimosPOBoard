@@ -24,6 +24,7 @@ export interface Produit {
   kpis_cibles:          string | null
   outcome_estime:       string | null
   theme:                string | null
+  gamme_id:             number | null
   objectifs_trimestriels: TrimObjectif[] | null
   risques:                RisqueItem[]   | null
   actions_lop:            ActionLop[]    | null

@@ -11,7 +11,7 @@ function mkProduit(overrides: Partial<Produit> = {}): Produit {
     vision: null, objectifs_q1: null, objectifs_q2: null, objectifs_q3: null, objectifs_q4: null,
     budget_etp: null, budget_invest: null, budget_achats: null,
     date_lancement_cible: null, priorite_strategique: null, niveau_risque: null,
-    kpis_cibles: null, outcome_estime: null, theme: null,
+    kpis_cibles: null, outcome_estime: null, theme: null, gamme_id: null,
     objectifs_trimestriels: null, risques: null, actions_lop: null, rag_config: null,
     discussion_bg_url: null, discussion_bg_opacity: 0.15,
     ...overrides,

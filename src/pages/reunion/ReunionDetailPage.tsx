@@ -213,7 +213,7 @@ export default function ReunionDetailPage() {
         )}
       </div>
 
-      <div className="flex flex-col gap-4 max-w-4xl">
+      <div className="flex flex-col gap-4 max-w-4xl 3xl:max-w-6xl">
         {sections.map(key => {
           const def = SECTION_DEFS[key]
 

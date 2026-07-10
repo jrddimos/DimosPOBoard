@@ -1230,7 +1230,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
       {panelTask&&(
         <>
           <div className="fixed inset-0 z-40 bg-brand/40" onClick={()=>setPanelId(null)}/>
-          <div className="fixed inset-x-0 bottom-0 z-50 animate-in md:inset-x-auto md:left-auto md:right-4 md:top-4 md:bottom-4 md:w-3/5 md:min-w-[380px] md:max-w-[860px]">
+          <div className="fixed inset-x-0 bottom-0 z-50 animate-in md:inset-x-auto md:left-auto md:right-4 md:top-4 md:bottom-4 md:w-3/5 md:min-w-[380px] md:max-w-[860px] 3xl:max-w-[1200px]">
           <div className="ds-card max-h-[80vh] md:max-h-full md:h-full overflow-y-auto rounded-b-none md:rounded-xl shadow-2xl">
             {/* Header */}
             <div className="flex items-center justify-between mb-1.5">

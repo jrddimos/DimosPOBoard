@@ -47,6 +47,10 @@ export default {
           600: v('--tw-rose-600'), 700: v('--tw-rose-700'),
         },
       },
+      // Écrans très larges (postes CAO/4K/ultrawide) : au-delà de 1920px,
+      // certaines pages restaient capées à une largeur pensée pour un écran
+      // standard, laissant de grandes zones vides sur les côtés.
+      screens: { '3xl': '1920px' },
       fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
       boxShadow: {
         card: '0 2px 8px rgba(74,76,200,0.08)',

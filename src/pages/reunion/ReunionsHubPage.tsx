@@ -237,7 +237,7 @@ export default function ReunionsHubPage() {
         </button>
       </div>
 
-      <div className="flex flex-col gap-5 max-w-4xl">
+      <div className="flex flex-col gap-5 max-w-4xl 3xl:max-w-6xl">
         <div>
           <div className="text-xs font-bold text-navy uppercase tracking-wider mb-2 px-1">
             À venir {aVenir.length > 0 && <span className="text-subtle font-medium">({aVenir.length})</span>}
