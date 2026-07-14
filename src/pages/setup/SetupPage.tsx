@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { Layout } from '@/components/layout/Layout'
 import { useProduit } from '@/contexts/ProduitContext'
 import { Spinner } from '@/components/ui/Spinner'
@@ -957,6 +957,7 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks, isClotur
   isCloture: boolean
 }) {
   const { produitActif } = useProduit()
+  const navigate = useNavigate()
   const updateTache = useUpdateTache()
   const updateIteration = useUpdateIteration()
   const { data: dodItems = [] } = useDod()
@@ -1231,7 +1232,9 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks, isClotur
                 filtered={sprintTree.filtered} childMap={sprintTree.childMap}
                 epicsList={sprintEpicsList} epicColorMap={epicColorMap} byId={byId} allTaches={T}
                 selected={[]} onToggleSelect={() => {}}
-                panelId={null} onOpenPanel={() => {}} dependances={[]} updateTache={updateTache}
+                panelId={null}
+                onOpenPanel={t => navigate(`/taches?focus=${encodeURIComponent(t.id_tache)}`)}
+                dependances={[]} updateTache={updateTache}
                 onDuplicateEpic={() => {}} isAdmin={false} onClearEpic={() => {}} onQuickAdd={() => {}}
                 onAddSousTache={() => {}} iterationCounts={iterationCounts} renderExtra={renderSprintExtra}
                 showExpandControls={false}
