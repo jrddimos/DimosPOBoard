@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { Layout } from '@/components/layout/Layout'
 import { useProduit } from '@/contexts/ProduitContext'
 import { Spinner } from '@/components/ui/Spinner'
@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase'
 import { downloadCSV, naturalCompare, buildTacheIndex, parseCriteres, serializeCriteres, type CritereItem } from '@/lib/utils'
 import { isEligibleForBacklog, isInThisSprint, buildEligibleTree } from '@/lib/sprintEligibility'
 import { TacheTree } from '@/components/tache/TacheTree'
+import { TacheDetailPanel } from '@/components/tache/TacheDetailPanel'
 import { useProduitIterations, useUpdateIteration, useTransferToNextIteration, type TacheIteration } from '@/hooks/useTacheIterations'
 // @react-pdf/renderer et exceljs sont lourds (~800 Ko à eux deux) : chargés
 // à la demande au clic sur export, pas au chargement de la page.
@@ -957,7 +958,6 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks, isClotur
   isCloture: boolean
 }) {
   const { produitActif } = useProduit()
-  const navigate = useNavigate()
   const updateTache = useUpdateTache()
   const updateIteration = useUpdateIteration()
   const { data: dodItems = [] } = useDod()
@@ -973,6 +973,8 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks, isClotur
   const [fMoscow,   setFMoscow]   = useState('')
   const [selection, setSelection] = useState<Set<string>>(new Set())
   const [chosenIteration, setChosenIteration] = useState<Record<string, number>>({})
+  // Panneau de détail (partagé avec la page Tâches) ouvert par clic sur une US
+  const [detailId, setDetailId] = useState<string | null>(null)
   const T = taches ?? []
   const byId = buildTacheIndex(T)
   const epicColorMap = new Map(epicsList.map(e => [epicFullName(e), e.couleur]))
@@ -1233,7 +1235,7 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks, isClotur
                 epicsList={sprintEpicsList} epicColorMap={epicColorMap} byId={byId} allTaches={T}
                 selected={[]} onToggleSelect={() => {}}
                 panelId={null}
-                onOpenPanel={t => navigate(`/taches?focus=${encodeURIComponent(t.id_tache)}`)}
+                onOpenPanel={t => setDetailId(t.id_tache)}
                 dependances={[]} updateTache={updateTache}
                 onDuplicateEpic={() => {}} isAdmin={false} onClearEpic={() => {}} onQuickAdd={() => {}}
                 onAddSousTache={() => {}} iterationCounts={iterationCounts} renderExtra={renderSprintExtra}
@@ -1242,6 +1244,10 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks, isClotur
             )
           }
         </div>
+      )}
+
+      {detailId && (
+        <TacheDetailPanel tacheId={detailId} onClose={() => setDetailId(null)} />
       )}
     </div>
   )

@@ -1,17 +1,17 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Layout } from '@/components/layout/Layout'
 import { Spinner } from '@/components/ui/Spinner'
 import { StatutBadge, EpicBadge, MoscowBadge, JalonBadge, PrioBadge, TypeFonctionBadge } from '@/components/ui/Badge'
 import { useTaches, useCreateTache, useUpdateTache, useDeleteTache, useCreateSousTache } from '@/hooks/useTaches'
-import { useTacheDependances, useAddDependance, useRemoveDependance, isBloqueeParDependance } from '@/hooks/useTacheDependances'
-import { TacheExtras } from '@/components/tache/TacheExtras'
+import { useTacheDependances, isBloqueeParDependance } from '@/hooks/useTacheDependances'
 import { SousTacheModal } from '@/components/tache/SousTacheModal'
 import { QuickAddModal } from '@/components/tache/QuickAddModal'
-import { NewIterationModal } from '@/components/tache/NewIterationModal'
 import { FastTaskBoard } from '@/components/tache/FastTaskBoard'
 import { TacheTree } from '@/components/tache/TacheTree'
-import { useTacheIterations, useCreateIteration, useUpdateIteration, useIterationCounts, type TacheIteration } from '@/hooks/useTacheIterations'
+import { TacheDetailPanel } from '@/components/tache/TacheDetailPanel'
+import { Grp, SelectPicker, PriorityPicker, MoSCoWPicker } from '@/components/tache/TacheFormControls'
+import { useIterationCounts } from '@/hooks/useTacheIterations'
 import { useSprintActif, useClosedSprints } from '@/hooks/useSprints'
 import { useEquipes, useUtilisateurs } from '@/hooks/useEquipes'
 import { useToast } from '@/hooks/useToast'
@@ -19,10 +19,10 @@ import { confirm } from '@/components/ui/ConfirmModal'
 import { MOSCOW_LIST, SPRINTS_LIST, METIERS_DEFAULT } from '@/constants'
 import { useEpics, useCreateEpic, epicFullName } from '@/hooks/useEpics'
 import { useJalons } from '@/hooks/useJalons'
-import { Search, Lock, Plus, Copy, Trash2, ChevronRight, ChevronDown, X, CornerDownRight, FilePlus, SlidersHorizontal, BookOpen, Target, AlignJustify, StickyNote, RotateCcw } from 'lucide-react'
+import { Search, Lock, Plus, Copy, Trash2, ChevronRight, ChevronDown, X, CornerDownRight, FilePlus, SlidersHorizontal, BookOpen, Target, AlignJustify, StickyNote } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
 import { ToggleGroup } from '@/components/ui/ToggleGroup'
-import { cn, parseCriteres, serializeCriteres, hasPendingCriteres, epicCode, epicShortName, naturalCompare, buildTacheIndex, isSousTache, effortEffectif } from '@/lib/utils'
+import { cn, parseCriteres, serializeCriteres, epicCode, epicShortName, naturalCompare, buildTacheIndex, isSousTache, effortEffectif } from '@/lib/utils'
 import type { CritereItem } from '@/lib/utils'
 import { CriteresEditor } from '@/components/ui/CriteresEditor'
 import { StatusPicker } from '@/components/ui/StatusPicker'
@@ -35,26 +35,8 @@ import { useProduit } from '@/contexts/ProduitContext'
 import type { Tache, Statut, Equipe } from '@/types'
 import type { UserProfile } from '@/contexts/AuthContext'
 
-// ── PriorityPicker ────────────────────────────────────────────
-const PRIO_CONFIG: Record<string, { idle: string; active: string }> = {
-  P1: { idle: 'bg-rose-50   text-rose-500   border border-rose-200',   active: 'bg-rose-500   text-white border border-rose-500' },
-  P2: { idle: 'bg-amber-50  text-amber-600  border border-amber-200',  active: 'bg-amber-400  text-white border border-amber-400' },
-  P3: { idle: 'bg-indigo-50 text-indigo-500 border border-indigo-200', active: 'bg-indigo-500 text-white border border-indigo-500' },
-  P4: { idle: 'bg-slate-50  text-slate-400  border border-slate-200',  active: 'bg-slate-400  text-white border border-slate-400' },
-}
-function PriorityPicker({ value, onChange }: { value: string; onChange: (p: string) => void }) {
-  return (
-    <div className="flex gap-1">
-      {Object.keys(PRIO_CONFIG).map(p => (
-        <button key={p} type="button" onClick={() => onChange(p)}
-          className={cn('px-2.5 py-1 rounded-lg text-xs font-bold transition-all', value === p ? PRIO_CONFIG[p].active : PRIO_CONFIG[p].idle)}>
-          {p}
-        </button>
-      ))}
-    </div>
-  )
-}
-
+// PriorityPicker/Grp/SelectPicker/MoSCoWPicker : extraits vers
+// components/tache/TacheFormControls.tsx (partagés avec TacheDetailPanel).
 
 // Liste par défaut ; la création est une vue dédiée accessible via le bouton primaire.
 // Dupliquer / Supprimer sont des actions contextuelles (panneau + sélection multiple).
@@ -86,72 +68,6 @@ function FilterChip({label,active,onClick,activeBg,activeText,bg,text}:{
   )
 }
 
-function Label({children}:{children:React.ReactNode}) {
-  return <label className="text-xs font-bold text-navy/75 uppercase tracking-wide mb-1 block">{children}</label>
-}
-function Grp({label,children,col2,className}:{label:React.ReactNode;children:React.ReactNode;col2?:boolean;className?:string}) {
-  return <div className={cn(col2?'col-span-2':'',className)}>
-    <Label>{label}</Label>{children}
-  </div>
-}
-
-// Détail d'une itération (boucle de rework) dans le panneau de tâche —
-// objectif/résultat en état local avec sauvegarde au blur (évite de spammer
-// l'API à chaque frappe), critères/statut sauvegardés immédiatement comme
-// partout ailleurs dans ce panneau.
-function IterationCard({iteration,membres,onUpdate}:{
-  iteration:TacheIteration
-  membres:UserProfile[]
-  onUpdate:(updates:Partial<Pick<TacheIteration,'objectif'|'criteres'|'effort_j'|'assigne_a'|'sprint'|'statut'|'resultat'|'commentaire'>>)=>void
-}) {
-  const [objectif,setObjectif]=useState(iteration.objectif??'')
-  const [resultat,setResultat]=useState(iteration.resultat??'')
-  const [effortJ,setEffortJ]=useState(String(iteration.effort_j??''))
-  const [commentaire,setCommentaire]=useState(iteration.commentaire??'')
-  useEffect(()=>{
-    setObjectif(iteration.objectif??'')
-    setResultat(iteration.resultat??'')
-    setEffortJ(String(iteration.effort_j??''))
-    setCommentaire(iteration.commentaire??'')
-  },[iteration.id])
-
-  return (
-    <div className="bg-bg border border-border rounded-xl p-3 flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-bold text-navy">Itération {iteration.numero}</span>
-        <StatusPicker value={iteration.statut} onChange={s=>onUpdate({statut:s})} />
-      </div>
-      <textarea value={objectif} onChange={e=>setObjectif(e.target.value)} onBlur={()=>onUpdate({objectif})}
-        className="ds-textarea text-xs" rows={2} placeholder="Objectif de cette itération…" />
-      <CriteresEditor items={parseCriteres(iteration.criteres)}
-        onChange={items=>onUpdate({criteres:serializeCriteres(items)})} compact />
-      <div className="grid grid-cols-3 gap-2">
-        <div>
-          <span className="ds-label mb-1 block">Effort (j)</span>
-          <input type="number" value={effortJ} onChange={e=>setEffortJ(e.target.value)}
-            onBlur={()=>onUpdate({effort_j:Number(effortJ)||0})} className="ds-input text-xs" min={0} step={0.5}/>
-        </div>
-        <div>
-          <span className="ds-label mb-1 block">Assigné à</span>
-          <AssignPicker value={iteration.assigne_a} membres={membres} onAssign={a=>onUpdate({assigne_a:a})} />
-        </div>
-        <div>
-          <span className="ds-label mb-1 block">Sprint</span>
-          <SelectPicker value={iteration.sprint??''} onChange={s=>onUpdate({sprint:s})}
-            options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
-        </div>
-      </div>
-      <div onBlur={()=>onUpdate({commentaire})}>
-        <span className="ds-label mb-1 block">Commentaire PO</span>
-        <MentionField as="textarea" value={commentaire} onChange={setCommentaire}
-          membres={membres} className="ds-textarea text-xs" rows={2}/>
-      </div>
-      <textarea value={resultat} onChange={e=>setResultat(e.target.value)} onBlur={()=>onUpdate({resultat})}
-        className="ds-textarea text-xs" rows={2} placeholder="Résultat / conclusion de cette itération…" />
-    </div>
-  )
-}
-
 export default function TachesPage() {
   const [params] = useSearchParams()
   const [view,setView] = useState<ViewKey>('list')
@@ -171,11 +87,9 @@ export default function TachesPage() {
   const deleteTache  = useDeleteTache()
   const createSub    = useCreateSousTache()
   const toast        = useToast()
-  const { canWrite, user }  = useAuth()
+  const { canWrite }  = useAuth()
   const { produitActif } = useProduit()
   const {data:dependances=[]} = useTacheDependances(produitActif?.id ?? null)
-  const addDependance = useAddDependance()
-  const removeDependance = useRemoveDependance()
 
   if(isLoading) return <Layout><Spinner/></Layout>
   const parents = taches.filter(t=>!t.parent_id)
@@ -220,89 +134,13 @@ export default function TachesPage() {
       ) : <>
         {view==='add' &&<AddTab  sprintActif={sprintActif?.numero} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} createTache={createTache} createSub={createSub} updateTache={updateTache} parents={parents} allTaches={taches} toast={toast} initTitre={params.get('titre')??''} initParentId={params.get('parent_id')??''}/>}
         {view==='fast' && <FastTaskBoard canWrite={canEditTasks} />}
-        {view==='list'&&<EditTab taches={taches} parents={parents} allTaches={taches} closedSprints={closedSprints} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} updateTache={updateTache} createTache={createTache} deleteTache={deleteTache} createSub={createSub} toast={toast} produitId={produitActif?.id ?? null} dependances={dependances} addDependance={addDependance} removeDependance={removeDependance} userId={user?.id ?? null} initFocusId={params.get('focus')??''} initShowSansEpic={jumpSansEpic}/>}
+        {view==='list'&&<EditTab taches={taches} parents={parents} allTaches={taches} closedSprints={closedSprints} equipeNoms={equipeNoms} membresActifs={membresActifs} equipes={equipes.filter(e=>e.actif)} updateTache={updateTache} createTache={createTache} deleteTache={deleteTache} createSub={createSub} toast={toast} produitId={produitActif?.id ?? null} dependances={dependances} initFocusId={params.get('focus')??''} initShowSansEpic={jumpSansEpic}/>}
       </>}
     </Layout>
   )
 }
 
 // ── SelectPicker (remplace <select> natif) ─────────────────────
-interface PickerOption { value:string; label:string }
-function SelectPicker({value,onChange,options,placeholder='--',searchable=false,className=''}:{
-  value:string;onChange:(v:string)=>void;options:PickerOption[]
-  placeholder?:string;searchable?:boolean;className?:string
-}){
-  const [open,setOpen]=useState(false)
-  const [q,setQ]=useState('')
-  const ref=useRef<HTMLDivElement>(null)
-  useEffect(()=>{
-    if(!open){setQ('');return}
-    function h(e:MouseEvent){if(ref.current&&!ref.current.contains(e.target as Node)){setOpen(false);setQ('')}}
-    document.addEventListener('mousedown',h)
-    return()=>document.removeEventListener('mousedown',h)
-  },[open])
-  const filtered=q?options.filter(o=>o.label.toLowerCase().includes(q.toLowerCase())):options
-  const label=options.find(o=>o.value===value)?.label
-  return(
-    <div className={cn('relative',className)} ref={ref}>
-      <button type="button" onClick={()=>setOpen(o=>!o)}
-        className="w-full flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-slate-200 bg-card text-xs text-left hover:border-indigo-300 transition-colors">
-        <span className={cn('flex-1 truncate',value?'text-navy font-medium':'text-slate-400')}>{label??placeholder}</span>
-        <ChevronDown size={11} className={cn('text-slate-300 shrink-0 transition-transform',open&&'rotate-180')}/>
-      </button>
-      {open&&(
-        <div className="absolute left-0 top-full mt-1 z-50 bg-card border border-slate-200 rounded-xl shadow-lg overflow-hidden" style={{minWidth:'100%',maxWidth:'320px'}}>
-          {searchable&&(
-            <div className="px-2 pt-2 pb-1.5 border-b border-slate-100">
-              <input autoFocus value={q} onChange={e=>setQ(e.target.value)}
-                className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 outline-none focus:border-indigo-300"
-                placeholder="Rechercher…"/>
-            </div>
-          )}
-          <div className="overflow-y-auto" style={{maxHeight:'200px'}}>
-            <button type="button" onClick={()=>{onChange('');setOpen(false)}}
-              className={cn('w-full px-3 py-1.5 text-xs text-left transition-colors hover:bg-slate-50',
-                !value?'text-indigo-600 bg-indigo-50 font-medium':'text-slate-400')}>
-              {placeholder}
-            </button>
-            {filtered.map(o=>(
-              <button key={o.value} type="button" onClick={()=>{onChange(o.value);setOpen(false)}}
-                className={cn('w-full px-3 py-1.5 text-xs text-left transition-colors hover:bg-slate-50',
-                  value===o.value?'bg-indigo-50 text-indigo-600 font-semibold':'text-navy')}>
-                {o.label}
-              </button>
-            ))}
-            {filtered.length===0&&<div className="px-3 py-3 text-xs text-slate-400 text-center italic">Aucun résultat</div>}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── MoSCoWPicker ──────────────────────────────────────────────
-const MOSCOW_MAP:{[k:string]:{idle:string;active:string;short:string}}={
-  'Must Have':  {idle:'bg-slate-100 text-navy border-slate-300',      active:'bg-brand text-white border-navy',              short:'Must'},
-  'Should Have':{idle:'bg-indigo-50 text-indigo-600 border-indigo-200',active:'bg-indigo-500 text-white border-indigo-500', short:'Should'},
-  'Could Have': {idle:'bg-slate-50 text-slate-500 border-slate-200',   active:'bg-slate-400 text-white border-slate-400',   short:'Could'},
-  "Won't Have": {idle:'bg-rose-50 text-rose-400 border-rose-200',      active:'bg-rose-400 text-white border-rose-400',     short:"Won't"},
-}
-function MoSCoWPicker({value,onChange}:{value:string;onChange:(v:string)=>void}){
-  return(
-    <div className="flex flex-wrap gap-1">
-      {MOSCOW_LIST.map(m=>{
-        const c=MOSCOW_MAP[m]??{idle:'bg-slate-50 text-slate-500 border-slate-200',active:'bg-slate-400 text-white border-slate-400',short:m}
-        return(
-          <button key={m} type="button" onClick={()=>onChange(m)}
-            className={cn('px-2.5 py-1 rounded-lg text-xs font-semibold transition-all border',value===m?c.active:c.idle)}>
-            {c.short}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
 function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,createSub,updateTache,parents,allTaches,toast,initTitre='',initParentId=''}:{
   sprintActif?:string;equipeNoms:string[];membresActifs:UserProfile[];equipes:Equipe[];parents:Tache[];allTaches:Tache[]
   createTache:ReturnType<typeof useCreateTache>;createSub:ReturnType<typeof useCreateSousTache>;updateTache:ReturnType<typeof useUpdateTache>
@@ -657,16 +495,14 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
   )
 }
 
-function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,updateTache,createTache,deleteTache,createSub,toast,allTaches,produitId,dependances,addDependance,removeDependance,userId,initFocusId,initShowSansEpic}:{
+function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,updateTache,createTache,deleteTache,createSub,toast,allTaches,produitId,dependances,initFocusId,initShowSansEpic}:{
   taches:Tache[];parents:Tache[];allTaches:Tache[];closedSprints:string[];equipeNoms:string[]
   membresActifs:UserProfile[];equipes:Equipe[]
   updateTache:ReturnType<typeof useUpdateTache>;createTache:ReturnType<typeof useCreateTache>;deleteTache:ReturnType<typeof useDeleteTache>
   createSub:ReturnType<typeof useCreateSousTache>;toast:ReturnType<typeof useToast>
   produitId:number|null;dependances:import('@/hooks/useTacheDependances').TacheDependance[]
-  addDependance:ReturnType<typeof useAddDependance>;removeDependance:ReturnType<typeof useRemoveDependance>
-  userId:string|null;initFocusId?:string;initShowSansEpic?:boolean
+  initFocusId?:string;initShowSansEpic?:boolean
 }) {
-  const { data: dodItems=[] } = useDod()
   const { data: epicsList=[] } = useEpics()
   const { data: iterationCounts=new Map<string,number>() } = useIterationCounts(produitId)
   const createEpic = useCreateEpic()
@@ -690,7 +526,6 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
   const [page,setPage]=useState(1)
   const [selected,setSelected]=useState<string[]>([])
   const [panelId,setPanelId]=useState<string|null>(null)
-  const [editForm,setEditForm]=useState<Record<string,unknown>>({})
   const [expanded,setExpanded]=useState<string[]>([])
   // Bulk edit : champs à appliquer sur la sélection (vide = "ne pas toucher")
   const [bulk,setBulk]=useState<Record<string,string>>({statut:'',epic:'',jalon:'',sprint_debut:'',moscow:'',equipe:'',assigne_a:'',metier:'',priorite:''})
@@ -702,9 +537,6 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
   taches.filter(t=>t.parent_id).forEach(c=>{if(!childMap[c.parent_id!]) childMap[c.parent_id!]=[]; childMap[c.parent_id!].push(c)})
 
   const byId=useMemo(()=>buildTacheIndex(allTaches),[allTaches])
-  // Conteneurs + toute US (racine ou déjà rattachée à un conteneur) — jamais
-  // une sous-tâche, pour ne pas créer un 4ᵉ niveau de hiérarchie.
-  const validParentOptions=useMemo(()=>allTaches.filter(t=>!isSousTache(t,byId)),[allTaches,byId])
 
   const epicListe=useMemo(()=>[...new Set(parents.map(t=>t.epic).filter(Boolean))].sort(naturalCompare),[parents])
 
@@ -743,29 +575,11 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
     groupBy==='jalon' ? jalonCodes.map(j=>({key:j,tasks:filtered.filter(t=>t.jalon===j)})).filter(g=>g.tasks.length) :
     [{key:'all',tasks:filteredPaged}]
 
-  const panelTask=panelId?taches.find(t=>t.id_tache===panelId):null
-
-  const {data:iterations=[]}=useTacheIterations(panelId,produitId)
-  const createIteration=useCreateIteration()
-  const updateIteration=useUpdateIteration()
-  const [selectedIterationId,setSelectedIterationId]=useState<number|null>(null)
-  const [showNewIteration,setShowNewIteration]=useState(false)
-  useEffect(()=>{setSelectedIterationId(null);setShowNewIteration(false)},[panelId])
-  // Par défaut, la dernière itération créée — ou aucune tant que la tâche
-  // n'a jamais été reprise (voir useCreateIteration : la 1ʳᵉ itération n'est
-  // figée en base qu'au moment où une 2ᵉ est créée).
-  const currentIteration=selectedIterationId?iterations.find(it=>it.id===selectedIterationId):iterations[iterations.length-1]
-  // Dès qu'une itération existe, effort/assigné/sprint/critères/commentaire
-  // vivent sur l'itération courante (IterationCard) — les montrer aussi sur
-  // le formulaire principal doublonnerait l'info et prêterait à confusion.
-  const hasIterations=iterations.length>0
-
+  // Le détail complet (champs, itérations, dépendances) vit dans
+  // TacheDetailPanel — composant partagé avec la vue sprint de Setup.
   function openPanel(t:Tache){
-    const effectiveEffort = effortEffectif(t,childMap)
     setPanelId(t.id_tache)
-    setEditForm({titre:t.titre,statut:t.statut,sprint:t.sprint??'',sprint_debut:t.sprint_debut??'',sprint_fin:t.sprint_fin??'',effort_j:effectiveEffort,priorite:t.priorite??'',moscow:t.moscow??'Must Have',assigne_a:t.assigne_a??'',equipe:t.equipe??'',metier:t.metier??'',jalon:t.jalon??'',epic:t.epic??'',type_fonction:t.type_fonction??'Fonction principale',description:t.description??'',criteres:t.criteres??'',lien_dod:t.lien_dod??'',commentaire:t.commentaire??'',parent_id:t.parent_id??''})
   }
-  function setF(k:string){return(e:React.ChangeEvent<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>)=>setEditForm(f=>({...f,[k]:e.target.value}))}
 
   // Ligne de tableau, réutilisée pour les racines (Conteneur ou US) ET pour
   // les US rattachées à un Conteneur (indent=true) — ces dernières restent
@@ -864,22 +678,6 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[initFocusId,taches.length])
-
-  function setMembre(tri:string){
-    const m=membresActifs.find(x=>x.trigramme===tri)
-    const eq=m?.equipe_id?equipes.find(e=>e.id===m.equipe_id):null
-    setEditForm(f=>({...f,assigne_a:tri,...(eq?{equipe:eq.nom}:{})}))
-  }
-
-  async function savePanel(){
-    if(!panelId)return
-    if(editForm.statut==='Fait' && hasPendingCriteres(String(editForm.criteres??''))){
-      const ok=await confirm({title:'Critères non validés',message:'Certains critères d\'acceptation ne sont pas cochés. Clôturer la tâche quand même ?',confirmLabel:'Clôturer',variant:'danger'})
-      if(!ok)return
-    }
-    await updateTache.mutateAsync({id_tache:panelId,updates:editForm as Partial<Tache>})
-    toast(`${panelId} mis à jour`)
-  }
 
   async function applyBulk(){
     if(!selected.length){toast('Sélectionnez des US','error');return}
@@ -1227,269 +1025,13 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
         )}
       </div>
 
-      {panelTask&&(
-        <>
-          <div className="fixed inset-0 z-40 bg-brand/40" onClick={()=>setPanelId(null)}/>
-          <div className="fixed inset-x-0 bottom-0 z-50 animate-in md:inset-x-auto md:left-auto md:right-4 md:top-4 md:bottom-4 md:w-3/5 md:min-w-[380px] md:max-w-[860px] 3xl:max-w-[1200px]">
-          <div className="ds-card max-h-[80vh] md:max-h-full md:h-full overflow-y-auto rounded-b-none md:rounded-xl shadow-2xl">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs font-semibold text-indigo-600 flex items-center gap-1.5">
-                {panelTask.id_tache}
-                {panelTask.type_tache==='Conteneur' && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">Conteneur</span>}
-              </span>
-              <button onClick={()=>setPanelId(null)} className="p-1 rounded-lg hover:bg-slate-50 text-slate-400 hover:text-navy"><X size={13}/></button>
-            </div>
-            <h3 className="text-sm font-semibold text-navy leading-snug mb-1.5 line-clamp-2">{panelTask.titre}</h3>
-            {!isSousTache(panelTask,byId)&&(
-              <button onClick={()=>setSousTacheParent(panelTask)}
-                className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-700 font-medium mb-3">
-                <CornerDownRight size={12}/> Ajouter une sous-tâche
-              </button>
-            )}
-
-            {/* Itérations : boucles de rework trackées (conception → commande
-                → essai → validation, répétées) sans dupliquer la tâche —
-                masqué pour les Conteneurs (purement organisationnels). */}
-            {panelTask.type_tache!=='Conteneur' && (
-              <div className="mb-3">
-                <div className="flex items-center gap-1.5 flex-wrap mb-2">
-                  {iterations.map(it=>(
-                    <button key={it.id} onClick={()=>setSelectedIterationId(it.id)}
-                      className={cn('text-[11px] font-semibold px-2 py-1 rounded-full border transition-colors',
-                        (currentIteration?.id===it.id)?'bg-indigo-600 text-white border-indigo-600':'bg-bg text-subtle border-border hover:border-indigo-300')}>
-                      It. {it.numero} {it.statut==='Fait'?'✓':it.statut==='Bloqué'?'⛔':'·'}
-                    </button>
-                  ))}
-                  <button onClick={()=>setShowNewIteration(true)}
-                    className="text-[11px] font-semibold px-2 py-1 rounded-full border border-dashed border-indigo-300 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1">
-                    <RotateCcw size={11}/> Nouvelle itération
-                  </button>
-                </div>
-                {currentIteration ? (
-                  <IterationCard iteration={currentIteration} membres={membresActifs}
-                    onUpdate={updates=>updateIteration.mutate({
-                      id:currentIteration.id,id_tache:panelTask.id_tache,updates,
-                      syncToTache:currentIteration.id===iterations[iterations.length-1]?.id,
-                    })}/>
-                ) : (
-                  <p className="text-[11px] text-subtle italic">Aucune itération enregistrée — cette tâche n'a pas encore été reprise.</p>
-                )}
-              </div>
-            )}
-
-            <div className="flex flex-col">
-              {/* Identité : Titre + Statut */}
-              <div className="grid grid-cols-[1fr_170px] gap-3">
-                <Grp label="Titre"><input value={String(editForm.titre??'')} onChange={setF('titre')} className="ds-input text-xs"/></Grp>
-                <Grp label="Statut">
-                  <StatusPicker
-                    value={(String(editForm.statut??'À faire')) as Statut}
-                    onChange={s=>setEditForm(f=>({...f,statut:s}))}
-                  />
-                </Grp>
-              </div>
-
-              {/* Tâche parente : rattacher/déplacer sous un conteneur ou une autre US.
-                  Un Conteneur reste toujours racine (jamais de champ ici pour lui).
-                  Si la tâche a elle-même des sous-tâches, seul un Conteneur (ou aucun
-                  parent) est autorisé comme destination — sinon on créerait un 4ᵉ niveau. */}
-              {panelTask.type_tache!=='Conteneur' && (
-              <div className="mt-4 pt-3 border-t-2 border-slate-300">
-                <Grp label={<>Tâche parente <span className="font-normal text-subtle/60">(vide = principale)</span></>}>
-                  <SelectPicker value={String(editForm.parent_id??'')} onChange={v=>setEditForm(f=>({...f,parent_id:v}))}
-                    options={((childMap[panelTask.id_tache]??[]).length>0
-                        ? validParentOptions.filter(p=>p.type_tache==='Conteneur')
-                        : validParentOptions
-                      ).filter(p=>p.id_tache!==panelTask.id_tache)
-                      .map(p=>({value:p.id_tache,label:`${p.id_tache} — ${p.titre}${p.type_tache==='Conteneur'?' (Conteneur)':''}`}))}
-                    placeholder="— Principale —" searchable/>
-                </Grp>
-                {(childMap[panelTask.id_tache]??[]).length>0 && (
-                  <p className="text-xs text-subtle italic mt-1">Cette tâche a ses propres sous-tâches : elle ne peut être rattachée qu'à un Conteneur (ou rester principale).</p>
-                )}
-              </div>
-              )}
-
-              {/* Classification : Epic, Type fonction, Jalon, Priorité */}
-              <div className="grid grid-cols-6 gap-3 mt-4 pt-3 border-t-2 border-slate-300">
-                <Grp label="Epic" className="col-span-2">
-                  <SelectPicker value={String(editForm.epic??'')} onChange={v=>setEditForm(f=>({...f,epic:v}))}
-                    options={epicsList.map(e=>({value:epicFullName(e),label:epicFullName(e)}))} placeholder="-- Epic --" searchable/>
-                </Grp>
-                <Grp label="Type fonction" className="col-span-2">
-                  <SelectPicker value={String(editForm.type_fonction??'')} onChange={v=>setEditForm(f=>({...f,type_fonction:v}))}
-                    options={[
-                      {value:'Fonction principale',label:'Principale'},
-                      {value:'Fonction secondaire',label:'Secondaire'},
-                      {value:'Fonction support',label:'Support'},
-                      {value:'Fonction exclue',label:'Exclue'},
-                    ]} placeholder="-- Type --"/>
-                </Grp>
-                <Grp label="Jalon - Incrément majeur" className="col-span-2">
-                  <SelectPicker value={String(editForm.jalon??'')} onChange={v=>setEditForm(f=>({...f,jalon:v}))}
-                    options={jalonCodes.map(j=>({value:j,label:j}))} placeholder="-- Jalon --"/>
-                </Grp>
-              </div>
-
-              {/* Priorité, MoSCoW, + Effort/Assigné si la tâche n'a pas
-                  encore d'itération (au-delà, ces champs vivent sur
-                  l'itération courante — les montrer ici doublonnerait). */}
-              <div className={cn('grid gap-3 mt-4 pt-3 border-t-2 border-slate-300',hasIterations?'grid-cols-3':'grid-cols-6')}>
-                <Grp label="Priorité" className="col-span-1">
-                  <PriorityPicker value={String(editForm.priorite??'')} onChange={p=>setEditForm(f=>({...f,priorite:p}))} />
-                </Grp>
-                <Grp label="MoSCoW" className="col-span-2">
-                  <MoSCoWPicker value={String(editForm.moscow??'')} onChange={m=>setEditForm(f=>({...f,moscow:m}))}/>
-                </Grp>
-                {!hasIterations && (
-                  <>
-                    <Grp label="Effort (j)" className="col-span-1">
-                      {panelTask && (childMap[panelTask.id_tache]??[]).length > 0 ? (
-                        <div className="ds-input text-xs bg-slate-50 text-navy font-semibold flex items-center gap-1.5 cursor-not-allowed">
-                          <span>∑ {(childMap[panelTask.id_tache]??[]).reduce((s,c)=>s+(c.effort_j??0),0)}j</span>
-                          <span className="text-[11px] text-slate-400 font-normal">{(childMap[panelTask.id_tache]??[]).length} ss</span>
-                        </div>
-                      ) : (
-                        <input type="number" value={Number(editForm.effort_j??0)} onChange={setF('effort_j')} className="ds-input text-xs" min={0} step={0.5}/>
-                      )}
-                    </Grp>
-                    <Grp label="Assigné à" className="col-span-2">
-                      <AssignPicker value={String(editForm.assigne_a??'')} membres={membresActifs} onAssign={setMembre} />
-                    </Grp>
-                  </>
-                )}
-              </div>
-
-              {/* Planning : Sprint début/fin (masqué si itérations, cf. ci-dessus), Équipe, Thème */}
-              <div className={cn('grid gap-3 mt-4 pt-3 border-t-2 border-slate-300',hasIterations?'grid-cols-2':'grid-cols-4')}>
-                {!hasIterations && (
-                  <>
-                    <Grp label="Sprint début">
-                      <SelectPicker value={String(editForm.sprint_debut??'')} onChange={v=>setEditForm(f=>({...f,sprint_debut:v}))}
-                        options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
-                    </Grp>
-                    <Grp label="Sprint fin">
-                      <SelectPicker value={String(editForm.sprint_fin??'')} onChange={v=>setEditForm(f=>({...f,sprint_fin:v}))}
-                        options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
-                    </Grp>
-                  </>
-                )}
-                <Grp label="Équipe">
-                  <SelectPicker value={String(editForm.equipe??'')} onChange={v=>setEditForm(f=>({...f,equipe:v}))}
-                    options={equipeNoms.map(e=>({value:e,label:e}))} placeholder="-- Équipe --"/>
-                </Grp>
-                <Grp label="Thème">
-                  <SelectPicker value={String(editForm.metier??'')} onChange={v=>setEditForm(f=>({...f,metier:v}))}
-                    options={METIERS_DEFAULT.map(m=>({value:m,label:m}))} placeholder="-- Thème --" searchable/>
-                </Grp>
-              </div>
-
-              {/* Contenu : User Story (+ Critères si pas d'itération, cf. ci-dessus) */}
-              <div className={cn('grid gap-3 mt-4 pt-3 border-t-2 border-slate-300',hasIterations?'grid-cols-1':'grid-cols-2')}>
-                <Grp label="User Story"><textarea value={String(editForm.description??'')} onChange={setF('description')} className="ds-textarea text-xs" rows={5}/></Grp>
-                {!hasIterations && (
-                  <Grp label="Critères d'acceptation (DoD)">
-                    <div className="ds-input min-h-[110px] flex flex-col">
-                      <CriteresEditor
-                        items={parseCriteres(String(editForm.criteres??''))}
-                        onChange={items=>setEditForm(f=>({...f,criteres:serializeCriteres(items)}))}
-                        compact
-                      />
-                    </div>
-                  </Grp>
-                )}
-              </div>
-
-              {/* Exigences (+ Commentaire PO si pas d'itération, cf. ci-dessus) */}
-              <div className={cn('grid gap-3 mt-4 pt-3 border-t-2 border-slate-300',hasIterations?'grid-cols-1':'grid-cols-[220px_1fr]')}>
-                <Grp label="Exigences">
-                  <DodLinkPicker value={String(editForm.lien_dod??'')} onChange={v=>setEditForm(f=>({...f,lien_dod:v}))} items={dodItems}/>
-                </Grp>
-                {!hasIterations && (
-                  <Grp label="Commentaire PO">
-                    <MentionField as="textarea" value={String(editForm.commentaire??'')} onChange={v=>setEditForm(f=>({...f,commentaire:v}))}
-                      membres={membresActifs} className="ds-textarea text-xs" rows={2}/>
-                  </Grp>
-                )}
-              </div>
-
-              {/* Dépendances entre tâches */}
-              {panelTask && produitId && (
-                <Grp label="Dépendances" className="mt-4 pt-3 border-t-2 border-slate-300">
-                  <div className="flex flex-col gap-2">
-                    <div>
-                      <div className="text-[11px] text-navy/70 font-bold uppercase tracking-wide mb-1">Bloquée par</div>
-                      {dependances.filter(d=>d.bloquee_id===panelTask.id_tache).length===0 ? (
-                        <p className="text-xs text-subtle italic">Aucune</p>
-                      ) : (
-                        <div className="flex flex-col gap-1">
-                          {dependances.filter(d=>d.bloquee_id===panelTask.id_tache).map(d=>{
-                            const t=allTaches.find(x=>x.id_tache===d.bloque_id)
-                            const done=t?.statut==='Fait'
-                            return (
-                              <div key={d.id} className={cn('flex items-center gap-2 text-xs px-2 py-1 rounded-lg border',
-                                done?'bg-emerald-50 border-emerald-100 text-emerald-700':'bg-rose-50 border-rose-100 text-rose-700')}>
-                                <span className="font-mono font-semibold">{d.bloque_id}</span>
-                                <span className="flex-1 truncate">{t?.titre??'—'}</span>
-                                <button onClick={()=>removeDependance.mutate({id:d.id,produit_id:produitId})} className="hover:text-red"><X size={11}/></button>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <div className="text-[11px] text-navy/70 font-bold uppercase tracking-wide mb-1">Bloque</div>
-                      {dependances.filter(d=>d.bloque_id===panelTask.id_tache).length===0 ? (
-                        <p className="text-xs text-subtle italic">Aucune</p>
-                      ) : (
-                        <div className="flex flex-col gap-1">
-                          {dependances.filter(d=>d.bloque_id===panelTask.id_tache).map(d=>{
-                            const t=allTaches.find(x=>x.id_tache===d.bloquee_id)
-                            return (
-                              <div key={d.id} className="flex items-center gap-2 text-xs px-2 py-1 rounded-lg border bg-bg border-border text-subtle">
-                                <span className="font-mono font-semibold text-navy">{d.bloquee_id}</span>
-                                <span className="flex-1 truncate">{t?.titre??'—'}</span>
-                                <button onClick={()=>removeDependance.mutate({id:d.id,produit_id:produitId})} className="hover:text-red"><X size={11}/></button>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                    <SelectPicker value="" placeholder="+ Ajouter une tâche bloquante…" searchable
-                      onChange={v=>{
-                        if(!v||v===panelTask.id_tache) return
-                        addDependance.mutate({produit_id:produitId,bloque_id:v,bloquee_id:panelTask.id_tache})
-                      }}
-                      options={allTaches.filter(t=>t.id_tache!==panelTask.id_tache && !dependances.some(d=>d.bloque_id===t.id_tache&&d.bloquee_id===panelTask.id_tache))
-                        .map(t=>({value:t.id_tache,label:`${t.id_tache} — ${t.titre}`}))}/>
-                  </div>
-                </Grp>
-              )}
-
-              {panelTask && produitId && (
-                <div className="mt-4 pt-3 border-t-2 border-slate-300">
-                  <TacheExtras produitId={produitId} tache={panelTask} membres={membresActifs} userId={userId} toast={toast} />
-                </div>
-              )}
-            </div>
-            <div className="flex gap-2 mt-3 pt-3 border-t-2 border-slate-300">
-              <button onClick={savePanel} className="ds-btn-primary flex-1" disabled={updateTache.isPending}>✓ Sauvegarder</button>
-              {!isSousTache(panelTask,byId)&&(
-                <button onClick={()=>duplicateIds([panelTask.id_tache],'')} disabled={createTache.isPending}
-                  title="Dupliquer vers le backlog (avec sous-tâches)"
-                  className="ds-btn flex items-center gap-1"><Copy size={12}/> Dupliquer</button>
-              )}
-              <button onClick={async()=>{if(await deleteIds([panelTask.id_tache])) setPanelId(null)}}
-                disabled={deleteTache.isPending} title="Supprimer la tâche"
-                className="ds-btn-danger"><Trash2 size={12}/></button>
-              <button onClick={()=>setPanelId(null)} className="ds-btn">Annuler</button>
-            </div>
-          </div>
-          </div>
-        </>
+      {panelId&&(
+        <TacheDetailPanel
+          tacheId={panelId}
+          onClose={()=>setPanelId(null)}
+          onDuplicate={t=>duplicateIds([t.id_tache],'')}
+          onDelete={t=>deleteIds([t.id_tache])}
+        />
       )}
 
       {sousTacheParent&&(
@@ -1522,23 +1064,6 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
         />
       )}
 
-      {showNewIteration&&panelTask&&(
-        <NewIterationModal
-          taskTitre={panelTask.titre}
-          numeroSuivant={(iterations[iterations.length-1]?.numero??1)+1}
-          initCriteres={iterations[iterations.length-1]?.criteres??panelTask.criteres}
-          initEffort={iterations[iterations.length-1]?.effort_j??panelTask.effort_j}
-          initAssigneA={iterations[iterations.length-1]?.assigne_a??panelTask.assigne_a}
-          initSprint={iterations[iterations.length-1]?.sprint??panelTask.sprint_debut??panelTask.sprint}
-          membres={membresActifs}
-          onClose={()=>setShowNewIteration(false)}
-          onCreate={async payload=>{
-            const it=await createIteration.mutateAsync({id_tache:panelTask.id_tache,...payload})
-            setSelectedIterationId(it.id)
-            toast(`✅ Itération ${it.numero} créée`)
-          }}
-        />
-      )}
     </div>
   )
 }
