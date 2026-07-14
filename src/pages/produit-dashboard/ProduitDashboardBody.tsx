@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { useNavigate } from 'react-router-dom'
 import { useUpdateProduit } from '@/hooks/useProduits'
-import { useSprintActif, useSprints } from '@/hooks/useSprints'
+import { useSprintsByProduit } from '@/hooks/useSprints'
 import { useTachesByProduit } from '@/hooks/useTaches'
 import { useUtilisateurs, useEquipes } from '@/hooks/useEquipes'
 import { useFinanceConfig } from '@/hooks/useFinanceConfig'
@@ -266,8 +266,12 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const [subtaskRowId, setSubtaskRowId]       = useState<string | null>(null)
   const [subtaskParentId, setSubtaskParentId] = useState('')
 
-  const { data: sprintActif }     = useSprintActif()
-  const { data: allSprints = [] } = useSprints()
+  // Sprints du produit AFFICHÉ (prop), pas du produit actif du contexte :
+  // en mode "Par produit" du Dashboard on peut afficher un autre produit que
+  // produitActif — useSprints()/useSprintActif() renverraient alors les
+  // sprints (numéros, dates, stats) du mauvais produit.
+  const { data: allSprints = [] } = useSprintsByProduit(produit.id)
+  const sprintActif = allSprints.find(s => s.statut === 'en_cours') ?? null
   const { data: taches = [] }     = useTachesByProduit(produit.id)
   const { data: epicsList = [] }  = useEpicsByProduit(produit.id)
   const { data: jalonsList = [] } = useJalonsByProduit(produit.id)
@@ -363,7 +367,18 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
     const cur = epicMap.get(key) ?? { total: 0, fait: 0, effort: 0 }
     epicMap.set(key, { total: cur.total+1, fait: cur.fait+(t.statut==='Fait'?1:0), effort: cur.effort+(t.effort_j??0) })
   })
-  const epics = [...epicMap.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  // Ordre et périmètre = référentiel épics DU PRODUIT ; un libellé porté par
+  // des tâches mais absent du référentiel (épic renommé/supprimé, import…)
+  // reste visible mais est marqué "hors référentiel" au lieu de se fondre
+  // silencieusement dans la liste.
+  const epicRefNames = epicsList.map(e => epicFullName(e))
+  const epics = [
+    ...epicRefNames.filter(name => epicMap.has(name))
+      .map(name => ({ name, ...epicMap.get(name)!, horsRef: false })),
+    ...[...epicMap.entries()].filter(([name]) => !epicRefNames.includes(name))
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([name, stats]) => ({ name, ...stats, horsRef: true })),
+  ]
 
   // ── Jalons ───────────────────────────────────────────────────
   const jalonMap = new Map<string, { total: number; fait: number }>()
@@ -372,7 +387,17 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
     const cur = jalonMap.get(key) ?? { total: 0, fait: 0 }
     jalonMap.set(key, { total: cur.total+1, fait: cur.fait+(t.statut==='Fait'?1:0) })
   })
-  const jalons = [...jalonMap.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  // L'avancement par jalon se lit par rapport aux jalons DU PRODUIT : tous
+  // les jalons du référentiel apparaissent (même sans tâche dans le scope),
+  // dans l'ordre du référentiel et avec leur couleur ; les codes orphelins
+  // portés par des tâches sont ajoutés à la fin, marqués.
+  const jalons = [
+    ...jalonsList.map(j => ({ code: j.code, couleur: j.couleur ?? '#6366F1',
+      ...(jalonMap.get(j.code) ?? { total: 0, fait: 0 }), horsRef: false })),
+    ...[...jalonMap.entries()].filter(([code]) => !jalonsList.some(j => j.code === code))
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([code, stats]) => ({ code, couleur: '#94A3B8', ...stats, horsRef: true })),
+  ]
 
   // ── Équipes & membres ────────────────────────────────────────
   const assigneTrigrammes = [...new Set(racinesScoped.map(t => t.assigne_a).filter(Boolean))] as string[]
@@ -885,17 +910,20 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
           { key: 'jalons', label: 'Jalons', minW: 2, minH: 2, defaultSize: { w: 2, h: 3 }, content: (
 <Section title={`Jalons - Incréments majeurs (${jalons.length})`} className="h-full" scrollable>
             {jalons.length === 0
-              ? <p className="text-xs text-subtle/40 italic">Aucun jalon - incrément majeur dans les tâches</p>
+              ? <p className="text-xs text-subtle/40 italic">Aucun jalon défini pour ce produit</p>
               : <div className="space-y-2">
-                  {jalons.map(([j, stats]) => {
-                    const pct = stats.total > 0 ? Math.round(stats.fait / stats.total * 100) : 0
+                  {jalons.map(j => {
+                    const pct = j.total > 0 ? Math.round(j.fait / j.total * 100) : 0
                     return (
-                      <div key={j}>
-                        <div className="flex items-center justify-between mb-0.5">
-                          <span className="text-[11px] font-medium text-navy truncate flex-1">{j}</span>
-                          <span className="text-[10px] text-subtle ml-1 shrink-0">{stats.fait}/{stats.total}</span>
+                      <div key={j.code}>
+                        <div className="flex items-center justify-between mb-0.5 gap-1.5">
+                          <div className="w-2 h-2 rounded-full shrink-0" style={{ background: j.couleur }} />
+                          <span className={cn('text-[11px] font-medium truncate flex-1', j.horsRef ? 'text-subtle italic' : 'text-navy')}>
+                            {j.code}{j.horsRef ? ' (hors référentiel)' : ''}
+                          </span>
+                          <span className="text-[10px] text-subtle ml-1 shrink-0">{j.total > 0 ? `${j.fait}/${j.total}` : '—'}</span>
                         </div>
-                        <MiniBar pct={pct} color={barColor(pct)} />
+                        <MiniBar pct={pct} color={j.total > 0 ? barColor(pct) : 'bg-border'} />
                       </div>
                     )
                   })}
@@ -949,15 +977,17 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
 <Section title={`Épics — ${epics.length}`} noPad scrollable className="h-full">
 {epics.length === 0 ? <p className="p-3 text-xs text-subtle/40 italic">Aucun épic dans les tâches</p> : (<>
                   <div className="divide-y divide-border">
-                    {epics.map(([epicName, stats]) => {
-                      const pct   = stats.total > 0 ? Math.round(stats.fait / stats.total * 100) : 0
-                      const color = epicColorsMap.get(epicName) ?? '#4A4CC8'
+                    {epics.map(e => {
+                      const pct   = e.total > 0 ? Math.round(e.fait / e.total * 100) : 0
+                      const color = e.horsRef ? '#94A3B8' : (epicColorsMap.get(e.name) ?? '#4A4CC8')
                       return (
-                        <div key={epicName} className="flex items-center gap-2 px-3 py-2 hover:bg-bg/50 transition-colors">
+                        <div key={e.name} className="flex items-center gap-2 px-3 py-2 hover:bg-bg/50 transition-colors">
                           <div className="w-2 h-2 rounded-sm shrink-0" style={{ background: color }} />
-                          <span className="text-[11px] font-semibold text-navy truncate flex-1">{epicName}</span>
+                          <span className={cn('text-[11px] font-semibold truncate flex-1', e.horsRef ? 'text-subtle italic' : 'text-navy')}>
+                            {e.name}{e.horsRef ? ' (hors référentiel)' : ''}
+                          </span>
                           <div className="w-16 shrink-0"><MiniBar pct={pct} color="bg-purple/60" /></div>
-                          <span className="text-[10px] tabular-nums text-subtle shrink-0 w-10 text-right">{stats.fait}/{stats.total}</span>
+                          <span className="text-[10px] tabular-nums text-subtle shrink-0 w-10 text-right">{e.fait}/{e.total}</span>
                           <span className={cn('text-[11px] font-bold tabular-nums shrink-0 w-7 text-right', textColor(pct))}>{pct}%</span>
                         </div>
                       )
