@@ -257,6 +257,10 @@ export function useTransferToNextIteration() {
       tempsPasse: number
       closingSprint: string
       destSprint: string | null
+      // État des critères d'acceptation cochés dans la modal de clôture :
+      // figé tel quel sur l'itération transférée (photo de fin de sprint),
+      // et reporté sur la nouvelle itération + la tâche (reste à faire).
+      criteres?: string | null
     }) => {
       if (!produitActif) throw new Error('Aucun produit sélectionné')
 
@@ -267,6 +271,7 @@ export function useTransferToNextIteration() {
       if (tacheError) throw tacheError
       if (iterError) throw iterError
       const iterations = (existing ?? []) as TacheIteration[]
+      const criteres = payload.criteres ?? currentTache.criteres
 
       const closingNumero = iterations.length ? Math.max(...iterations.map(i => i.numero)) : 1
       const effortInitial = iterations.length
@@ -276,7 +281,7 @@ export function useTransferToNextIteration() {
       if (iterations.length === 0) {
         const { error: freezeError } = await supabase.from('tache_iterations').insert({
           produit_id: produitActif.id, id_tache: payload.id_tache, numero: 1,
-          objectif: null, criteres: currentTache.criteres,
+          objectif: null, criteres,
           effort_j: currentTache.effort_j, assigne_a: currentTache.assigne_a,
           sprint: payload.closingSprint, statut: currentTache.statut,
           resultat: null, commentaire: currentTache.commentaire,
@@ -285,7 +290,7 @@ export function useTransferToNextIteration() {
       }
 
       const { error: closeErr } = await supabase.from('tache_iterations')
-        .update({ statut: 'Transféré', effort_realise_j: payload.tempsPasse, closed_at: new Date().toISOString() })
+        .update({ statut: 'Transféré', effort_realise_j: payload.tempsPasse, criteres, closed_at: new Date().toISOString() })
         .eq('produit_id', produitActif.id).eq('id_tache', payload.id_tache).eq('numero', closingNumero)
       if (closeErr) throw closeErr
 
@@ -294,7 +299,7 @@ export function useTransferToNextIteration() {
       const { data: newIter, error: insErr } = await supabase.from('tache_iterations')
         .insert({
           produit_id: produitActif.id, id_tache: payload.id_tache, numero: closingNumero + 1,
-          objectif: null, criteres: currentTache.criteres, effort_j: reste,
+          objectif: null, criteres, effort_j: reste,
           assigne_a: currentTache.assigne_a, sprint: payload.destSprint, statut: 'En cours',
           resultat: null, commentaire: currentTache.commentaire,
         })
@@ -309,6 +314,7 @@ export function useTransferToNextIteration() {
           sprint: payload.destSprint ?? '',
           sprint_debut: payload.destSprint,
           statut: 'En cours',
+          criteres,
         },
       })
 

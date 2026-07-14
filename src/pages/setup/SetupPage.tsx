@@ -10,7 +10,7 @@ import { useTaches, useUpdateTache } from '@/hooks/useTaches'
 import { useToast } from '@/hooks/useToast'
 import { confirm } from '@/components/ui/ConfirmModal'
 import { supabase } from '@/lib/supabase'
-import { downloadCSV, naturalCompare, buildTacheIndex } from '@/lib/utils'
+import { downloadCSV, naturalCompare, buildTacheIndex, parseCriteres, serializeCriteres, type CritereItem } from '@/lib/utils'
 import { isEligibleForBacklog, isInThisSprint, buildEligibleTree } from '@/lib/sprintEligibility'
 import { TacheTree } from '@/components/tache/TacheTree'
 import { useProduitIterations, useUpdateIteration, useTransferToNextIteration, type TacheIteration } from '@/hooks/useTacheIterations'
@@ -164,9 +164,21 @@ function SprintsTab() {
   const [closeModal,     setCloseModal]     = useState(false)
   const [tacheDest,      setTacheDest]      = useState<Record<string, 'next' | 'backlog'>>({})
   const [tempsPasse,     setTempsPasse]     = useState<Record<string, string>>({})
+  // Critères d'acceptation cochables dans la modal de clôture (US démarrées) :
+  // ce qui est coché ici est figé sur l'itération du sprint qui ferme.
+  const [criteresClose,  setCriteresClose]  = useState<Record<string, CritereItem[]>>({})
   const [plannedStart,   setPlannedStart]   = useState('')
   const [plannedWeeks,   setPlannedWeeks]   = useState(2)
   const transferIteration = useTransferToNextIteration()
+  const { produitActif }  = useProduit()
+  const { data: iterationsMap = new Map<string, TacheIteration[]>() } = useProduitIterations(produitActif?.id ?? null)
+
+  // Critères courants d'une US : ceux de sa dernière itération si elle en a,
+  // sinon ceux portés par la tâche (même logique d'affichage que TachesPage).
+  function currentCriteres(t: Tache): CritereItem[] {
+    const iters = iterationsMap.get(t.id_tache)
+    return parseCriteres(iters?.length ? iters[iters.length - 1].criteres : t.criteres)
+  }
 
   const sprint     = sprints.find(s => s.numero === selected)
   // `t.sprint` (l'ancien champ, avant sprint_debut/sprint_fin) porte une
@@ -242,8 +254,12 @@ function SprintsTab() {
     if (type === 'close') {
       if (unfinished.length > 0) {
         const dest: Record<string, 'next' | 'backlog'> = {}
-        unfinished.forEach(t => { dest[t.id_tache] = nextSprint ? 'next' : 'backlog' })
-        setTacheDest(dest); setTempsPasse({}); setCloseModal(true); return
+        const crit: Record<string, CritereItem[]> = {}
+        unfinished.forEach(t => {
+          dest[t.id_tache] = nextSprint ? 'next' : 'backlog'
+          if (t.statut !== 'À faire') crit[t.id_tache] = currentCriteres(t)
+        })
+        setTacheDest(dest); setTempsPasse({}); setCriteresClose(crit); setCloseModal(true); return
       }
       await doClose(computeStats(spTaches)); return
     }
@@ -289,6 +305,7 @@ function SprintsTab() {
         await transferIteration.mutateAsync({
           id_tache, tempsPasse: Number(tempsPasse[id_tache]) || 0,
           closingSprint: selected, destSprint,
+          criteres: criteresClose[id_tache] ? serializeCriteres(criteresClose[id_tache]) : null,
         })
       } else if (destSprint) {
         await updateTache.mutateAsync({ id_tache, updates: { sprint: destSprint, sprint_debut: destSprint } })
@@ -367,6 +384,24 @@ function SprintsTab() {
                         onChange={e => setTempsPasse(p => ({ ...p, [t.id_tache]: e.target.value }))}
                         className="ds-input text-xs w-16 py-0.5" />
                       <span className="text-subtle/70">/ {t.effort_j ?? 0}j estimés</span>
+                    </div>
+                  )}
+                  {demarree && (criteresClose[t.id_tache]?.length ?? 0) > 0 && (
+                    <div className="flex flex-col gap-1 pl-[72px]">
+                      <span className="text-subtle">Critères réalisés sur ce sprint :</span>
+                      {criteresClose[t.id_tache].map(c => (
+                        <label key={c.id} className="flex items-start gap-1.5 cursor-pointer group">
+                          <input type="checkbox" checked={c.checked}
+                            onChange={() => setCriteresClose(p => ({
+                              ...p,
+                              [t.id_tache]: p[t.id_tache].map(i => i.id === c.id ? { ...i, checked: !i.checked } : i),
+                            }))}
+                            className="mt-0.5 accent-indigo-500 shrink-0" />
+                          <span className={cn('leading-snug', c.checked ? 'text-navy line-through decoration-subtle/50' : 'text-subtle group-hover:text-navy')}>
+                            {c.text}
+                          </span>
+                        </label>
+                      ))}
                     </div>
                   )}
                 </div>
