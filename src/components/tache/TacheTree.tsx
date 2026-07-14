@@ -2,10 +2,10 @@ import { useMemo, useRef, useState, useLayoutEffect } from 'react'
 import { Tree, type NodeApi, type NodeRendererProps, type TreeApi } from 'react-arborist'
 import { ChevronRight, ChevronDown, Folder, Copy, Trash2, Plus, RotateCcw } from 'lucide-react'
 import { StatutBadge, MoscowBadge, PrioBadge } from '@/components/ui/Badge'
-import { cn, epicShortName, effortEffectif, isUS, computeTacheNumbers } from '@/lib/utils'
+import { cn, epicShortName, effortEffectif, isUS, computeTacheNumbers, buildTacheIndex } from '@/lib/utils'
 import { GuideRail } from '@/components/ui/TreeGuideRail'
 import { useFillHeight } from '@/hooks/useFillHeight'
-import { epicFullName, type Epic } from '@/hooks/useEpics'
+import { epicFullName, useEpics, type Epic } from '@/hooks/useEpics'
 import type { useUpdateTache } from '@/hooks/useTaches'
 import type { Tache } from '@/types'
 import { isBloqueeParDependance, type TacheDependance } from '@/hooks/useTacheDependances'
@@ -72,9 +72,22 @@ export function TacheTree({
   showExpandControls?: boolean
 }) {
   const orderedEpicLabels = useMemo(() => epicsList.map(epicFullName), [epicsList])
+
+  // Numérotation TOUJOURS calculée sur l'ensemble complet des tâches et des
+  // Epics du produit — pas sur le sous-ensemble affiché — pour qu'une US
+  // garde le même numéro (1.2, 3.1…) dans le backlog, la vue sprint du Setup
+  // et toute vue filtrée. epicsList/filtered/childMap ne servent qu'au rendu.
+  const { data: allEpics = [] } = useEpics()
+  const numberingLabels = useMemo(() => allEpics.map(epicFullName), [allEpics])
+  const fullById = useMemo(() => buildTacheIndex(allTaches), [allTaches])
+  const fullChildMap = useMemo(() => {
+    const m: Record<string, Tache[]> = {}
+    allTaches.filter(t => t.parent_id).forEach(c => { if (!m[c.parent_id!]) m[c.parent_id!] = []; m[c.parent_id!].push(c) })
+    return m
+  }, [allTaches])
   const numbers = useMemo(
-    () => computeTacheNumbers(orderedEpicLabels, label => filtered.filter(t => t.epic === label), childMap, byId),
-    [orderedEpicLabels, filtered, childMap, byId],
+    () => computeTacheNumbers(numberingLabels, label => allTaches.filter(t => !t.parent_id && t.epic === label), fullChildMap, fullById),
+    [numberingLabels, allTaches, fullChildMap, fullById],
   )
 
   const data = useMemo<TreeNode[]>(() => {
