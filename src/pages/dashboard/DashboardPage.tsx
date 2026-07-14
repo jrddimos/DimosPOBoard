@@ -39,7 +39,7 @@ export default function DashboardPage() {
   const navigate                                     = useNavigate()
 
   const [mode, setMode]               = useState<DashMode>('multi')
-  const [scope, setScope]             = useState<MultiScope>('trim')
+  const [scope]                       = useState<MultiScope>('trim')
   const [viewProduitId, setViewProduitId] = useState<number | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number> | null>(null)
 
@@ -84,15 +84,6 @@ export default function DashboardPage() {
     })
     return map
   }, [faitTransitions])
-
-  function toggleProduit(id: number) {
-    setSelectedIds(prev => {
-      const base = prev ?? new Set(accessibles.map(p => p.id))
-      const next = new Set(base)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
-  }
 
   function goToProductDashboard(p: Produit) {
     setProduitActif({ id: p.id, nom: p.nom, couleur: p.couleur })
@@ -160,11 +151,6 @@ export default function DashboardPage() {
                 produits={accessibles.filter(p => selectedIds === null || selectedIds.has(p.id))}
                 metricsMap={metricsMap}
                 scope={scope}
-                setScope={setScope}
-                accessibles={accessibles}
-                selectedIds={selectedIds}
-                toggleProduit={toggleProduit}
-                selectAll={() => setSelectedIds(new Set(accessibles.map(p => p.id)))}
                 allTaches={allParents}
                 faitDoneMap={faitDoneMap}
                 navigate={navigate}
