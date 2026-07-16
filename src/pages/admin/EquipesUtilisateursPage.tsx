@@ -404,7 +404,7 @@ export default function EquipesUtilisateursPage() {
   })
   const [invEquipes, setInvEquipes] = useState<number[]>([])
   const [invRoles,   setInvRoles]   = useState<Record<number, RoleProduit | 'none'>>({})
-  const [editForm,   setEditForm]   = useState({ trigramme: '', prenom: '', nom: '', role_metier: '', couleur: BRAND_COLORS[0] })
+  const [editForm,   setEditForm]   = useState({ trigramme: '', prenom: '', nom: '', role_metier: '', couleur: BRAND_COLORS[0], email: '' })
 
   if (loadEq || loadU) return <div className="flex items-center justify-center h-40"><Spinner /></div>
 
@@ -482,7 +482,11 @@ export default function EquipesUtilisateursPage() {
 
   function startEdit(u: UserProfile) {
     setEditingUser(u.user_id)
-    setEditForm({ trigramme: u.trigramme ?? '', prenom: u.prenom ?? '', nom: u.nom ?? '', role_metier: u.role_metier ?? '', couleur: u.couleur ?? BRAND_COLORS[0] })
+    setEditForm({
+      trigramme: u.trigramme ?? '', prenom: u.prenom ?? '', nom: u.nom ?? '',
+      role_metier: u.role_metier ?? '', couleur: u.couleur ?? BRAND_COLORS[0],
+      email: userEmails.get(u.user_id) ?? '',
+    })
   }
   async function saveEdit(user_id: string) {
     await updateProfile.mutateAsync({ user_id, updates: {
@@ -492,6 +496,16 @@ export default function EquipesUtilisateursPage() {
       role_metier: editForm.role_metier || null,
       couleur:     editForm.couleur || null,
     }})
+    const newEmail = editForm.email.trim()
+    const currentEmail = userEmails.get(user_id) ?? ''
+    if (newEmail && newEmail !== currentEmail) {
+      try {
+        await updateUserEmail.mutateAsync({ user_id, email: newEmail })
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Erreur lors du changement d'email", 'error')
+        return
+      }
+    }
     toast('Profil mis à jour'); setEditingUser(null)
   }
 
@@ -747,6 +761,11 @@ export default function EquipesUtilisateursPage() {
                 <input value={editForm.role_metier} onChange={e => setEditForm(f => ({ ...f, role_metier: e.target.value }))}
                   className="ds-input text-sm" placeholder="PO, BE…" />
               </div>
+              <div>
+                <div className="ds-label mb-1">Email</div>
+                <input value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))}
+                  className="ds-input text-sm" type="email" placeholder="prenom.nom@exemple.fr" />
+              </div>
             </div>
 
             {/* Avatar picker */}
@@ -802,7 +821,7 @@ export default function EquipesUtilisateursPage() {
 
             <div className="flex gap-2 justify-end">
               <button onClick={() => setEditingUser(null)} className="ds-btn ds-btn-sm">Annuler</button>
-              <button onClick={() => saveEdit(u.user_id)} disabled={updateProfile.isPending} className="ds-btn-primary ds-btn-sm">Enregistrer</button>
+              <button onClick={() => saveEdit(u.user_id)} disabled={updateProfile.isPending || updateUserEmail.isPending} className="ds-btn-primary ds-btn-sm">Enregistrer</button>
             </div>
           </div>
         )}

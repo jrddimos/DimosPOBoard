@@ -83,8 +83,18 @@ Deno.serve(async (req) => {
 
     let userId: string | null = null
 
+    // Sans redirectTo explicite, GoTrue retombe sur la Site URL configurée
+    // dans le dashboard Supabase (souvent obsolète/mal réglée) et le lien
+    // d'invitation atterrit sur /login au lieu de l'écran de définition du
+    // mot de passe. On force l'origine de l'appel (= le domaine de l'app
+    // depuis lequel l'admin invite), comme le fait déjà resetPasswordForEmail
+    // côté client (LoginPage.tsx, EquipesUtilisateursPage.tsx).
+    const origin = req.headers.get('origin') ?? req.headers.get('referer')
+    const redirectTo = origin ? new URL(origin).origin : undefined
+
     const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
       data: { display_name: display_name || email },
+      redirectTo,
     })
 
     if (error) {
