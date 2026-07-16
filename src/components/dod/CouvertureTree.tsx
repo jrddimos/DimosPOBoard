@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState, useLayoutEffect } from 'react'
+import { useMemo, useRef, useState, useLayoutEffect, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Tree, type NodeRendererProps, type TreeApi } from 'react-arborist'
 import { ChevronRight, ChevronDown, ShieldCheck, Shield, AlertTriangle } from 'lucide-react'
 import { StatutBadge } from '@/components/ui/Badge'
 import { GuideRail } from '@/components/ui/TreeGuideRail'
+import { useColonneTitre, ColonneTitreHandle } from '@/components/ui/ColonneTitre'
 import { useFillHeight } from '@/hooks/useFillHeight'
 import { cn, epicShortName } from '@/lib/utils'
 import { EXIGENCE_TYPE_CFG, CRITICITE_CFG } from '@/constants'
@@ -17,7 +18,9 @@ type TreeNode =
   | { id: string; kind: 'exigence'; item: DodItem; tasks: Tache[]; children?: TreeNode[] }
   | { id: string; kind: 'tache'; tache: Tache }
 
-const ROW_COLUMNS = 'minmax(160px,380px) 104px 70px 28px'
+// --col-titre : largeur max de la colonne titre, redimensionnable à la
+// souris (useColonneTitre, variable posée sur le conteneur de l'arbre).
+const ROW_COLUMNS = 'minmax(160px, var(--col-titre, 380px)) 104px 70px 28px'
 
 function codesOf(lien: string | null): string[] {
   return (lien ?? '').split(/[,;]/).map(s => s.trim()).filter(Boolean)
@@ -65,6 +68,7 @@ export function CouvertureTree({ groups, dodItems, groupBy, allParents }: {
   const treeRef = useRef<TreeApi<TreeNode>>(null)
   const height = useFillHeight(containerRef)
   const [width, setWidth] = useState(800)
+  const { width: colTitre, onMouseDown: onColResize } = useColonneTitre('dod-couv-col-titre', 380)
   useLayoutEffect(() => {
     if (!containerRef.current) return
     const el = containerRef.current
@@ -82,7 +86,10 @@ export function CouvertureTree({ groups, dodItems, groupBy, allParents }: {
         <button onClick={() => treeRef.current?.closeAll()}
           className="text-[11px] font-semibold text-subtle hover:text-navy transition-colors">Tout replier</button>
       </div>
-      <div ref={containerRef} className="w-full">
+      {/* relative + variable CSS : les lignes consomment --col-titre dans
+          leur grid, la poignée (+8px = padding gauche px-2 des lignes) suit. */}
+      <div ref={containerRef} className="w-full relative" style={{ '--col-titre': `${colTitre}px` } as CSSProperties}>
+        <ColonneTitreHandle left={colTitre + 8} onMouseDown={onColResize} />
         <Tree<TreeNode> ref={treeRef} data={data} openByDefault width={width} height={height} rowHeight={rowHeight} indent={0}
           disableDrag={() => true}>
           {(props) => <CouvertureRow {...props} groupBy={groupBy} onOpenTache={t => navigate(`/taches?focus=${t.id_tache}`)} />}

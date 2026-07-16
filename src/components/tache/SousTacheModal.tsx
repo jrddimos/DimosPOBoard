@@ -1,10 +1,11 @@
-import { useState } from 'react'
-import { ChevronDown, X, Plus, CornerDownRight } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { ChevronDown, X, Plus, CornerDownRight, Target } from 'lucide-react'
 import { CriteresEditor } from '@/components/ui/CriteresEditor'
 import { AssignPicker } from '@/components/ui/AssignPicker'
-import { SPRINTS_LIST } from '@/constants'
-import { cn, serializeCriteres } from '@/lib/utils'
+import { cn, serializeCriteres, parseCriteres, existingSprintNumeros } from '@/lib/utils'
 import type { CritereItem } from '@/lib/utils'
+import { useTacheIterations } from '@/hooks/useTacheIterations'
+import { useSprintsByProduit } from '@/hooks/useSprints'
 import type { Tache } from '@/types'
 import type { UserProfile } from '@/contexts/AuthContext'
 
@@ -32,6 +33,26 @@ export function SousTacheModal({ parent, sprint, membres, onClose, onCreate }: {
   const [lienDod, setLienDod] = useState('')
   const [commentaire, setCommentaire] = useState('')
   const [saving, setSaving] = useState(false)
+  const [critereLieId, setCritereLieId] = useState('')
+
+  // Critères d'acceptation proposables de la tâche parente : la source
+  // "vivante" est la dernière itération si elle existe (même logique que
+  // partout ailleurs, ex. TacheDetailPanel), sinon les critères du parent
+  // directement. En boucle de rework (nouvelle itération volontaire), on
+  // propose TOUS les critères — y compris ceux déjà cochés dans une itération
+  // précédente, une nouvelle boucle peut vouloir les re-couvrir. Sinon
+  // (état initial ou simple reprise de sprint), seuls les critères encore
+  // ouverts ont du sens à rattacher à une nouvelle sous-tâche.
+  const { data: parentIterations = [] } = useTacheIterations(parent.id_tache, parent.produit_id)
+  const { data: sprints = [] } = useSprintsByProduit(parent.produit_id)
+  const sprintNumeros = existingSprintNumeros(sprints)
+  const latestIter = parentIterations[parentIterations.length - 1]
+  const parentCriteres = latestIter?.criteres ?? parent.criteres
+  const isRework = latestIter?.origine === 'rework'
+  const critereChoices = useMemo(() => {
+    const items = parseCriteres(parentCriteres)
+    return isRework ? items : items.filter(i => !i.checked)
+  }, [parentCriteres, isRework])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -43,6 +64,7 @@ export function SousTacheModal({ parent, sprint, membres, onClose, onCreate }: {
         assigne_a: assigneA || null,
         effort_j: Number(effortJ) || 0,
         criteres: serializeCriteres(critereItems),
+        critere_lie_id: critereLieId || null,
         statut: 'À faire',
         // Hérité silencieusement de la tâche parente
         epic: parent.epic ?? '',
@@ -88,6 +110,25 @@ export function SousTacheModal({ parent, sprint, membres, onClose, onCreate }: {
               className="ds-input w-full" placeholder="Ex : Rédiger les critères…" />
           </div>
 
+          {critereChoices.length > 0 && (
+            <div>
+              <label className="ds-label mb-1 flex items-center gap-1.5">
+                <Target size={11} className="text-indigo-500" /> Critère d'acceptation couvert (optionnel)
+              </label>
+              <select value={critereLieId} onChange={e => setCritereLieId(e.target.value)} className="ds-select w-full">
+                <option value="">-- Aucun --</option>
+                {critereChoices.map(c => (
+                  <option key={c.id} value={c.id}>{c.checked ? '✓ ' : ''}{c.text}</option>
+                ))}
+              </select>
+              <p className="text-[11px] text-subtle mt-1">
+                {isRework
+                  ? 'Nouvelle itération : tous les critères sont proposés, y compris ceux déjà validés.'
+                  : "Quand toutes les sous-tâches liées à ce critère seront Fait, il sera automatiquement coché sur la tâche."}
+              </p>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="ds-label mb-1 block">Assigné à</label>
@@ -125,7 +166,7 @@ export function SousTacheModal({ parent, sprint, membres, onClose, onCreate }: {
                   <label className="ds-label mb-1 block">Sprint</label>
                   <select value={sprintDebut} onChange={e => setSprintDebut(e.target.value)} className="ds-select w-full">
                     <option value="">--</option>
-                    {SPRINTS_LIST.map(s => <option key={s}>{s}</option>)}
+                    {sprintNumeros.map(s => <option key={s}>{s}</option>)}
                   </select>
                 </div>
               </div>

@@ -49,6 +49,11 @@ export interface Tache {
   parent_id: string | null
   famille_id: string | null
   ordre_kanban: number | null
+  ordre_backlog: number | null
+  // Id (CritereItem.id) d'un critère d'acceptation de la tâche PARENTE que
+  // cette sous-tâche contribue à couvrir — coché automatiquement sur le
+  // parent quand toutes les sous-tâches liées à ce critère sont Fait.
+  critere_lie_id: string | null
   created_at: string
   updated_at: string | null
 }

@@ -29,11 +29,22 @@ export default function PlanChargesPage() {
 
   const [annee,          setAnnee]          = useState(curYear)
   const [mode,           setMode]           = useState<PlanMode>('previsionnel')
-  const [viewMode,       setViewMode]       = useState<'produit' | 'membre'>('produit')
+  // Vue par défaut = Par membre : c'est là que la saisie du temps se fait le
+  // plus souvent (un membre, produit par produit), cf. toggle inversé aussi.
+  const [viewMode,       setViewMode]       = useState<'produit' | 'membre'>('membre')
   const [memberSearch,   setMemberSearch]   = useState('')
+  // Vue Membre : n'affiche par défaut que les membres ayant un rôle sur un
+  // produit actif — ce toggle étend la liste à tous les profils identifiables
+  // (trigramme renseigné), y compris ceux pas encore rattachés à un produit.
+  const [showAllUsers,   setShowAllUsers]   = useState(false)
   const [showTip,        setShowTip]        = useState(() => localStorage.getItem('pc-hideTip') !== '1')
   const [expandedProduit,setExpandedProduit]= useState<Set<number>>(() => {
     try { const s = localStorage.getItem('pc-expandedProduit'); if (s) return new Set(JSON.parse(s)) } catch {}
+    return new Set()
+  })
+  // Symétrique d'expandedProduit, pour la vue Membre : membre → produits.
+  const [expandedMember, setExpandedMember] = useState<Set<string>>(() => {
+    try { const s = localStorage.getItem('pc-expandedMember'); if (s) return new Set(JSON.parse(s)) } catch {}
     return new Set()
   })
   const [shouldScrollToday, setShouldScrollToday] = useState(false)
@@ -181,6 +192,29 @@ export default function PlanChargesPage() {
     return byProduit
   }, [profiles, allRoles, pendingProfiles])
 
+  // Tous les users identifiables (trigramme requis, sinon aucune case
+  // plan_charges possible) — actifs + en attente de validation, sans
+  // condition de rôle sur un produit. Sert au toggle « Voir tous les users »
+  // de la vue Membre : un profil sans rôle n'est pas invisible pour autant,
+  // juste pas encore rattaché formellement à un produit.
+  const allProfilesExt = useMemo(() => {
+    const list: UserProfile[] = profiles.filter(p => p.actif !== false)
+    const seen = new Set(list.map(p => p.user_id))
+    for (const pp of pendingProfiles) {
+      if (!pp.trigramme) continue
+      const user_id = `pending_${pp.id}`
+      if (seen.has(user_id)) continue
+      list.push({
+        user_id, display_name: pp.display_name, trigramme: pp.trigramme,
+        prenom: pp.prenom, nom: pp.nom, couleur: pp.couleur ?? '#4A4CC8', actif: true,
+        equipe_id: pp.equipe_ids?.[0] ?? null, equipe_ids: pp.equipe_ids ?? [],
+        role_global: pp.role_global, avatar_url: null,
+      } as UserProfile)
+      seen.add(user_id)
+    }
+    return list
+  }, [profiles, pendingProfiles])
+
   // plan_charges indexé par `${produit_id}|${semaine}|${assigne_a}`
   const planMap = useMemo(() => {
     const m = new Map<string, number>()
@@ -315,6 +349,7 @@ export default function PlanChargesPage() {
 
   // Persistance localStorage
   useEffect(() => { localStorage.setItem('pc-expandedProduit', JSON.stringify(Array.from(expandedProduit))) }, [expandedProduit])
+  useEffect(() => { localStorage.setItem('pc-expandedMember', JSON.stringify(Array.from(expandedMember))) }, [expandedMember])
 
   // Scroll vers aujourd'hui
   useEffect(() => {
@@ -343,10 +378,20 @@ export default function PlanChargesPage() {
   useEffect(() => {
     function onGlobalMouseUp() {
       if (dragRef.current && hasDragged.current && dragRange) {
+        const { produit_id, assigne_a } = dragRef.current
+        // Semaines fermées (férié/fermeture, ou absence individuelle qui vide
+        // toute la capacité de la semaine) exclues du remplissage groupé — un
+        // congé au milieu de la plage glissée ne doit jamais recevoir la
+        // valeur commune.
         const semaines: number[] = []
-        for (let s = dragRange.min; s <= dragRange.max; s++) semaines.push(s)
-        setFillModal({ produit_id: dragRef.current.produit_id, assigne_a: dragRef.current.assigne_a, semaines })
-        setFillVal('')
+        for (let s = dragRange.min; s <= dragRange.max; s++) {
+          const maxJours = assigne_a ? memberMaxJours(assigne_a, s) : getMaxJours(s)
+          if (maxJours > 0) semaines.push(s)
+        }
+        if (semaines.length) {
+          setFillModal({ produit_id, assigne_a, semaines })
+          setFillVal('')
+        }
       }
       dragRef.current  = null
       hasDragged.current = false
@@ -391,6 +436,10 @@ export default function PlanChargesPage() {
     setExpandedProduit(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
 
+  function toggleMember(user_id: string) {
+    setExpandedMember(prev => { const n = new Set(prev); n.has(user_id) ? n.delete(user_id) : n.add(user_id); return n })
+  }
+
   if (loadP || loadPl || loadPr || loadR) return <Layout><Spinner /></Layout>
 
   const totalWidth = COL_PRODUIT + quarters.reduce((s, qt) => {
@@ -405,6 +454,7 @@ export default function PlanChargesPage() {
         mode={mode} setMode={setMode}
         setShowSettings={setShowSettings}
         showTip={showTip} setShowTip={setShowTip}
+        showAllUsers={showAllUsers} setShowAllUsers={setShowAllUsers}
       />
 
       {/* ── Bandeau KPI ─────────────────────────────────────── */}
@@ -467,6 +517,8 @@ export default function PlanChargesPage() {
           quarters={quarters}
           profiles={profiles}
           allRoles={allRoles}
+          allProfilesExt={allProfilesExt}
+          showAllUsers={showAllUsers}
           activeProduits={activeProduits}
           planMap={planMap}
           planMapR={planMapR}
@@ -476,6 +528,18 @@ export default function PlanChargesPage() {
           feriesMap={feriesMap}
           fermeturesDayMap={fermeturesDayMap}
           search={memberSearch}
+          expandedMember={expandedMember}
+          toggleMember={toggleMember}
+          cellVal={cellVal}
+          cellValR={cellValR}
+          editCell={editCell}
+          setEditCell={setEditCell}
+          dragRange={dragRange}
+          setDragRange={setDragRange}
+          dragRef={dragRef}
+          hasDragged={hasDragged}
+          saveCell={saveCell}
+          canWriteProduit={canWriteProduit}
         />
       ) : (
         <ProduitView
@@ -524,6 +588,9 @@ export default function PlanChargesPage() {
                 S{String(fillModal.semaines[0]).padStart(2,'0')}
                 {fillModal.semaines.length > 1 && ` → S${String(fillModal.semaines[fillModal.semaines.length-1]).padStart(2,'0')}`}
               </div>
+              {fillModal.semaines.length < fillModal.semaines[fillModal.semaines.length-1] - fillModal.semaines[0] + 1 && (
+                <div className="text-[11px] text-amber-600 mt-0.5">Semaine(s) fermée(s) exclues (congés/fériés)</div>
+              )}
             </div>
             <input
               ref={fillInputRef}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { GridLayout, useContainerWidth, type Layout, type LayoutItem } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import { motion } from 'framer-motion'
@@ -6,14 +6,17 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useUtilisateurs } from '@/hooks/useEquipes'
 import { useToast } from '@/hooks/useToast'
 import { confirm } from '@/components/ui/ConfirmModal'
+import { useClickOutside } from '@/hooks/useClickOutside'
 import {
   useDashboardViews, useCreateDashboardView, useUpdateDashboardView, useDeleteDashboardView,
-  type ViewLayoutItem,
+  type ViewLayoutItem, type DashboardView,
 } from '@/hooks/useDashboardViews'
-import { WIDGETS, WIDGET_BY_KEY, portfolioKpis, AnimNumber, type WidgetCtx } from './widgets'
+import { WIDGETS, WIDGET_BY_KEY, portfolioKpis, AnimNumber, RagIconDot, RagLegend, COL_TIPS, CURSOR_TIP, type WidgetCtx } from './widgets'
 import { cn } from '@/lib/utils'
 import {
-  SlidersHorizontal, Check, X, Plus, Trash2, GripVertical, Sparkles,
+  SlidersHorizontal, Check, X, Plus, Trash2, GripVertical, Sparkles, Pencil,
+  Filter, ChevronDown, Globe, CalendarDays, HeartPulse, TrendingUp, ShieldAlert, CalendarClock,
+  HelpCircle,
 } from 'lucide-react'
 import type { Produit } from '@/hooks/useProduits'
 import type { MultiScope, ProduitMetrics } from '@/utils/produitMetrics'
@@ -35,72 +38,195 @@ interface CockpitViewProps {
   produits: Produit[]
   metricsMap: Map<number, ProduitMetrics>
   scope: MultiScope
+  setScope: (s: MultiScope) => void
+  accessibles: Produit[]
+  selectedIds: Set<number> | null
+  toggleProduit: (id: number) => void
+  selectAll: () => void
   allTaches: Tache[]
+  childMap: Record<string, Tache[]>
   faitDoneMap: Map<string, string>
   navigate: (to: string) => void
   openProduct: (p: Produit) => void
   fmtDate: (d: Date) => string
 }
 
+// ── Filtre périmètre replié dans un popover (évite une 2e rangée) ─
+function PerimetreFilter({ accessibles, selectedIds, toggleProduit, selectAll }: {
+  accessibles: Produit[]
+  selectedIds: Set<number> | null
+  toggleProduit: (id: number) => void
+  selectAll: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useClickOutside(ref, () => setOpen(false), open)
+
+  const nbOn = selectedIds === null ? accessibles.length : selectedIds.size
+  const filtered = selectedIds !== null && selectedIds.size < accessibles.length
+
+  return (
+    <div ref={ref} className="relative">
+      <button onClick={() => setOpen(v => !v)}
+        className={cn(
+          'flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition-colors',
+          filtered ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-card border-border text-subtle hover:text-navy'
+        )}>
+        <Filter size={12} />
+        Périmètre {filtered && <span className="tabular-nums">({nbOn}/{accessibles.length})</span>}
+        <ChevronDown size={11} className={cn('transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="absolute z-20 top-full left-0 mt-1.5 w-64 bg-card border border-border rounded-xl shadow-lg p-2.5">
+          <div className="flex items-center justify-between mb-2 px-0.5">
+            <span className="text-[11px] font-semibold text-subtle uppercase tracking-wide">Produits inclus</span>
+            {filtered && (
+              <button onClick={selectAll} className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-700">Tout sélectionner</button>
+            )}
+          </div>
+          <div className="flex flex-col gap-0.5 max-h-64 overflow-y-auto">
+            {accessibles.map(p => {
+              const on = selectedIds === null || selectedIds.has(p.id)
+              // Empêche de décocher le dernier produit restant : un périmètre
+              // vide viderait silencieusement tous les widgets du cockpit.
+              const isLast = on && (selectedIds?.size ?? accessibles.length) <= 1
+              return (
+                <button key={p.id} onClick={() => !isLast && toggleProduit(p.id)} disabled={isLast}
+                  title={isLast ? 'Au moins un produit doit rester sélectionné' : undefined}
+                  className={cn('flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors text-left',
+                    isLast ? 'cursor-not-allowed opacity-60' : 'hover:bg-bg')}>
+                  <span className={cn(
+                    'w-4 h-4 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors',
+                    on ? 'border-transparent' : 'border-border'
+                  )} style={on ? { background: p.couleur ?? '#4A4CC8' } : {}}>
+                    {on && <Check size={10} className="text-white" />}
+                  </span>
+                  <span className={cn('flex-1 truncate', on ? 'font-semibold text-navy' : 'text-subtle')}>{p.nom}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Aide centralisée : conventions RAG + curseur temps, en un endroit
+// plutôt qu'éparpillées tooltip par tooltip, widget par widget ─────
+function HelpPopover() {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useClickOutside(ref, () => setOpen(false), open)
+
+  return (
+    <div ref={ref} className="relative">
+      <button onClick={() => setOpen(v => !v)} title="Comment lire les indicateurs du cockpit"
+        className={cn('flex items-center justify-center w-7 h-7 rounded-lg border transition-colors',
+          open ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-card border-border text-subtle hover:text-navy')}>
+        <HelpCircle size={14} />
+      </button>
+      {open && (
+        <div className="absolute z-20 top-full right-0 mt-1.5 w-80 bg-card border border-border rounded-xl shadow-lg p-3.5">
+          <p className="text-[11px] font-semibold text-subtle uppercase tracking-wide mb-2">Lire les indicateurs</p>
+          <RagLegend extra={
+            <span className="flex items-center gap-1">
+              <span className="w-0.5 h-3 bg-navy rounded-full inline-block" /> curseur temps
+            </span>
+          } />
+          <p className="text-[11px] text-subtle leading-relaxed mb-3">{CURSOR_TIP}</p>
+          <div className="flex flex-col gap-2">
+            {Object.entries(COL_TIPS).map(([label, tip]) => (
+              <div key={label}>
+                <p className="text-xs font-bold text-navy">{label}</p>
+                <p className="text-[11px] text-subtle leading-relaxed">{tip}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Bandeau KPI ───────────────────────────────────────────────────
+// Tuiles à icône gradient, même langage visuel que la Roadmap (StatTile) :
+// pastille colorée à gauche + valeur/label à droite, pour une lecture
+// scannable en un coup d'œil plutôt que 4 cartes au poids visuel identique.
+function KpiTile({ icon, label, from, to, index, children, onClick }: {
+  icon: React.ReactNode; label: string; from: string; to: string; index: number; children: React.ReactNode
+  // Rend la tuile cliquable (navigation vers un produit) — sinon reste passive.
+  onClick?: () => void
+}) {
+  return (
+    <motion.div key={label}
+      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.06, duration: 0.3, ease: 'easeOut' }}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }) : undefined}
+      className={cn(
+        'bg-card border border-border rounded-2xl px-3.5 py-3 shadow-sm flex items-center gap-3 transition-all',
+        onClick && 'cursor-pointer hover:border-indigo-300 hover:shadow-md hover:-translate-y-0.5'
+      )}>
+      <div
+        className="w-9 h-9 rounded-xl flex items-center justify-center text-white shrink-0"
+        style={{ background: `linear-gradient(135deg, ${from}, ${to})`, boxShadow: `0 4px 12px -3px ${from}88` }}
+      >{icon}</div>
+      <div className="min-w-0 flex-1">
+        {children}
+        <p className="text-[11px] text-subtle truncate leading-tight">{label}</p>
+      </div>
+    </motion.div>
+  )
+}
+
 function KpiBand({ ctx }: { ctx: WidgetCtx }) {
   const k = portfolioKpis(ctx)
-  const cards = [
-    {
-      label: 'Santé portefeuille',
-      body: (
-        <div className="flex items-center gap-2.5">
-          <span className="flex items-center gap-1"><AnimNumber value={k.g} className="text-xl font-extrabold text-emerald-600" /><span className="w-2 h-2 rounded-full bg-emerald-400" /></span>
-          <span className="flex items-center gap-1"><AnimNumber value={k.a} className="text-xl font-extrabold text-amber-600" /><span className="w-2 h-2 rounded-full bg-amber-400" /></span>
-          <span className="flex items-center gap-1"><AnimNumber value={k.r} className="text-xl font-extrabold text-rose-600" /><span className="w-2 h-2 rounded-full bg-rose-500" /></span>
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+      <KpiTile index={0} icon={<HeartPulse size={16} />} label="Produits par pire indicateur RAG" from="#10b981" to="#34d399">
+        <div className="flex items-center gap-2.5" title="Nombre de produits classés par leur pire indicateur (avancement, budget, date ou blocages)">
+          <span className="flex items-center gap-1">
+            <RagIconDot rag="green" />
+            <AnimNumber value={k.g} className="text-base font-extrabold text-emerald-600" />
+          </span>
+          <span className="flex items-center gap-1">
+            <RagIconDot rag="amber" />
+            <AnimNumber value={k.a} className="text-base font-extrabold text-amber-600" />
+          </span>
+          <span className="flex items-center gap-1">
+            <RagIconDot rag="red" />
+            <AnimNumber value={k.r} className="text-base font-extrabold text-rose-600" />
+          </span>
         </div>
-      ),
-    },
-    {
-      label: 'Avancement du périmètre',
-      body: (
-        <div className="flex items-baseline gap-2">
-          <span className="text-xl font-extrabold text-navy"><AnimNumber value={k.avancement} />%</span>
+      </KpiTile>
+      <KpiTile index={1} icon={<TrendingUp size={16} />} label="Avancement du périmètre" from="#6366f1" to="#818cf8">
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-base font-extrabold text-navy"><AnimNumber value={k.avancement} />%</span>
           {k.cursor !== null && (
-            <span className={cn('text-xs font-semibold', k.avancement >= k.cursor ? 'text-emerald-600' : 'text-rose-600')}>
-              {k.avancement >= k.cursor ? '▲' : '▼'} curseur {k.cursor}%
+            <span className={cn('text-[11px] font-semibold', k.avancement >= k.cursor ? 'text-emerald-600' : 'text-rose-600')}>
+              {k.avancement >= k.cursor ? '▲' : '▼'} {k.cursor}%
             </span>
           )}
         </div>
-      ),
-    },
-    {
-      label: 'Blocages ouverts',
-      body: (
-        <div className="flex items-baseline gap-2">
-          <AnimNumber value={k.blocages} className={cn('text-xl font-extrabold', k.blocages > 0 ? 'text-rose-600' : 'text-emerald-600')} />
-          <span className="text-xs text-subtle">{k.blocages > 0 ? `sur ${k.prodBloques} produit${k.prodBloques > 1 ? 's' : ''}` : 'tout roule'}</span>
-        </div>
-      ),
-    },
-    {
-      label: 'Prochaine livraison',
-      body: k.nextDelivery ? (
-        <div className="flex items-baseline gap-2 min-w-0">
-          <span className="text-sm font-extrabold text-navy truncate">{k.nextDelivery.p.nom}</span>
-          <span className={cn('text-xs font-semibold shrink-0', k.nextDelivery.late ? 'text-amber-600' : 'text-emerald-600')}>
-            {ctx.fmtDate(k.nextDelivery.date)}
+      </KpiTile>
+      <KpiTile index={2} icon={<ShieldAlert size={16} />}
+        label={k.blocages > 0 ? `sur ${k.prodBloques} produit${k.prodBloques > 1 ? 's' : ''}${k.soleBlockedProduct ? ' — cliquer pour l\'ouvrir' : ''}` : 'Tout roule'}
+        from={k.blocages > 0 ? '#ea580c' : '#10b981'} to={k.blocages > 0 ? '#fb923c' : '#34d399'}
+        onClick={k.soleBlockedProduct ? () => ctx.openProduct(k.soleBlockedProduct!) : undefined}>
+        <AnimNumber value={k.blocages} className={cn('text-base font-extrabold', k.blocages > 0 ? 'text-rose-600' : 'text-emerald-600')} />
+      </KpiTile>
+      <KpiTile index={3} icon={<CalendarClock size={16} />} label={k.nextDelivery ? `${ctx.fmtDate(k.nextDelivery.date)} — cliquer pour l'ouvrir` : 'Aucune date planifiée'} from="#4A4CC8" to="#8b7ff0"
+        onClick={k.nextDelivery ? () => ctx.openProduct(k.nextDelivery!.p) : undefined}>
+        {k.nextDelivery ? (
+          <span className="flex items-center gap-1.5 min-w-0">
+            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: k.nextDelivery.p.couleur ?? '#4A4CC8' }} />
+            <span className={cn('text-sm font-extrabold truncate', k.nextDelivery.late ? 'text-amber-600' : 'text-navy')}>{k.nextDelivery.p.nom}</span>
           </span>
-        </div>
-      ) : <span className="text-xs text-subtle italic">Aucune date planifiée</span>,
-    },
-  ]
-  return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-      {cards.map((c, i) => (
-        <motion.div key={c.label}
-          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: i * 0.06, duration: 0.35, ease: 'easeOut' }}
-          className="bg-card border border-border rounded-2xl px-4 py-3 shadow-sm">
-          <div className="text-[11px] font-semibold text-subtle uppercase tracking-wide mb-1">{c.label}</div>
-          {c.body}
-        </motion.div>
-      ))}
+        ) : <span className="text-sm font-extrabold text-subtle">—</span>}
+      </KpiTile>
     </div>
   )
 }
@@ -127,6 +253,24 @@ export default function CockpitView(props: CockpitViewProps) {
   const [layout, setLayout]   = useState<ViewLayoutItem[]>(baseLayout)
   const [naming, setNaming]   = useState(false)
   const [newName, setNewName] = useState('')
+  // Renommage inline d'une vue perso (double-clic ou icône crayon sur son
+  // onglet) — id de la vue en cours de renommage, ou null si aucune.
+  const [renamingId, setRenamingId]     = useState<number | null>(null)
+  const [renameValue, setRenameValue]   = useState('')
+
+  function startRename(v: DashboardView) {
+    setRenamingId(v.id)
+    setRenameValue(v.nom)
+  }
+
+  async function commitRename() {
+    const v = views.find(x => x.id === renamingId)
+    const trimmed = renameValue.trim()
+    setRenamingId(null)
+    if (v && trimmed && trimmed !== v.nom) {
+      await updateView.mutateAsync({ id: v.id, updates: { nom: trimmed } })
+    }
+  }
 
   // Resynchronise quand on change d'onglet ou que la vue arrive de la DB
   useEffect(() => { setLayout(baseLayout); setEditing(false) }, [activeTab, activeView?.id])  // eslint-disable-line react-hooks/exhaustive-deps
@@ -137,13 +281,14 @@ export default function CockpitView(props: CockpitViewProps) {
     metricsMap: props.metricsMap,
     scope: props.scope,
     allTaches: props.allTaches,
+    childMap: props.childMap,
     faitDoneMap: props.faitDoneMap,
     membres,
     userTrigramme: monMembre?.trigramme ?? null,
     navigate: props.navigate,
     openProduct: props.openProduct,
     fmtDate: props.fmtDate,
-  }), [props.produits, props.metricsMap, props.scope, props.allTaches, props.faitDoneMap, membres, monMembre?.trigramme])
+  }), [props.produits, props.metricsMap, props.scope, props.allTaches, props.childMap, props.faitDoneMap, membres, monMembre?.trigramme])
 
   const { width, containerRef, mounted } = useContainerWidth()
 
@@ -204,7 +349,9 @@ export default function CockpitView(props: CockpitViewProps) {
 
   return (
     <div>
-      {/* Onglets de vues + actions */}
+      {/* Rangée de contrôles unique : vues à gauche, filtres + personnalisation
+          à droite — remplace les deux barres d'outils séparées (topbar page +
+          onglets cockpit) d'avant, qui dupliquaient la hiérarchie visuelle. */}
       <div className="flex items-center gap-1.5 mb-4 flex-wrap">
         <button onClick={() => setActiveTab('std')}
           className={cn('text-xs font-semibold px-3 py-1.5 rounded-lg transition-all',
@@ -212,11 +359,22 @@ export default function CockpitView(props: CockpitViewProps) {
           Standard
         </button>
         {views.map(v => (
-          <button key={v.id} onClick={() => setActiveTab(String(v.id))}
-            className={cn('text-xs font-semibold px-3 py-1.5 rounded-lg transition-all',
-              activeTab === String(v.id) ? 'bg-indigo-500 text-white' : 'bg-card border border-border text-subtle hover:text-navy')}>
-            {v.nom}
-          </button>
+          renamingId === v.id ? (
+            <input key={v.id} autoFocus value={renameValue} onChange={e => setRenameValue(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setRenamingId(null) }}
+              className="ds-input !py-1 !px-2 text-xs w-32" />
+          ) : (
+            <button key={v.id} onClick={() => setActiveTab(String(v.id))} onDoubleClick={() => startRename(v)}
+              title="Double-clic pour renommer"
+              className={cn('group flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all',
+                activeTab === String(v.id) ? 'bg-indigo-500 text-white' : 'bg-card border border-border text-subtle hover:text-navy')}>
+              {v.nom}
+              <Pencil size={10} onClick={e => { e.stopPropagation(); startRename(v) }}
+                className={cn('opacity-0 group-hover:opacity-70 hover:!opacity-100 transition-opacity',
+                  activeTab === String(v.id) ? 'text-white' : 'text-subtle')} />
+            </button>
+          )
         ))}
         {naming ? (
           <span className="flex items-center gap-1">
@@ -233,7 +391,27 @@ export default function CockpitView(props: CockpitViewProps) {
           </button>
         )}
 
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+          {props.accessibles.length > 1 && (
+            <PerimetreFilter
+              accessibles={props.accessibles} selectedIds={props.selectedIds}
+              toggleProduit={props.toggleProduit} selectAll={props.selectAll}
+            />
+          )}
+          <div className="flex gap-0.5 bg-bg border border-border rounded-lg p-0.5">
+            <button onClick={() => props.setScope('global')}
+              className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all',
+                props.scope === 'global' ? 'bg-card shadow-sm text-navy' : 'text-subtle hover:text-navy')}>
+              <Globe size={11} /> Global
+            </button>
+            <button onClick={() => props.setScope('trim')}
+              className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all',
+                props.scope === 'trim' ? 'bg-card shadow-sm text-navy' : 'text-subtle hover:text-navy')}>
+              <CalendarDays size={11} /> Trimestre
+            </button>
+          </div>
+          <HelpPopover />
+          <div className="w-px h-5 bg-border mx-0.5" />
           {editing ? (
             <>
               {activeView && (

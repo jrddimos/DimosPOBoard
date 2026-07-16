@@ -1,7 +1,8 @@
-import React, { useState, useMemo, lazy, Suspense } from 'react'
+import React, { useState, useMemo, useRef, lazy, Suspense } from 'react'
 import type { ReactNode } from 'react'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { useNavigate } from 'react-router-dom'
+import { useClickOutside } from '@/hooks/useClickOutside'
 import { useUpdateProduit } from '@/hooks/useProduits'
 import { useSprintsByProduit } from '@/hooks/useSprints'
 import { useTachesByProduit } from '@/hooks/useTaches'
@@ -9,12 +10,15 @@ import { useUtilisateurs, useEquipes } from '@/hooks/useEquipes'
 import { useFinanceConfig } from '@/hooks/useFinanceConfig'
 import { useFaitTransitions } from '@/hooks/useActivityLog'
 import { trimEtpCostEur } from '@/utils/produitMetrics'
-import { cn, buildTacheIndex, isUS } from '@/lib/utils'
-import { AlertTriangle, Check, CheckCircle, XCircle, CornerDownRight, ListPlus, Lock, Pencil, Plus, X } from 'lucide-react'
+import { SPRINTS_LIST } from '@/constants'
+import { cn, buildTacheIndex, buildChildMap, effortEffectif, isUS, parseCriteres, parseLienDodCodes } from '@/lib/utils'
+import { AlertTriangle, Check, CheckCircle, ChevronDown, XCircle, CornerDownRight, ListPlus, Lock, Pencil, Plus, X } from 'lucide-react'
 import type { Produit, RisqueItem, ActionLop } from '@/hooks/useProduits'
 import { useEpicsByProduit, epicFullName } from '@/hooks/useEpics'
 import { useJalonsByProduit } from '@/hooks/useJalons'
+import { useDodByProduit } from '@/hooks/useDod'
 import { BentoGrid } from '@/pages/dashboard/cockpit/BentoGrid'
+import type { Tache } from '@/types'
 
 // Graphiques en widgets — chargés à la demande pour garder recharts hors du bundle initial
 const LazyRoadmapChart   = lazy(() => import('@/pages/dashboard/DashboardCharts').then(m => ({ default: m.RoadmapChart })))
@@ -132,6 +136,18 @@ function ragBlocages(bloque: number, risques: number): Rag {
 function barColor(pct: number)  { return pct >= 75 ? 'bg-emerald-400' : pct >= 40 ? 'bg-amber-400' : 'bg-rose-400' }
 function textColor(pct: number) { return pct >= 75 ? 'text-emerald-600' : pct >= 40 ? 'text-amber-600' : 'text-rose-600' }
 
+// Agrège les checklists de critères d'acceptation (CritereItem[], JSON) de
+// plusieurs tâches en un total/fait — angle alternatif du panneau Avancement.
+function critereStatsOf(tasks: Tache[]) {
+  let total = 0, fait = 0
+  tasks.forEach(t => {
+    const items = parseCriteres(t.criteres)
+    total += items.length
+    fait += items.filter(i => i.checked).length
+  })
+  return { total, fait }
+}
+
 // ── Composants ───────────────────────────────────────────────────
 function RagCell({ label, rag, sub, tooltip }: { label: string; rag: Rag; sub?: string; tooltip?: string }) {
   const cfg = rag ? RAG_CFG[rag] : null
@@ -238,10 +254,64 @@ function AvancementStats({ total, fait, enCours, bloque, backlogPct, effortFait,
   )
 }
 
-function ToggleBtn({ active, onClick, children, expand }: { active: boolean; onClick: () => void; children: ReactNode; expand?: boolean }) {
+// Angle "Critères d'acceptation" du panneau Avancement : mêmes racines (US)
+// que l'angle "US", mais on compte les items de checklist plutôt que les
+// tâches — utile pour juger l'avancement au grain le plus fin du contrat
+// d'acceptation, indépendamment du découpage en US.
+function CriteresStats({ total, fait, note }: { total: number; fait: number; note?: string }) {
+  const pct = total > 0 ? Math.round(fait / total * 100) : 0
+  const restant = total - fait
+  return (
+    <>
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        <StatChip label="Total critères" value={total} bg="bg-slate-50" border="border-slate-100" color="text-slate-600" />
+        <StatChip label="Validés"  value={fait}    sub={`${pct} %`} bg="bg-emerald-50" border="border-emerald-100" color="text-emerald-700" />
+        <StatChip label="Restants" value={restant} bg={restant > 0 ? 'bg-amber-50' : 'bg-slate-50'} border={restant > 0 ? 'border-amber-100' : 'border-slate-100'} color={restant > 0 ? 'text-amber-700' : 'text-slate-400'} />
+      </div>
+      <div className="space-y-2">
+        <div>
+          <div className="flex justify-between text-[10px] text-subtle mb-0.5">
+            <span>Critères d'acceptation validés</span><span>{fait}/{total} · {pct} %</span>
+          </div>
+          <MiniBar pct={pct} color={total > 0 ? barColor(pct) : 'bg-border'} />
+        </div>
+        {note && <p className="text-[10px] text-subtle/60 pt-1">{note}</p>}
+      </div>
+    </>
+  )
+}
+
+// Angle "Exigences couvertes" — global uniquement (une Exigence n'appartient
+// à aucun trimestre en propre). "Couverte" = au moins une US y renvoie via
+// lien_dod ; "Vérifiée" = validée par essai (cf. useDod). Vérifiée implique
+// couverte en théorie, mais un écart de données reste possible (exigence
+// validée hors suivi lien_dod) — Math.max(0,…) évite un chiffre négatif.
+function ExigencesStats({ total, verifiees, couvertes }: { total: number; verifiees: number; couvertes: number }) {
+  const pct = total > 0 ? Math.round(verifiees / total * 100) : 0
+  const couvertesNonVerif = Math.max(0, couvertes - verifiees)
+  const nonCouvertes = Math.max(0, total - couvertes)
+  return (
+    <>
+      <div className="grid grid-cols-4 gap-2 mb-3">
+        <StatChip label="Total"         value={total}     bg="bg-slate-50" border="border-slate-100" color="text-slate-600" />
+        <StatChip label="Vérifiées"     value={verifiees} sub={`${pct} %`} bg="bg-emerald-50" border="border-emerald-100" color="text-emerald-700" />
+        <StatChip label="Couvertes"     value={couvertesNonVerif} bg={couvertesNonVerif > 0 ? 'bg-amber-50' : 'bg-slate-50'} border={couvertesNonVerif > 0 ? 'border-amber-100' : 'border-slate-100'} color={couvertesNonVerif > 0 ? 'text-amber-700' : 'text-slate-400'} />
+        <StatChip label="Non couvertes" value={nonCouvertes}     bg={nonCouvertes > 0 ? 'bg-rose-50' : 'bg-slate-50'} border={nonCouvertes > 0 ? 'border-rose-100' : 'border-slate-100'} color={nonCouvertes > 0 ? 'text-rose-700' : 'text-slate-400'} />
+      </div>
+      <div>
+        <div className="flex justify-between text-[10px] text-subtle mb-0.5">
+          <span>Exigences vérifiées</span><span>{verifiees}/{total} · {pct} %</span>
+        </div>
+        <MiniBar pct={pct} color={total > 0 ? barColor(pct) : 'bg-border'} />
+      </div>
+    </>
+  )
+}
+
+function ToggleBtn({ active, onClick, children, expand, className }: { active: boolean; onClick: () => void; children: ReactNode; expand?: boolean; className?: string }) {
   return (
     <button onClick={onClick} className={cn('px-2 py-1 text-[10px] font-semibold transition-colors text-center', expand && 'flex-1',
-      active ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'text-slate-500 hover:text-slate-600 hover:bg-slate-50')}>
+      active ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'text-slate-500 hover:text-slate-600 hover:bg-slate-50', className)}>
       {children}
     </button>
   )
@@ -252,7 +322,24 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const navigate = useNavigate()
 
   const [scopeView, setScopeView]             = useState<'global' | 'trim' | 'sprint'>('trim')
+  // Angle du panneau "Avancement" (global/trim uniquement — le sprint garde
+  // son propre sélecteur). 'exigences' n'a de sens qu'au global (une
+  // Exigence n'appartient à aucun trimestre en propre, seulement via les US
+  // qui la référencent) : repli silencieux sur 'us' si on quitte le global.
+  const [objectifMode, setObjectifMode]       = useState<'us' | 'criteres' | 'exigences'>('us')
   const [selectedSprintNum, setSelectedSprintNum] = useState<string | null>(null)
+  // null = trimestre actif (auto) ; sinon n'importe quel trimestre du produit,
+  // clôturé compris — même logique que selectedSprintNum pour les sprints.
+  const [selectedTrimId, setSelectedTrimId]   = useState<string | null>(null)
+  const [trimMenuOpen, setTrimMenuOpen]       = useState(false)
+  const trimMenuRef = useRef<HTMLDivElement>(null)
+  useClickOutside(trimMenuRef, () => setTrimMenuOpen(false), trimMenuOpen)
+  // Même sélecteur en liste déroulante pour le sprint (cf. trimestre
+  // ci-dessus) : null = sprint actif (auto), sinon n'importe quel sprint du
+  // produit, clôturé compris.
+  const [sprintMenuOpen, setSprintMenuOpen]   = useState(false)
+  const sprintMenuRef = useRef<HTMLDivElement>(null)
+  useClickOutside(sprintMenuRef, () => setSprintMenuOpen(false), sprintMenuOpen)
   const [addingRisque, setAddingRisque]       = useState(false)
   const [newRisqueTitre, setNewRisqueTitre]   = useState('')
   const [addingAction, setAddingAction]       = useState(false)
@@ -275,6 +362,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const { data: taches = [] }     = useTachesByProduit(produit.id)
   const { data: epicsList = [] }  = useEpicsByProduit(produit.id)
   const { data: jalonsList = [] } = useJalonsByProduit(produit.id)
+  const { data: dodItems = [] }   = useDodByProduit(produit.id)
   const epicColorsMap  = useMemo(() => new Map(epicsList.map(e => [epicFullName(e), e.couleur ?? '#6366F1'])), [epicsList])
   const jalonColorsMap = useMemo(() => new Map(jalonsList.map(j => [j.code, j.couleur ?? '#6366F1'])), [jalonsList])
   const { data: membres = [] }    = useUtilisateurs()
@@ -289,12 +377,19 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
 
   const trims       = produit.objectifs_trimestriels ?? []
   // Trimestre actif = lancé, pas en pause, pas clôturé
-  const currentTrim = [...trims].reverse().find(t => !!t.lance && !t.pause && !t.cloture)
+  const autoTrim    = [...trims].reverse().find(t => !!t.lance && !t.pause && !t.cloture)
+  // Le sélecteur du toggle permet de consulter n'importe quel trimestre du
+  // produit (clôturé ou pas encore lancé) ; par défaut, le trimestre actif.
+  const currentTrim = (selectedTrimId ? trims.find(t => t.trimestre === selectedTrimId) : undefined) ?? autoTrim
   const closedTrims = trims.filter(t => t.cloture)
 
   // ── Statistiques backlog (auto) ──────────────────────────────
   const byId = useMemo(() => buildTacheIndex(taches), [taches])
   const racines = taches.filter(t => isUS(t, byId))
+  // Effort d'une US = effort propre + somme de ses sous-tâches, calculé
+  // dynamiquement (plus de somme matérialisée dans effort_j, cf. 0057).
+  const childMap = useMemo(() => buildChildMap(taches), [taches])
+  const effJ = (t: Tache) => effortEffectif(t, childMap)
 
   const totalUS    = racines.length
   const faitUS     = racines.filter(t => t.statut === 'Fait').length
@@ -302,13 +397,20 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const bloqueUS   = racines.filter(t => t.statut === 'Bloqué').length
   const backlogPct = totalUS > 0 ? Math.round(faitUS / totalUS * 100) : 0
 
-  const effortTotal = racines.reduce((s, t) => s + (t.effort_j ?? 0), 0)
-  const effortFait  = racines.filter(t => t.statut === 'Fait').reduce((s, t) => s + (t.effort_j ?? 0), 0)
+  const effortTotal = racines.reduce((s, t) => s + effJ(t), 0)
+  const effortFait  = racines.filter(t => t.statut === 'Fait').reduce((s, t) => s + effJ(t), 0)
   const effortPct   = effortTotal > 0 ? Math.round(effortFait / effortTotal * 100) : 0
 
   const mustHave     = racines.filter(t => t.moscow === 'Must Have')
   const mustHaveFait = mustHave.filter(t => t.statut === 'Fait').length
   const mustHavePct  = mustHave.length > 0 ? Math.round(mustHaveFait / mustHave.length * 100) : null
+
+  // US "Fait" hors trimestres : jamais rattachées à un sprint, ou rattachées
+  // à un sprint qu'aucun trimestre ne référence — elles expliquent l'écart
+  // entre le total global et le cumul des trimestres (surfacé en tooltip).
+  const allTrimSprintIds = new Set(trims.flatMap(t => t.sprints_ids ?? []))
+  const faitHorsTrims = racines.filter(t =>
+    t.statut === 'Fait' && (!t.sprint_debut || !allTrimSprintIds.has(t.sprint_debut))).length
 
   // ── Statistiques trimestre ───────────────────────────────────
   const trimSprintSet   = new Set<string>(currentTrim?.sprints_ids ?? [])
@@ -325,17 +427,37 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const bloqueTrim      = racinesTrim.filter(t => t.statut === 'Bloqué').length
   const backlogPctTrim  = totalUSTrim > 0 ? Math.round(faitUSTrim / totalUSTrim * 100) : 0
 
-  const effortTotalTrim = racinesTrim.reduce((s, t) => s + (t.effort_j ?? 0), 0)
-  const effortFaitTrim  = racinesTrim.filter(t => t.statut === 'Fait').reduce((s, t) => s + (t.effort_j ?? 0), 0)
+  const effortTotalTrim = racinesTrim.reduce((s, t) => s + effJ(t), 0)
+  const effortFaitTrim  = racinesTrim.filter(t => t.statut === 'Fait').reduce((s, t) => s + effJ(t), 0)
   const effortPctTrim   = effortTotalTrim > 0 ? Math.round(effortFaitTrim / effortTotalTrim * 100) : 0
 
   const mustHaveTrim     = racinesTrim.filter(t => t.moscow === 'Must Have')
   const mustHaveFaitTrim = mustHaveTrim.filter(t => t.statut === 'Fait').length
   const mustHavePctTrim  = mustHaveTrim.length > 0 ? Math.round(mustHaveFaitTrim / mustHaveTrim.length * 100) : null
 
+  // ── Statistiques "Critères d'acceptation" (angle alternatif du panneau
+  // Avancement) — agrégées sur les mêmes racines (US) que l'angle "US",
+  // juste en comptant les items de checklist plutôt que les tâches.
+  const critereStatsGlobal = useMemo(() => critereStatsOf(racines), [racines])
+  const critereStatsTrim   = useMemo(() => critereStatsOf(racinesTrim), [racinesTrim])
+
+  // ── Statistiques "Exigences couvertes" — global uniquement (cf. plus
+  // haut) : couverte = au moins une US y renvoie via lien_dod (même
+  // convention que CouvertureTree/DodPage) ; vérifiée = validée par essai.
+  const exigenceStats = useMemo(() => {
+    const actives = dodItems.filter(d => d.actif)
+    const coveredCodes = new Set(racines.flatMap(t => parseLienDodCodes(t.lien_dod)))
+    const couvertes = actives.filter(d => coveredCodes.has(d.code)).length
+    const verifiees = actives.filter(d => d.verifiee).length
+    return { total: actives.length, couvertes, verifiees }
+  }, [dodItems, racines])
+
   // ── Statistiques sprint sélectionné ─────────────────────────
-  const sortedSprints    = [...allSprints].sort((a, b) => String(a.numero).localeCompare(String(b.numero)))
-  const effectiveSprint  = selectedSprintNum ?? sprintActif?.numero ?? sortedSprints[sortedSprints.length - 1]?.numero ?? null
+  // Ordre chronologique de SPRINTS_LIST (S1 < S2 < … < S10), pas l'ordre
+  // alphabétique brut de localeCompare qui mettrait S10 avant S2.
+  const sortedSprints    = [...allSprints].sort((a, b) => SPRINTS_LIST.indexOf(a.numero) - SPRINTS_LIST.indexOf(b.numero))
+  const autoSprintNumero = sprintActif?.numero ?? sortedSprints[sortedSprints.length - 1]?.numero ?? null
+  const effectiveSprint  = selectedSprintNum ?? autoSprintNumero
   // `t.sprint` (l'ancien champ, avant sprint_debut/sprint_fin) porte une
   // valeur par défaut ('S01' constaté en base) sur la quasi-totalité des
   // tâches, y compris jamais planifiées — seul sprint_debut est fiable
@@ -347,8 +469,8 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const bloqueSprint     = racinesSprint.filter(t => t.statut === 'Bloqué').length
   const backlogPctSprint = totalUSSprint > 0 ? Math.round(faitUSSprint / totalUSSprint * 100) : 0
 
-  const effortTotalSprint = racinesSprint.reduce((s, t) => s + (t.effort_j ?? 0), 0)
-  const effortFaitSprint  = racinesSprint.filter(t => t.statut === 'Fait').reduce((s, t) => s + (t.effort_j ?? 0), 0)
+  const effortTotalSprint = racinesSprint.reduce((s, t) => s + effJ(t), 0)
+  const effortFaitSprint  = racinesSprint.filter(t => t.statut === 'Fait').reduce((s, t) => s + effJ(t), 0)
   const effortPctSprint   = effortTotalSprint > 0 ? Math.round(effortFaitSprint / effortTotalSprint * 100) : 0
 
   const mustHaveSprint     = racinesSprint.filter(t => t.moscow === 'Must Have')
@@ -365,7 +487,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   racinesScoped.filter(t => t.epic).forEach(t => {
     const key = t.epic!
     const cur = epicMap.get(key) ?? { total: 0, fait: 0, effort: 0 }
-    epicMap.set(key, { total: cur.total+1, fait: cur.fait+(t.statut==='Fait'?1:0), effort: cur.effort+(t.effort_j??0) })
+    epicMap.set(key, { total: cur.total+1, fait: cur.fait+(t.statut==='Fait'?1:0), effort: cur.effort+effJ(t) })
   })
   // Ordre et périmètre = référentiel épics DU PRODUIT ; un libellé porté par
   // des tâches mais absent du référentiel (épic renommé/supprimé, import…)
@@ -392,11 +514,11 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   // dans l'ordre du référentiel et avec leur couleur ; les codes orphelins
   // portés par des tâches sont ajoutés à la fin, marqués.
   const jalons = [
-    ...jalonsList.map(j => ({ code: j.code, couleur: j.couleur ?? '#6366F1',
+    ...jalonsList.map(j => ({ code: j.code, nom: j.nom, description: j.description, couleur: j.couleur ?? '#6366F1',
       ...(jalonMap.get(j.code) ?? { total: 0, fait: 0 }), horsRef: false })),
     ...[...jalonMap.entries()].filter(([code]) => !jalonsList.some(j => j.code === code))
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([code, stats]) => ({ code, couleur: '#94A3B8', ...stats, horsRef: true })),
+      .map(([code, stats]) => ({ code, nom: '', description: '', couleur: '#94A3B8', ...stats, horsRef: true })),
   ]
 
   // ── Équipes & membres ────────────────────────────────────────
@@ -545,10 +667,21 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const globalCursorPct  = globalCursorPctEarly
   const globalTargetDate = globalTargetDateEarly
 
-  // Livraison estimée : date à laquelle backlogPctTrim atteint 100% (trim/global seulement)
-  if (!isSprintScope && cursorPct !== null && cursorPct > 0 && totalUSTrim > 0 && backlogPctTrim > 0) {
-    const pace        = backlogPctTrim / cursorPct
-    const daysNeeded  = Math.round(((100 - backlogPctTrim) / pace) * joursTotaux / 100)
+  // Livraison estimée : date à laquelle l'avancement atteint 100% (trim/global
+  // seulement). Toujours basée sur le rythme du trimestre ACTIF — pas sur le
+  // trimestre consulté via le sélecteur : parcourir l'historique ne doit pas
+  // déplacer la projection, et un trimestre clôturé n'a pas de "rythme".
+  const autoSprintSet   = new Set<string>(autoTrim?.sprints_ids ?? [])
+  const racinesAuto     = racines.filter(t => t.sprint_debut && autoSprintSet.has(t.sprint_debut))
+  const totalUSAuto     = racinesAuto.length
+  const faitUSAuto      = racinesAuto.filter(t => t.statut === 'Fait').length
+  const backlogPctAuto  = totalUSAuto > 0 ? Math.round(faitUSAuto / totalUSAuto * 100) : 0
+  const quarterStartAuto = autoTrim ? getQuarterStart(autoTrim.trimestre) : null
+  const joursEcoulesAuto = quarterStartAuto ? Math.min(countWorkingDays(quarterStartAuto, new Date()), joursTotaux) : null
+  const cursorPctAuto    = joursEcoulesAuto !== null ? Math.round(joursEcoulesAuto / joursTotaux * 100) : null
+  if (!isSprintScope && cursorPctAuto !== null && cursorPctAuto > 0 && totalUSAuto > 0 && backlogPctAuto > 0) {
+    const pace        = backlogPctAuto / cursorPctAuto
+    const daysNeeded  = Math.round(((100 - backlogPctAuto) / pace) * joursTotaux / 100)
     estimatedDeliveryDate = addWorkingDays(today, daysNeeded)
   }
 
@@ -604,6 +737,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   // ── Tooltips ─────────────────────────────────────────────────
   const tipAvancement = isGlobalScope
     ? `${faitUS}/${totalUS} US réalisées\n${backlogPct}% fait · curseur ${globalCursorPct ?? '?'}%\nÉcart : ${backlogPct - (globalCursorPct ?? 50) >= 0 ? '+' : ''}${backlogPct - (globalCursorPct ?? 50)} pts`
+      + (faitHorsTrims > 0 ? `\n⚠ dont ${faitHorsTrims} US terminée${faitHorsTrims > 1 ? 's' : ''} hors trimestres\n(sans sprint rattaché à un trimestre)` : '')
     : isSprintScope
       ? (totalUSSprint > 0 ? `${faitUSSprint}/${totalUSSprint} US · ${enCoursSprint} en cours\n${backlogPctSprint}% terminées\n${bloqueSprint} bloquée${bloqueSprint !== 1 ? 's' : ''}` : undefined)
       : cursorPct !== null && totalUSTrim > 0
@@ -663,10 +797,10 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
     // Sprint : pas de livraison estimée
     if (isSprintScope) return undefined
     if (estimatedDeliveryDate && projectedPct !== null && cibleDate) {
-      return `Projection : ${projectedPct}% à ${cibleLabel.toLowerCase()}\nVélocité : ${backlogPctTrim}% réalisé · curseur ${cursorPct}%\n(j${joursEcoules}/${joursTotaux})\n${cibleLabel} : ${fmtDate(cibleDate)}`
+      return `Projection : ${projectedPct}% à ${cibleLabel.toLowerCase()}\nVélocité (trim. actif) : ${backlogPctAuto}% réalisé · curseur ${cursorPctAuto}%\n(j${joursEcoulesAuto}/${joursTotaux})\n${cibleLabel} : ${fmtDate(cibleDate)}`
     }
     if (estimatedDeliveryDate) {
-      return `Basé sur ${backlogPctTrim}% réalisé · curseur ${cursorPct}%\n(j${joursEcoules}/${joursTotaux})`
+      return `Basé sur le trimestre actif : ${backlogPctAuto}% réalisé · curseur ${cursorPctAuto}%\n(j${joursEcoulesAuto}/${joursTotaux})`
     }
     if (cibleDate) {
       const lines = [`${cibleLabel} : ${fmtDate(cibleDate)}`]
@@ -745,16 +879,93 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   // ── JSX ──────────────────────────────────────────────────────
   return (
     <>
-      {/* Toggle scope — au-dessus du bandeau car contrôle les données */}
+      {/* Toggle scope — au-dessus du bandeau car contrôle les données. Trim
+          et Sprint sont des boutons scindés : le libellé active le scope, le
+          chevron ouvre un sélecteur listant tout l'historique (clôturés et à
+          venir compris) — chacun porte son propre menu, ancré sous lui. */}
       <div className="flex justify-end mb-2">
-        <div className="flex rounded-lg border border-border overflow-hidden bg-card shadow-sm w-[260px]">
-          <ToggleBtn expand active={scopeView === 'global'} onClick={() => setScopeView('global')}>Global</ToggleBtn>
+        {/* Pas d'overflow-hidden ici : les menus déroulants Trim/Sprint sont
+            des descendants (ancrés sous leur bouton) et seraient rognés.
+            Le rendu reste arrondi car ToggleBtn n'a pas de fond qui déborde
+            au repos ; seuls Global (extrémité gauche) et le dernier bouton
+            (extrémité droite) portent leur propre arrondi ci-dessous. */}
+        <div className="flex rounded-lg border border-border bg-card shadow-sm w-[280px]">
+          <ToggleBtn expand active={scopeView === 'global'} onClick={() => setScopeView('global')} className="rounded-l-lg">Global</ToggleBtn>
           <div className="w-px bg-border shrink-0" />
-          <ToggleBtn expand active={scopeView === 'trim'} onClick={() => setScopeView('trim')}>
-            {currentTrim?.trimestre ?? 'Trimestre'}
-          </ToggleBtn>
+          <div ref={trimMenuRef} className="relative flex flex-1 min-w-0">
+            <ToggleBtn expand active={scopeView === 'trim'} onClick={() => setScopeView('trim')}>
+              <span className="inline-flex items-center gap-1">
+                {currentTrim?.cloture && <Lock size={8} className="shrink-0" />}
+                {currentTrim?.trimestre ?? 'Trimestre'}
+              </span>
+            </ToggleBtn>
+            {trims.length > 1 && (
+              <button
+                onClick={() => { setScopeView('trim'); setTrimMenuOpen(v => !v) }}
+                title="Choisir le trimestre affiché"
+                className={cn('px-1 flex items-center transition-colors border-l border-border/60',
+                  scopeView === 'trim' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50')}>
+                <ChevronDown size={11} className={cn('transition-transform', trimMenuOpen && 'rotate-180')} />
+              </button>
+            )}
+            {trimMenuOpen && (
+              <div className="absolute z-30 top-full right-0 mt-1 w-48 bg-card border border-border rounded-xl shadow-lg p-1.5">
+                {trims.map(t => {
+                  const isAuto = t.trimestre === autoTrim?.trimestre
+                  const isSelected = t.trimestre === currentTrim?.trimestre
+                  return (
+                    <button key={t.trimestre}
+                      onClick={() => { setSelectedTrimId(isAuto ? null : t.trimestre); setTrimMenuOpen(false) }}
+                      className={cn('w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-left transition-colors',
+                        isSelected ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-navy hover:bg-bg')}>
+                      <span className="flex-1 truncate">{t.trimestre}</span>
+                      {t.cloture && <Lock size={9} className="text-subtle shrink-0" />}
+                      {isAuto && <span className="text-[9px] font-bold uppercase text-emerald-600 shrink-0">en cours</span>}
+                      {!t.lance && !t.cloture && <span className="text-[9px] font-semibold uppercase text-subtle shrink-0">à venir</span>}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
           <div className="w-px bg-border shrink-0" />
-          <ToggleBtn expand active={scopeView === 'sprint'} onClick={() => setScopeView('sprint')}>Sprint</ToggleBtn>
+          <div ref={sprintMenuRef} className="relative flex flex-1 min-w-0">
+            <ToggleBtn expand active={scopeView === 'sprint'} onClick={() => setScopeView('sprint')}
+              className={sortedSprints.length > 1 ? undefined : 'rounded-r-lg'}>
+              <span className="inline-flex items-center gap-1">
+                {effectiveSprintObj?.statut === 'cloture' && <Lock size={8} className="shrink-0" />}
+                {effectiveSprint ?? 'Sprint'}
+              </span>
+            </ToggleBtn>
+            {sortedSprints.length > 1 && (
+              <button
+                onClick={() => { setScopeView('sprint'); setSprintMenuOpen(v => !v) }}
+                title="Choisir le sprint affiché"
+                className={cn('px-1 flex items-center transition-colors border-l border-border/60 rounded-r-lg',
+                  scopeView === 'sprint' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50')}>
+                <ChevronDown size={11} className={cn('transition-transform', sprintMenuOpen && 'rotate-180')} />
+              </button>
+            )}
+            {sprintMenuOpen && (
+              <div className="absolute z-30 top-full right-0 mt-1 w-48 bg-card border border-border rounded-xl shadow-lg p-1.5 max-h-72 overflow-y-auto">
+                {sortedSprints.map(s => {
+                  const isAuto = s.numero === autoSprintNumero
+                  const isSelected = s.numero === effectiveSprint
+                  return (
+                    <button key={s.numero}
+                      onClick={() => { setSelectedSprintNum(isAuto ? null : s.numero); setSprintMenuOpen(false) }}
+                      className={cn('w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-left transition-colors',
+                        isSelected ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-navy hover:bg-bg')}>
+                      <span className="flex-1 truncate">{s.numero}</span>
+                      {s.statut === 'cloture' && <Lock size={9} className="text-subtle shrink-0" />}
+                      {isAuto && <span className="text-[9px] font-bold uppercase text-emerald-600 shrink-0">en cours</span>}
+                      {s.statut === 'pause' && <span className="text-[9px] font-semibold uppercase text-amber-600 shrink-0">pause</span>}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -914,13 +1125,17 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
               : <div className="space-y-2">
                   {jalons.map(j => {
                     const pct = j.total > 0 ? Math.round(j.fait / j.total * 100) : 0
+                    const label = (
+                      <span className={cn('text-[11px] font-medium truncate flex-1', j.horsRef ? 'text-subtle italic' : 'text-navy')}>
+                        <span className="font-mono font-bold">{j.code}</span>
+                        {j.nom && ` — ${j.nom}`}{j.horsRef ? ' (hors référentiel)' : ''}
+                      </span>
+                    )
                     return (
                       <div key={j.code}>
                         <div className="flex items-center justify-between mb-0.5 gap-1.5">
                           <div className="w-2 h-2 rounded-full shrink-0" style={{ background: j.couleur }} />
-                          <span className={cn('text-[11px] font-medium truncate flex-1', j.horsRef ? 'text-subtle italic' : 'text-navy')}>
-                            {j.code}{j.horsRef ? ' (hors référentiel)' : ''}
-                          </span>
+                          {j.description ? <Tooltip content={j.description}>{label}</Tooltip> : label}
                           <span className="text-[10px] text-subtle ml-1 shrink-0">{j.total > 0 ? `${j.fait}/${j.total}` : '—'}</span>
                         </div>
                         <MiniBar pct={pct} color={j.total > 0 ? barColor(pct) : 'bg-border'} />
@@ -932,45 +1147,51 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
           ) },
           { key: 'avancement', label: 'Avancement', minW: 4, minH: 3, defaultSize: { w: 7, h: 4 }, content: (
 <Section className="h-full"
-            title={scopeView === 'global' ? 'Avancement global' : scopeView === 'trim' ? `Objectifs — ${currentTrim?.trimestre || 'Trimestre en cours'}` : 'Sprint'}>
-            {scopeView === 'global' ? (
+            title={scopeView === 'global' ? 'Avancement global' : scopeView === 'trim' ? `Objectifs — ${currentTrim?.trimestre || 'Trimestre en cours'}` : 'Sprint'}
+            action={scopeView !== 'sprint' ? (
+              <div className="flex gap-0.5 bg-card border border-border rounded-lg p-0.5 shrink-0">
+                {(['us', 'criteres', ...(scopeView === 'global' ? ['exigences' as const] : [])] as const).map(m => (
+                  <button key={m} onClick={() => setObjectifMode(m)}
+                    className={cn('px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide rounded-md transition-colors',
+                      objectifMode === m ? 'bg-indigo-50 text-indigo-700' : 'text-slate-400 hover:text-slate-600')}>
+                    {m === 'us' ? 'US' : m === 'criteres' ? 'Critères' : 'Exigences'}
+                  </button>
+                ))}
+              </div>
+            ) : undefined}>
+            {/* 'exigences' n'a de sens qu'au global (cf. objectifMode) : repli
+                silencieux sur 'us' si on est passé en scope Trimestre sans
+                changer manuellement le sélecteur. */}
+            {(() => { const mode = objectifMode === 'exigences' && scopeView !== 'global' ? 'us' : objectifMode
+            return scopeView === 'global' ? (
               totalUS === 0
                 ? <p className="text-xs text-subtle/40 italic">Aucune tâche dans le backlog</p>
-                : <AvancementStats total={totalUS} fait={faitUS} enCours={enCoursUS} bloque={bloqueUS}
-                    backlogPct={backlogPct} effortFait={effortFait} effortTotal={effortTotal}
-                    effortPct={effortPct} mustHaveFait={mustHaveFait} mustHaveTotal={mustHave.length} mustHavePct={mustHavePct} />
+                : mode === 'exigences'
+                  ? <ExigencesStats total={exigenceStats.total} verifiees={exigenceStats.verifiees} couvertes={exigenceStats.couvertes} />
+                  : mode === 'criteres'
+                    ? <CriteresStats total={critereStatsGlobal.total} fait={critereStatsGlobal.fait} />
+                    : <AvancementStats total={totalUS} fait={faitUS} enCours={enCoursUS} bloque={bloqueUS}
+                        backlogPct={backlogPct} effortFait={effortFait} effortTotal={effortTotal}
+                        effortPct={effortPct} mustHaveFait={mustHaveFait} mustHaveTotal={mustHave.length} mustHavePct={mustHavePct}
+                        note={faitHorsTrims > 0 ? `⚠ ${faitHorsTrims} US terminée${faitHorsTrims > 1 ? 's' : ''} hors trimestres (sans sprint rattaché à un trimestre)` : undefined} />
             ) : scopeView === 'trim' ? (
               totalUSTrim === 0
                 ? <p className="text-xs text-subtle/40 italic">Aucune tâche assignée à ces sprints{trimSprintLabel ? ` (${trimSprintLabel})` : ''}</p>
-                : <AvancementStats total={totalUSTrim} fait={faitUSTrim} enCours={enCoursTrim} bloque={bloqueTrim}
-                    backlogPct={backlogPctTrim} effortFait={effortFaitTrim} effortTotal={effortTotalTrim}
-                    effortPct={effortPctTrim} mustHaveFait={mustHaveFaitTrim} mustHaveTotal={mustHaveTrim.length}
-                    mustHavePct={mustHavePctTrim} note={trimSprintLabel ? `Sprints : ${trimSprintLabel}` : undefined} />
+                : mode === 'criteres'
+                  ? <CriteresStats total={critereStatsTrim.total} fait={critereStatsTrim.fait}
+                      note={trimSprintLabel ? `Sprints : ${trimSprintLabel}` : undefined} />
+                  : <AvancementStats total={totalUSTrim} fait={faitUSTrim} enCours={enCoursTrim} bloque={bloqueTrim}
+                      backlogPct={backlogPctTrim} effortFait={effortFaitTrim} effortTotal={effortTotalTrim}
+                      effortPct={effortPctTrim} mustHaveFait={mustHaveFaitTrim} mustHaveTotal={mustHaveTrim.length}
+                      mustHavePct={mustHavePctTrim} note={trimSprintLabel ? `Sprints : ${trimSprintLabel}` : undefined} />
             ) : (
-              <>
-                <div className="flex flex-wrap gap-1 mb-3 pb-2 border-b border-border">
-                  {sortedSprints.map(s => {
-                    const isActive   = s.numero === sprintActif?.numero
-                    const isSelected = s.numero === effectiveSprint
-                    return (
-                      <button key={s.numero} onClick={() => setSelectedSprintNum(s.numero)}
-                        className={cn('text-[10px] px-1.5 py-0.5 rounded font-semibold transition-colors',
-                          isSelected ? 'bg-brand text-white'
-                          : isActive  ? 'bg-purple/20 text-purple border border-purple/30'
-                          : 'bg-bg text-subtle hover:text-navy hover:bg-brand/5')}>
-                        {s.numero}{isActive ? ' ●' : ''}
-                      </button>
-                    )
-                  })}
-                </div>
-                {totalUSSprint === 0
-                  ? <p className="text-xs text-subtle/40 italic">Aucune tâche dans ce sprint</p>
-                  : <AvancementStats total={totalUSSprint} fait={faitUSSprint} enCours={enCoursSprint} bloque={bloqueSprint}
-                      backlogPct={backlogPctSprint} effortFait={effortFaitSprint} effortTotal={effortTotalSprint}
-                      effortPct={effortPctSprint} mustHaveFait={mustHaveFaitSprint} mustHaveTotal={mustHaveSprint.length}
-                      mustHavePct={mustHavePctSprint} />}
-              </>
-            )}
+              totalUSSprint === 0
+                ? <p className="text-xs text-subtle/40 italic">Aucune tâche dans ce sprint</p>
+                : <AvancementStats total={totalUSSprint} fait={faitUSSprint} enCours={enCoursSprint} bloque={bloqueSprint}
+                    backlogPct={backlogPctSprint} effortFait={effortFaitSprint} effortTotal={effortTotalSprint}
+                    effortPct={effortPctSprint} mustHaveFait={mustHaveFaitSprint} mustHaveTotal={mustHaveSprint.length}
+                    mustHavePct={mustHavePctSprint} />
+            ) })()}
           </Section>
           ) },
           { key: 'epics', label: 'Épics', minW: 2, minH: 3, defaultSize: { w: 3, h: 5 }, content: (
@@ -1196,9 +1417,15 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
 <Section title="Historique trims" className="h-full" scrollable>
 {closedTrims.length === 0 ? <p className="text-xs text-subtle/40 italic">Aucun trimestre clôturé</p> : <div className="flex flex-wrap gap-1">
 {closedTrims.map(t => (
-                  <span key={t.id} className="text-[11px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 font-medium flex items-center gap-1">
+                  <button key={t.id}
+                    onClick={() => { setSelectedTrimId(t.trimestre); setScopeView('trim') }}
+                    title="Afficher le dashboard sur ce trimestre"
+                    className={cn('text-[11px] px-1.5 py-0.5 rounded-full font-medium flex items-center gap-1 transition-colors',
+                      currentTrim?.trimestre === t.trimestre && scopeView === 'trim'
+                        ? 'bg-indigo-100 text-indigo-700'
+                        : 'bg-slate-100 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600')}>
                     <Lock size={8} /> {t.trimestre || 'Trim.'}
-                  </span>
+                  </button>
                 ))}
 </div>}
 </Section>

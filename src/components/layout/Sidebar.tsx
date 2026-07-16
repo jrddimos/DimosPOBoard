@@ -1201,7 +1201,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               <span className={cn('text-[11px] font-semibold uppercase tracking-[0.08em] select-none flex-1', t.sectionLabel)}>
                 Global
               </span>
-              <button onClick={() => navigate('/setup?tab=metiers')} title="Réglages"
+              <button onClick={() => navigate(isAdmin ? '/setup?tab=equipes' : '/setup?tab=metiers')} title="Réglages"
                 className={cn('p-1 rounded-md transition-colors shrink-0', t.notesBtn)}>
                 <Settings size={13} />
               </button>

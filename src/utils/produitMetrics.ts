@@ -1,6 +1,7 @@
 import type { Tache } from '@/types'
 import type { Produit, TrimObjectif } from '@/hooks/useProduits'
 import type { FinanceConfig } from '@/hooks/useFinanceConfig'
+import { effortEffectif } from '@/lib/utils'
 
 function tjmMoyenOf(finConfig: FinanceConfig | undefined): number {
   return (finConfig?.equipe_tjms?.length ?? 0) > 0
@@ -90,6 +91,11 @@ export function computeProduitMetrics(
   racines: Tache[],
   finConfig: FinanceConfig | undefined,
   today: Date,
+  // parent_id → sous-tâches (buildChildMap sur TOUTES les tâches, pas les
+  // seules racines) : l'effort d'une US = effort propre + sous-tâches.
+  // Optionnel pour les appelants sans sous-tâches (tests) — sans lui, seul
+  // l'effort propre compte.
+  childMap: Record<string, Tache[]> = {},
 ): ProduitMetrics {
   const joursTotaux = finConfig?.jours_par_trim ?? 65
 
@@ -101,7 +107,7 @@ export function computeProduitMetrics(
   const enCoursUS  = racines.filter(t => t.statut === 'En cours').length
   const bloqueUS   = racines.filter(t => t.statut === 'Bloqué').length
   const backlogPct = totalUS > 0 ? Math.round(faitUS / totalUS * 100) : 0
-  const effortFaitGlobal = racines.filter(t => t.statut === 'Fait').reduce((s, t) => s + (t.effort_j ?? 0), 0)
+  const effortFaitGlobal = racines.filter(t => t.statut === 'Fait').reduce((s, t) => s + effortEffectif(t, childMap), 0)
 
   const globalBudgetEtp = trims.reduce((s, t) => s + trimEtpCostEur(t, finConfig, joursTotaux), 0)
   const globalRealiseEur = effortFaitGlobal * tjmMoyenOf(finConfig)
@@ -130,7 +136,7 @@ export function computeProduitMetrics(
   const totalUSTrim    = racinesTrim.length
   const faitUSTrim     = racinesTrim.filter(t => t.statut === 'Fait').length
   const backlogPctTrim = totalUSTrim > 0 ? Math.round(faitUSTrim / totalUSTrim * 100) : 0
-  const effortFaitTrim = racinesTrim.filter(t => t.statut === 'Fait').reduce((s, t) => s + (t.effort_j ?? 0), 0)
+  const effortFaitTrim = racinesTrim.filter(t => t.statut === 'Fait').reduce((s, t) => s + effortEffectif(t, childMap), 0)
 
   const quarterStart = currentTrim ? getQuarterStart(currentTrim.trimestre) : null
   const joursEcoules = quarterStart ? Math.min(countWorkingDays(quarterStart, today), joursTotaux) : null

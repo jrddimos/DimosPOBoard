@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { X, CornerDownRight, RotateCcw, Copy, Trash2 } from 'lucide-react'
+import { X, CornerDownRight, RotateCcw, Copy, Trash2, CalendarClock, Sparkles } from 'lucide-react'
 import { StatusPicker } from '@/components/ui/StatusPicker'
 import { AssignPicker } from '@/components/ui/AssignPicker'
 import { MentionField } from '@/components/ui/MentionField'
@@ -15,22 +15,34 @@ import { useTacheDependances, useAddDependance, useRemoveDependance } from '@/ho
 import { useEquipes, useUtilisateurs } from '@/hooks/useEquipes'
 import { useEpics, epicFullName } from '@/hooks/useEpics'
 import { useJalons } from '@/hooks/useJalons'
-import { useDod } from '@/hooks/useDod'
+import { useDod, useUpdateDodItem } from '@/hooks/useDod'
+import { useSprints } from '@/hooks/useSprints'
 import { useToast } from '@/hooks/useToast'
 import { useAuth, type UserProfile } from '@/contexts/AuthContext'
 import { useProduit } from '@/contexts/ProduitContext'
 import { confirm } from '@/components/ui/ConfirmModal'
-import { cn, parseCriteres, serializeCriteres, hasPendingCriteres, buildTacheIndex, isSousTache, effortEffectif } from '@/lib/utils'
-import { SPRINTS_LIST, METIERS_DEFAULT } from '@/constants'
+import { cn, parseCriteres, serializeCriteres, hasPendingCriteres, buildTacheIndex, isSousTache, effortEffectif, existingSprintNumeros, parseLienDodCodes } from '@/lib/utils'
+import { METIERS_DEFAULT } from '@/constants'
 import type { Tache, Statut } from '@/types'
+
+// Origine d'une itération : distingue la reprise automatique de fin de
+// sprint (aucun objectif, juste le reste à faire) de la boucle agile
+// délibérée créée depuis le backlog — visible directement dans les badges,
+// pas seulement au survol.
+const ORIGINE_CFG: Record<string, { icon: typeof RotateCcw; label: string; className: string }> = {
+  sprint:  { icon: CalendarClock, label: 'Reprise de sprint',  className: 'text-subtle' },
+  rework:  { icon: Sparkles,      label: 'Nouvelle itération', className: 'text-indigo-600' },
+  initial: { icon: RotateCcw,     label: 'État initial',        className: 'text-subtle' },
+}
 
 // Détail d'une itération (boucle de rework) dans le panneau de tâche —
 // objectif/résultat en état local avec sauvegarde au blur (évite de spammer
 // l'API à chaque frappe), critères/statut sauvegardés immédiatement comme
 // partout ailleurs dans ce panneau.
-function IterationCard({iteration,membres,onUpdate}:{
+function IterationCard({iteration,membres,sprintNumeros,onUpdate}:{
   iteration:TacheIteration
   membres:UserProfile[]
+  sprintNumeros:string[]
   onUpdate:(updates:Partial<Pick<TacheIteration,'objectif'|'criteres'|'effort_j'|'assigne_a'|'sprint'|'statut'|'resultat'|'commentaire'>>)=>void
 }) {
   const [objectif,setObjectif]=useState(iteration.objectif??'')
@@ -45,10 +57,17 @@ function IterationCard({iteration,membres,onUpdate}:{
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[iteration.id])
 
+  const origineCfg = ORIGINE_CFG[iteration.origine] ?? ORIGINE_CFG.rework
+  const OrigineIcon = origineCfg.icon
   return (
     <div className="bg-bg border border-border rounded-xl p-3 flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-bold text-navy">Itération {iteration.numero}</span>
+        <span className="flex items-center gap-1.5">
+          <span className="text-xs font-bold text-navy">Itération {iteration.numero}</span>
+          <span className={cn('flex items-center gap-1 text-[10px] font-semibold', origineCfg.className)}>
+            <OrigineIcon size={11} /> {origineCfg.label}
+          </span>
+        </span>
         <StatusPicker value={iteration.statut} onChange={s=>onUpdate({statut:s})} />
       </div>
       <textarea value={objectif} onChange={e=>setObjectif(e.target.value)} onBlur={()=>onUpdate({objectif})}
@@ -68,7 +87,7 @@ function IterationCard({iteration,membres,onUpdate}:{
         <div>
           <span className="ds-label mb-1 block">Sprint</span>
           <SelectPicker value={iteration.sprint??''} onChange={s=>onUpdate({sprint:s})}
-            options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
+            options={sprintNumeros.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
         </div>
       </div>
       <div onBlur={()=>onUpdate({commentaire})}>
@@ -105,10 +124,13 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
   const { data: dodItems = [] } = useDod()
   const { data: epicsList = [] } = useEpics()
   const { data: jalonsList = [] } = useJalons()
+  const { data: sprints = [] } = useSprints()
+  const sprintNumeros = existingSprintNumeros(sprints)
   const { data: dependances = [] } = useTacheDependances(produitId)
   const addDependance = useAddDependance()
   const removeDependance = useRemoveDependance()
   const updateTache = useUpdateTache()
+  const updateDodItem = useUpdateDodItem()
   const createSub = useCreateSousTache()
   const { data: iterations = [] } = useTacheIterations(tacheId, produitId)
   const createIteration = useCreateIteration()
@@ -135,9 +157,12 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
   const [initedFor, setInitedFor] = useState<string | null>(null)
   useEffect(() => {
     if (!panelTask || initedFor === panelTask.id_tache) return
-    const effectiveEffort = effortEffectif(panelTask, childMap)
     const t = panelTask
-    setEditForm({titre:t.titre,statut:t.statut,sprint:t.sprint??'',sprint_debut:t.sprint_debut??'',sprint_fin:t.sprint_fin??'',effort_j:effectiveEffort,priorite:t.priorite??'',moscow:t.moscow??'Must Have',assigne_a:t.assigne_a??'',equipe:t.equipe??'',metier:t.metier??'',jalon:t.jalon??'',epic:t.epic??'',type_fonction:t.type_fonction??'Fonction principale',description:t.description??'',criteres:t.criteres??'',lien_dod:t.lien_dod??'',commentaire:t.commentaire??'',parent_id:t.parent_id??''})
+    // effort_j = effort PROPRE de la tâche (le total propre + sous-tâches est
+    // calculé à l'affichage via effortEffectif) — surtout ne pas initialiser
+    // avec la somme : la sauvegarde du panneau la matérialiserait dans
+    // effort_j et tout serait compté double (cf. migration 0057).
+    setEditForm({titre:t.titre,statut:t.statut,sprint:t.sprint??'',sprint_debut:t.sprint_debut??'',sprint_fin:t.sprint_fin??'',effort_j:t.effort_j??0,priorite:t.priorite??'',moscow:t.moscow??'Must Have',assigne_a:t.assigne_a??'',equipe:t.equipe??'',metier:t.metier??'',jalon:t.jalon??'',epic:t.epic??'',type_fonction:t.type_fonction??'Fonction principale',description:t.description??'',criteres:t.criteres??'',lien_dod:t.lien_dod??'',commentaire:t.commentaire??'',parent_id:t.parent_id??''})
     setInitedFor(t.id_tache)
   }, [panelTask, initedFor, childMap])
   function setF(k:string){return(e:React.ChangeEvent<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>)=>setEditForm(f=>({...f,[k]:e.target.value}))}
@@ -200,20 +225,26 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
         {panelTask.type_tache!=='Conteneur' && (
           <div className="mb-3">
             <div className="flex items-center gap-1.5 flex-wrap mb-2">
-              {iterations.map(it=>(
-                <button key={it.id} onClick={()=>setSelectedIterationId(it.id)}
-                  className={cn('text-[11px] font-semibold px-2 py-1 rounded-full border transition-colors',
-                    (currentIteration?.id===it.id)?'bg-indigo-600 text-white border-indigo-600':'bg-bg text-subtle border-border hover:border-indigo-300')}>
-                  It. {it.numero} {it.statut==='Fait'?'✓':it.statut==='Bloqué'?'⛔':'·'}
-                </button>
-              ))}
+              {iterations.map(it=>{
+                const cfg=ORIGINE_CFG[it.origine]??ORIGINE_CFG.rework
+                const OIcon=cfg.icon
+                const active=currentIteration?.id===it.id
+                return (
+                  <button key={it.id} onClick={()=>setSelectedIterationId(it.id)} title={cfg.label}
+                    className={cn('flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full border transition-colors',
+                      active?'bg-indigo-600 text-white border-indigo-600':'bg-bg text-subtle border-border hover:border-indigo-300')}>
+                    <OIcon size={10} className={active?'text-white/80':undefined} />
+                    It. {it.numero} {it.statut==='Fait'?'✓':it.statut==='Bloqué'?'⛔':'·'}
+                  </button>
+                )
+              })}
               <button onClick={()=>setShowNewIteration(true)}
                 className="text-[11px] font-semibold px-2 py-1 rounded-full border border-dashed border-indigo-300 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1">
                 <RotateCcw size={11}/> Nouvelle itération
               </button>
             </div>
             {currentIteration ? (
-              <IterationCard iteration={currentIteration} membres={membresActifs}
+              <IterationCard iteration={currentIteration} membres={membresActifs} sprintNumeros={sprintNumeros}
                 onUpdate={updates=>updateIteration.mutate({
                   id:currentIteration.id,id_tache:panelTask.id_tache,updates,
                   syncToTache:currentIteration.id===iterations[iterations.length-1]?.id,
@@ -290,14 +321,13 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
             </Grp>
             {!hasIterations && (
               <>
-                <Grp label="Effort (j)" className="col-span-1">
-                  {(childMap[panelTask.id_tache]??[]).length > 0 ? (
-                    <div className="ds-input text-xs bg-slate-50 text-navy font-semibold flex items-center gap-1.5 cursor-not-allowed">
-                      <span>∑ {(childMap[panelTask.id_tache]??[]).reduce((s,c)=>s+(c.effort_j??0),0)}j</span>
-                      <span className="text-[11px] text-slate-400 font-normal">{(childMap[panelTask.id_tache]??[]).length} ss</span>
+                <Grp label={(childMap[panelTask.id_tache]??[]).length > 0 ? 'Effort propre (j)' : 'Effort (j)'} className="col-span-1">
+                  <input type="number" value={Number(editForm.effort_j??0)} onChange={setF('effort_j')} className="ds-input text-xs" min={0} step={0.5}/>
+                  {(childMap[panelTask.id_tache]??[]).length > 0 && (
+                    <div className="text-[10px] text-subtle mt-0.5 tabular-nums whitespace-nowrap">
+                      + ∑ {(childMap[panelTask.id_tache]??[]).reduce((s,c)=>s+effortEffectif(c,childMap),0)}j ss-tâches
+                      = <b>{Number(editForm.effort_j??0)+(childMap[panelTask.id_tache]??[]).reduce((s,c)=>s+effortEffectif(c,childMap),0)}j</b>
                     </div>
-                  ) : (
-                    <input type="number" value={Number(editForm.effort_j??0)} onChange={setF('effort_j')} className="ds-input text-xs" min={0} step={0.5}/>
                   )}
                 </Grp>
                 <Grp label="Assigné à" className="col-span-2">
@@ -313,11 +343,11 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
               <>
                 <Grp label="Sprint début">
                   <SelectPicker value={String(editForm.sprint_debut??'')} onChange={v=>setEditForm(f=>({...f,sprint_debut:v}))}
-                    options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
+                    options={sprintNumeros.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
                 </Grp>
                 <Grp label="Sprint fin">
                   <SelectPicker value={String(editForm.sprint_fin??'')} onChange={v=>setEditForm(f=>({...f,sprint_fin:v}))}
-                    options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
+                    options={sprintNumeros.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
                 </Grp>
               </>
             )}
@@ -459,11 +489,19 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
           initAssigneA={iterations[iterations.length-1]?.assigne_a??panelTask.assigne_a}
           initSprint={iterations[iterations.length-1]?.sprint??panelTask.sprint_debut??panelTask.sprint}
           membres={membresActifs}
+          exigencesVerifiees={dodItems.filter(d=>d.verifiee&&parseLienDodCodes(panelTask.lien_dod).includes(d.code))}
           onClose={()=>setShowNewIteration(false)}
-          onCreate={async payload=>{
+          onCreate={async({devalider,...payload})=>{
             const it=await createIteration.mutateAsync({id_tache:panelTask.id_tache,...payload})
+            // Rework = l'essai qui avait validé ces exigences ne couvre plus
+            // la modification : repassées « à vérifier » (updateDodItem
+            // journalise le changement → alimente le compteur de boucles).
+            for(const id of devalider){
+              const d=dodItems.find(x=>x.id===id)
+              if(d)await updateDodItem.mutateAsync({id,updates:{verifiee:false},item:d})
+            }
             setSelectedIterationId(it.id)
-            toast(`✅ Itération ${it.numero} créée`)
+            toast(`✅ Itération ${it.numero} créée${devalider.length?` — ${devalider.length} exigence${devalider.length>1?'s':''} remise${devalider.length>1?'s':''} en vérification`:''}`)
           }}
         />
       )}

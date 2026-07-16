@@ -46,7 +46,7 @@ function HelpPopover() {
             <span className="flex items-center gap-2"><span className="inline-block w-2.5 h-3 rounded-t-sm bg-indigo-500 shrink-0" /> hauteur de barre = % de charge de la semaine</span>
             <span className="flex items-center gap-2"><span className="inline-block w-2.5 h-3 rounded-t-sm bg-rose-500 shrink-0" /> dépassement de capacité</span>
             <span className="flex items-center gap-2"><span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0" /> absence du membre (capacité réduite)</span>
-            <span className="flex items-center gap-2"><Users size={11} className="shrink-0" /> N = membres — cliquez pour déplier</span>
+            <span className="flex items-center gap-2"><Users size={11} className="shrink-0" /> N = membres ou produits — cliquez pour déplier et saisir</span>
             <span className="flex items-center gap-2"><CalendarOff size={11} className="shrink-0 text-amber-500" /> gérer les absences (vue membre)</span>
           </div>
           <div className="text-xs font-bold text-navy uppercase tracking-wide mt-3.5 mb-2.5">Saisie clavier</div>
@@ -69,6 +69,7 @@ export function PlanChargesTopbar({
   mode, setMode,
   setShowSettings,
   showTip, setShowTip,
+  showAllUsers, setShowAllUsers,
 }: {
   annee: number; setAnnee: Dispatch<SetStateAction<number>>; curYear: number; scrollToToday: () => void
   viewMode: 'produit' | 'membre'; setViewMode: Dispatch<SetStateAction<'produit' | 'membre'>>
@@ -76,6 +77,7 @@ export function PlanChargesTopbar({
   mode: PlanMode; setMode: Dispatch<SetStateAction<PlanMode>>
   setShowSettings: Dispatch<SetStateAction<boolean>>
   showTip: boolean; setShowTip: Dispatch<SetStateAction<boolean>>
+  showAllUsers: boolean; setShowAllUsers: Dispatch<SetStateAction<boolean>>
 }) {
   return (
     <>
@@ -106,10 +108,12 @@ export function PlanChargesTopbar({
             </button>
           )}
 
-          {/* Toggle vue */}
+          {/* Toggle vue — Membre en premier : c'est la vue par défaut, et
+              c'est là que la saisie se fait le plus souvent (temps par
+              membre, produit par produit). */}
           <ToggleGroup value={viewMode} onChange={setViewMode} options={[
-            { key: 'produit', label: 'Par produit', icon: <Package size={11}/> },
             { key: 'membre',  label: 'Par membre',  icon: <Users size={11}/> },
+            { key: 'produit', label: 'Par produit', icon: <Package size={11}/> },
           ]} />
 
           {viewMode === 'membre' && (
@@ -123,6 +127,16 @@ export function PlanChargesTopbar({
                 </button>
               )}
             </div>
+          )}
+
+          {viewMode === 'membre' && (
+            <button onClick={() => setShowAllUsers(v => !v)}
+              title="Inclut les profils sans rôle sur un produit actif et les profils en attente de validation"
+              className={cn('flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors',
+                showAllUsers ? 'bg-indigo-50 text-indigo-700' : 'text-subtle hover:text-navy hover:bg-bg')}>
+              <Users size={12} aria-hidden="true" />
+              Voir tous les users
+            </button>
           )}
 
           {/* Toggle mode */}
@@ -156,7 +170,9 @@ export function PlanChargesTopbar({
         </div>
       </div>
 
-      {showTip && viewMode === 'produit' && mode !== 'comparaison' && (
+      {/* La vue Membre permet aussi la saisie (déplier un membre → produits
+          édition directe) : l'astuce s'applique désormais aux deux vues. */}
+      {showTip && mode !== 'comparaison' && (
         <div className="flex items-center gap-2 text-xs text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-1.5 mb-3">
           <Info size={13} className="shrink-0" aria-hidden="true" />
           <span>Cliquez sur une cellule pour saisir une valeur, ou glissez sur plusieurs semaines pour un remplissage groupé.</span>

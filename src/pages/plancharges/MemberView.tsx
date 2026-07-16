@@ -1,41 +1,70 @@
-import { useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { labelsFermes } from '@/utils/joursFeries'
 import { useAbsences, useCreateAbsence, useDeleteAbsence } from '@/hooks/useAbsences'
-import { CalendarOff, Plus, X } from 'lucide-react'
+import { usePlanCharges, useUpsertPlanCharge } from '@/hooks/usePlanCharges'
+import { CalendarOff, ChevronDown, Package, Plus, X } from 'lucide-react'
 import type { Produit } from '@/hooks/useProduits'
 import type { UserProfile } from '@/contexts/AuthContext'
+import { getISOWeek } from '@/lib/utils'
 import { COL_PRODUIT, COL_Q, COL_Q_ALLOC, COL_Q_RESTE, COL_WK, fmtDayMonth, fmtJ } from './utils'
 import type { PlanMode, WeekInfo } from './utils'
+import { CellInput } from './CellInput'
+
+interface DragRange { produit_id: number; assigne_a: string; min: number; max: number }
+interface EditCellState { produit_id: number; semaine: number; assigne_a: string }
 
 interface MemberViewProps {
   annee: number; curYear: number; mode: PlanMode
   quarters: Array<{ q: number; label: string; weeks: WeekInfo[] }>
   profiles: (UserProfile & { email?: string })[]
   allRoles: Array<{ user_id: string; produit_id: number }>
+  // Tous les profils identifiables (actifs + en attente, trigramme requis),
+  // sans condition de rôle — utilisé quand showAllUsers est actif.
+  allProfilesExt: UserProfile[]
+  showAllUsers: boolean
   activeProduits: Produit[]
   planMap: Map<string, number>; planMapR: Map<string, number>
   joursOuvresMap: Map<number, number>; currentISOWeek: number
   memberMaxJours: (tri: string, semaine: number) => number
   feriesMap: Map<string, string>; fermeturesDayMap: Map<string, string>
   search: string
+  // ── Édition directe : un membre déplié affiche un sous-rang par produit
+  // auquel il est assigné, avec des cellules saisissables (même mécanique
+  // que ProduitView — CellInput, drag-to-fill porté par le parent).
+  expandedMember: Set<string>; toggleMember: (user_id: string) => void
+  cellVal: (produit_id: number, semaine: number, assigne_a: string) => number
+  cellValR: (produit_id: number, semaine: number, assigne_a: string) => number
+  editCell: EditCellState | null; setEditCell: (c: EditCellState | null) => void
+  dragRange: DragRange | null; setDragRange: (fn: (prev: DragRange | null) => DragRange | null) => void
+  dragRef: React.MutableRefObject<{ produit_id: number; assigne_a: string; start: number } | null>
+  hasDragged: React.MutableRefObject<boolean>
+  saveCell: (produit_id: number, semaine: number, assigne_a: string, val: number) => void
+  canWriteProduit: (produit_id: number) => boolean
 }
 
 export function MemberView({ annee, curYear, mode, quarters,
-  profiles, allRoles, activeProduits, planMap, planMapR,
-  joursOuvresMap, memberMaxJours, currentISOWeek, feriesMap, fermeturesDayMap, search }: MemberViewProps) {
+  profiles, allRoles, allProfilesExt, showAllUsers, activeProduits, planMap, planMapR,
+  joursOuvresMap, memberMaxJours, currentISOWeek, feriesMap, fermeturesDayMap, search,
+  expandedMember, toggleMember, cellVal, cellValR,
+  editCell, setEditCell, dragRange, setDragRange, dragRef, hasDragged, saveCell, canWriteProduit }: MemberViewProps) {
 
   const [absencesFor, setAbsencesFor] = useState<UserProfile | null>(null)
 
+  // Pour griser les semaines passées dans les sous-lignes produits (même
+  // logique que ProduitView) — non mémoïsé, un rendu par jour suffit large.
+  const today = new Date()
   const activeProduitIds = useMemo(() => new Set(activeProduits.map(p => p.id)), [activeProduits])
 
   const members = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return profiles
-      .filter(pr => pr.actif !== false && allRoles.some(r => r.user_id === pr.user_id && activeProduitIds.has(r.produit_id)))
+    const pool = showAllUsers
+      ? allProfilesExt.filter(pr => pr.trigramme)
+      : profiles.filter(pr => pr.actif !== false && allRoles.some(r => r.user_id === pr.user_id && activeProduitIds.has(r.produit_id)))
+    return pool
       .filter(pr => !q || (pr.trigramme ?? '').toLowerCase().includes(q) || (pr.display_name ?? '').toLowerCase().includes(q))
       .sort((a, b) => (a.trigramme ?? a.display_name ?? '').localeCompare(b.trigramme ?? b.display_name ?? '', 'fr'))
-  }, [profiles, allRoles, activeProduitIds, search])
+  }, [profiles, allRoles, allProfilesExt, showAllUsers, activeProduitIds, search])
 
   function getJO(s: number) { return joursOuvresMap.get(s) ?? 5 }
 
@@ -56,7 +85,7 @@ export function MemberView({ annee, curYear, mode, quarters,
 
   if (members.length === 0) return (
     <div className="text-center py-16 text-subtle text-sm">
-      {search.trim() ? `Aucun membre ne correspond à « ${search} ».` : 'Aucun membre avec rôle sur un produit actif.'}
+      {search.trim() ? `Aucun membre ne correspond à « ${search} ».` : showAllUsers ? 'Aucun utilisateur identifiable (trigramme requis).' : 'Aucun membre avec rôle sur un produit actif.'}
     </div>
   )
 
@@ -114,14 +143,21 @@ export function MemberView({ annee, curYear, mode, quarters,
           <tbody>
             {members.map(member => {
               const tri = member.trigramme ?? ''
-              const memberProduits = activeProduits.filter(p =>
+              const roleProduits = activeProduits.filter(p =>
                 allRoles.some(r => r.user_id === member.user_id && r.produit_id === p.id))
+              // Membre sans rôle formel (visible via « Voir tous les users ») :
+              // tous les produits actifs restent saisissables, faute de rôle
+              // pour restreindre le choix.
+              const memberProduits = roleProduits.length > 0 ? roleProduits : activeProduits
 
               const totAnnee = quarters.reduce((s, qt) =>
                 s + qt.weeks.reduce((ws, w) => ws + (mode === 'realise' ? wkValR(tri, w.semaine) : wkVal(tri, w.semaine)), 0), 0)
+              const isExpMember = expandedMember.has(member.user_id)
+              const hasProduits = memberProduits.length > 0
 
               return (
-                <tr key={member.user_id} className="border-b border-border/10 hover:bg-bg/20 transition-colors">
+                <React.Fragment key={member.user_id}>
+                <tr className="border-b border-border/10 hover:bg-bg/20 transition-colors">
                   {/* Sticky : membre */}
                   <td className="sticky left-0 z-10 bg-card px-3 py-2 border-r border-border/30" style={{ width: COL_PRODUIT }}>
                     <div className="flex items-center gap-2">
@@ -131,15 +167,28 @@ export function MemberView({ annee, curYear, mode, quarters,
                       </span>
                       <div className="min-w-0">
                         <div className="text-xs font-semibold text-navy truncate">{member.display_name}</div>
-                        <div className="flex gap-1 mt-0.5 flex-wrap">
-                          {memberProduits.slice(0,4).map(p => (
+                        <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                          {roleProduits.slice(0,4).map(p => (
                             <span key={p.id} className="w-2 h-2 rounded-full inline-block" style={{ background: p.couleur ?? '#4A4CC8' }} title={p.nom} />
                           ))}
+                          {roleProduits.length === 0 && (
+                            <span className="text-[10px] text-subtle/50 italic">pas encore rattaché</span>
+                          )}
                         </div>
                       </div>
                       <div className="ml-auto flex items-center gap-1 shrink-0">
                         {totAnnee > 0 && (
                           <span className="text-[11px] text-subtle tabular-nums">{fmtJ(totAnnee)}j</span>
+                        )}
+                        {/* Déplier → un sous-rang saisissable par produit assigné à ce membre */}
+                        {hasProduits && (
+                          <button onClick={() => toggleMember(member.user_id)}
+                            title="Déplier pour saisir le temps par produit"
+                            className="flex items-center gap-0.5 text-subtle hover:text-indigo-600 transition-colors">
+                            <Package size={11} />
+                            <span className="text-[11px]">{memberProduits.length}</span>
+                            <ChevronDown size={10} className={cn('transition-transform', !isExpMember && '-rotate-90')} />
+                          </button>
                         )}
                         <button onClick={() => setAbsencesFor(member)} title="Gérer les absences"
                           className="p-1 rounded hover:bg-amber-50 text-subtle/50 hover:text-amber-600 transition-colors">
@@ -270,6 +319,210 @@ export function MemberView({ annee, curYear, mode, quarters,
                       : <span className="text-subtle/20 text-[11px]">—</span>}
                   </td>
                 </tr>
+
+                {/* ── Sous-lignes produits (si le membre est déplié) : ici
+                    se fait la saisie — une cellule par produit × semaine,
+                    même mécanique que la vue Par produit (CellInput,
+                    drag-to-fill). ── */}
+                {hasProduits && isExpMember && memberProduits.map(p => {
+                  const isReadOnly = mode === 'comparaison' || !canWriteProduit(p.id)
+                  const produitAlloue = quarters.reduce((s, qt) =>
+                    s + qt.weeks.reduce((ws, w) => ws + cellVal(p.id, w.semaine, tri), 0), 0)
+
+                  return (
+                    <tr key={`produit-${member.user_id}-${p.id}`}
+                      className="border-b border-border/10 bg-bg/20 hover:bg-bg/40 transition-colors">
+                      <td className="sticky left-0 z-10 bg-bg pl-8 pr-3 py-1.5 border-r border-border/20" style={{ width: COL_PRODUIT }}>
+                        <div className="flex items-center justify-between gap-2 min-w-0">
+                          <span className="flex items-center gap-1.5 min-w-0">
+                            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.couleur ?? '#4A4CC8' }} />
+                            <span className="text-xs font-medium text-navy truncate" title={p.nom}>{p.nom}</span>
+                          </span>
+                          {produitAlloue > 0 && (
+                            <span className="text-[11px] text-subtle tabular-nums shrink-0">{fmtJ(produitAlloue)}</span>
+                          )}
+                        </div>
+                      </td>
+
+                      {quarters.map(qt => {
+                        const allocQ = qt.weeks.reduce((s, w) => s + cellVal(p.id, w.semaine, tri), 0)
+                        const realQ  = qt.weeks.reduce((s, w) => s + cellValR(p.id, w.semaine, tri), 0)
+                        const dispQ  = mode === 'realise' ? realQ : allocQ
+
+                        return [
+                          ...qt.weeks.map(w => {
+                            const isPast = w.lundi < today
+                            const vP = cellVal(p.id, w.semaine, tri)
+                            const vR = cellValR(p.id, w.semaine, tri)
+                            const v  = mode === 'realise' ? vR : vP
+                            const maxJours = memberMaxJours(tri, w.semaine)
+                            const isToday = w.semaine === currentISOWeek && annee === curYear
+                            const isEdit = !isReadOnly && editCell?.produit_id === p.id
+                              && editCell?.semaine === w.semaine && editCell?.assigne_a === tri
+                            const isInDrag = !isReadOnly && dragRange !== null
+                              && dragRange.produit_id === p.id && dragRange.assigne_a === tri
+                              && w.semaine >= dragRange.min && w.semaine <= dragRange.max
+
+                            if (mode === 'comparaison') {
+                              let bg = 'transparent'; let textCol = '#94a3b8'; let displayVal = ''
+                              if (vR > 0) {
+                                displayVal = fmtJ(vR)
+                                const ratio = vP > 0 ? vR / vP : Infinity
+                                if (vP === 0)        { bg = 'rgba(251,191,36,0.25)'; textCol = '#92400e' }
+                                else if (ratio <= 1) { bg = 'rgba(34,197,94,0.25)';  textCol = '#166534' }
+                                else if (ratio <= 1.2){ bg = 'rgba(251,146,60,0.25)'; textCol = '#9a3412' }
+                                else                 { bg = 'rgba(239,68,68,0.3)';   textCol = '#7f1d1d' }
+                              } else if (vP > 0) { bg = 'rgba(59,130,246,0.08)'; textCol = '#93c5fd' }
+                              return (
+                                <td key={`${qt.q}-${w.semaine}`} style={{ width: COL_WK, background: bg }}
+                                  className={cn('text-center px-1 py-1.5 border-r border-b border-border',
+                                    isToday && 'ring-1 ring-inset ring-yellow/40')}>
+                                  {displayVal
+                                    ? <span className="text-xs font-bold tabular-nums" style={{ color: textCol }}>{displayVal}</span>
+                                    : <span className="text-[10px] text-subtle/20">·</span>}
+                                </td>
+                              )
+                            }
+
+                            if (maxJours === 0) {
+                              return (
+                                <td key={`${qt.q}-${w.semaine}`} style={{ width: COL_WK }}
+                                  className="text-center px-1 py-1.5 border-r border-b border-border bg-rose-100 cursor-not-allowed" />
+                              )
+                            }
+
+                            if (isInDrag) {
+                              return (
+                                <td key={`${qt.q}-${w.semaine}`} style={{ width: COL_WK }}
+                                  className="text-center px-1 py-1.5 border-r border-b border-border bg-indigo-100/50 ring-2 ring-inset ring-indigo-400 cursor-crosshair"
+                                  onMouseEnter={() => {
+                                    if (!dragRef.current) return
+                                    hasDragged.current = true
+                                    setDragRange(prev => prev ? { ...prev, min: Math.min(prev.min, w.semaine), max: Math.max(prev.max, w.semaine) } : null)
+                                  }}>
+                                  <span className="text-xs font-bold tabular-nums text-indigo-600">{v > 0 ? fmtJ(v) : '·'}</span>
+                                </td>
+                              )
+                            }
+
+                            const isGreen  = mode === 'realise'
+                            const ratio    = v > 0 ? Math.min(1, v / maxJours) : 0
+                            const over     = v > maxJours
+                            const barColor = over ? '#f43f5e' : isGreen ? '#34d399' : '#6366f1'
+                            const trackBg  = isPast ? '#f1f5f9' : isGreen ? '#f0fdf4' : '#eef2ff'
+                            const barHeightPct = v > 0 ? Math.max(14, Math.round(ratio * 100)) : 0
+                            const textColor = v > 0 ? (over ? '#e11d48' : isGreen ? '#047857' : '#4338ca') : 'transparent'
+
+                            return (
+                              <td key={`${qt.q}-${w.semaine}`} style={{ width: COL_WK }}
+                                title={isReadOnly
+                                  ? "Lecture seule — vous n'avez pas les droits d'édition sur ce produit"
+                                  : 'Clic : saisir une valeur · Glisser sur plusieurs semaines : remplissage groupé'}
+                                className={cn('p-0 border-r border-b border-border select-none transition-all',
+                                  isReadOnly ? 'cursor-default' : 'cursor-pointer',
+                                  isToday && 'ring-1 ring-inset ring-yellow/50')}
+                                onMouseDown={e => {
+                                  if (isEdit || isReadOnly) return
+                                  e.preventDefault()
+                                  // N'arme que la ref — le range de drag n'est posé qu'au premier
+                                  // mouseenter réel (cf. ci-dessous), pour qu'un simple clic sans
+                                  // mouvement ne bascule jamais la cellule en rendu "isInDrag"
+                                  // (qui n'a pas de onClick, ce qui cassait le clic seul).
+                                  dragRef.current = { produit_id: p.id, assigne_a: tri, start: w.semaine }
+                                  hasDragged.current = false
+                                }}
+                                onMouseEnter={() => {
+                                  if (!dragRef.current || dragRef.current.produit_id !== p.id || dragRef.current.assigne_a !== tri) return
+                                  hasDragged.current = true
+                                  const start = dragRef.current.start
+                                  setDragRange(prev => {
+                                    const base = prev ?? { produit_id: p.id, assigne_a: tri, min: start, max: start }
+                                    return { ...base, min: Math.min(base.min, w.semaine), max: Math.max(base.max, w.semaine) }
+                                  })
+                                }}
+                                onClick={() => {
+                                  if (hasDragged.current || isReadOnly) return
+                                  if (!isEdit) setEditCell({ produit_id: p.id, semaine: w.semaine, assigne_a: tri })
+                                }}>
+                                {isEdit ? (
+                                  <div className="flex items-center justify-center h-9">
+                                    <CellInput
+                                      initVal={v}
+                                      maxJours={maxJours}
+                                      onSave={val => saveCell(p.id, w.semaine, tri, val)}
+                                      onCancel={() => setEditCell(null)}
+                                      onMove={dir => {
+                                        // next/prev = semaine suivante/précédente (en sautant les
+                                        // semaines fermées) ; up/down = produit précédent/suivant
+                                        // du même membre.
+                                        if (dir === 'next' || dir === 'prev') {
+                                          const allWeeks = quarters.flatMap(q => q.weeks)
+                                          const idx = allWeeks.findIndex(x => x.semaine === w.semaine)
+                                          const step = dir === 'next' ? 1 : -1
+                                          for (let i = idx + step; i >= 0 && i < allWeeks.length; i += step) {
+                                            if (getJO(allWeeks[i].semaine) > 0) {
+                                              setEditCell({ produit_id: p.id, semaine: allWeeks[i].semaine, assigne_a: tri })
+                                              return
+                                            }
+                                          }
+                                          return
+                                        }
+                                        const pi = memberProduits.findIndex(x => x.id === p.id)
+                                        const ni = dir === 'down' ? pi + 1 : pi - 1
+                                        if (ni < 0 || ni >= memberProduits.length) return
+                                        setEditCell({ produit_id: memberProduits[ni].id, semaine: w.semaine, assigne_a: tri })
+                                      }}
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="relative h-9 flex flex-col items-center justify-end px-1 pb-0.5" style={{ background: trackBg }}>
+                                    <span className="text-[10px] font-bold leading-none mb-0.5 tabular-nums pointer-events-none" style={{ color: textColor }}>
+                                      {v > 0 ? fmtJ(v) : ''}
+                                    </span>
+                                    {v > 0 ? (
+                                      <div className="w-full rounded-t-sm pointer-events-none transition-all"
+                                        style={{ height: `${barHeightPct}%`, background: barColor, opacity: isPast ? 0.55 : 1 }} />
+                                    ) : (
+                                      <span className="w-1 h-1 rounded-full bg-slate-300 pointer-events-none" />
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                            )
+                          }),
+                          <td key={`${qt.q}-a`} style={{ width: COL_Q_ALLOC }}
+                            className="text-center py-1.5 border-l border-border/20 border-r border-border/10 tabular-nums bg-slate-300">
+                            {mode === 'comparaison' ? (
+                              <div className="flex flex-col gap-px">
+                                <span className="text-[10px] text-indigo-600">{allocQ > 0 ? fmtJ(allocQ) : '—'}</span>
+                                <span className="text-[10px] text-emerald-600">{realQ > 0 ? fmtJ(realQ) : '—'}</span>
+                              </div>
+                            ) : dispQ > 0
+                              ? <span className={cn('text-[11px]', mode === 'realise' ? 'text-emerald-600' : 'text-indigo-600')}>{fmtJ(dispQ)}</span>
+                              : <span className="text-subtle/20 text-[11px]">—</span>}
+                          </td>,
+                          <td key={`${qt.q}-r`} style={{ width: COL_Q_RESTE }} className="border-r border-border/10 bg-slate-300" />,
+                        ]
+                      })}
+
+                      <td className="text-center py-1.5 border-l border-border/20 tabular-nums" style={{ width: COL_Q }}>
+                        {(() => {
+                          const totalR = quarters.reduce((s, qt) => s + qt.weeks.reduce((ws, w) => ws + cellValR(p.id, w.semaine, tri), 0), 0)
+                          const disp = mode === 'realise' ? totalR : produitAlloue
+                          return mode === 'comparaison' ? (
+                            <div className="flex flex-col gap-px">
+                              <span className="text-[10px] text-indigo-600 font-semibold">{produitAlloue > 0 ? fmtJ(produitAlloue) : '—'}</span>
+                              <span className="text-[10px] text-emerald-600 font-semibold">{totalR > 0 ? fmtJ(totalR) : '—'}</span>
+                            </div>
+                          ) : disp > 0
+                            ? <span className={cn('text-[11px] font-semibold', mode === 'realise' ? 'text-emerald-600' : 'text-indigo-600')}>{fmtJ(disp)}</span>
+                            : <span className="text-subtle/20 text-[11px]">—</span>
+                        })()}
+                      </td>
+                    </tr>
+                  )
+                })}
+                </React.Fragment>
               )
             })}
           </tbody>
@@ -290,6 +543,8 @@ function AbsencesModal({ member, annee, onClose }: { member: UserProfile; annee:
   const { data: absences = [] } = useAbsences(annee)
   const createAbs = useCreateAbsence()
   const deleteAbs = useDeleteAbsence()
+  const { data: planData = [] } = usePlanCharges(annee)
+  const upsert = useUpsertPlanCharge()
 
   const [label, setLabel] = useState('Congés')
   const [debut, setDebut] = useState('')
@@ -302,6 +557,19 @@ function AbsencesModal({ member, annee, onClose }: { member: UserProfile; annee:
     if (!debut) return
     const f = !fin || fin < debut ? debut : fin
     await createAbs.mutateAsync({ trigramme: tri, annee, label: label.trim() || 'Congés', date_debut: debut, date_fin: f })
+
+    // Semaines ISO touchées par ce congé (même partiellement) : la saisie de
+    // plan de charge déjà présente sur ces semaines pour ce membre ne peut
+    // plus être fiable (capacité réduite ou nulle) — on l'efface pour forcer
+    // une resaisie avec le bon nombre de jours dispo sur la semaine.
+    const weeks = new Set<number>()
+    const d = new Date(debut + 'T00:00:00')
+    const end = new Date(f + 'T00:00:00')
+    while (d <= end) { weeks.add(getISOWeek(d).semaine); d.setDate(d.getDate() + 1) }
+    planData
+      .filter(pc => pc.assigne_a === tri && weeks.has(pc.semaine) && pc.jours > 0)
+      .forEach(pc => upsert.mutate({ produit_id: pc.produit_id, epic: pc.epic, assigne_a: tri, semaine: pc.semaine, annee, jours: 0 }))
+
     setDebut(''); setFin('')
   }
 
@@ -359,6 +627,7 @@ function AbsencesModal({ member, annee, onClose }: { member: UserProfile; annee:
             <Plus size={13} /> Ajouter l'absence
           </button>
           <p className="text-[11px] text-subtle/50 mt-2 text-center">Un seul jour ? Laisse « Au » vide. Week-ends, fériés et fermetures ne sont pas décomptés.</p>
+          <p className="text-[11px] text-subtle/50 mt-1 text-center">La saisie existante sur les semaines concernées est effacée — à resaisir avec la capacité restante.</p>
         </div>
       </div>
     </div>

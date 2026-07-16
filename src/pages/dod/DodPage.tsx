@@ -12,10 +12,10 @@ import { supabase } from '@/lib/supabase'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEpics, epicFullName } from '@/hooks/useEpics'
 import { useJalons } from '@/hooks/useJalons'
-import { naturalCompare, buildTacheIndex, isUS } from '@/lib/utils'
+import { buildTacheIndex, isUS } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { EXIGENCE_TYPE_CFG } from '@/constants'
-import { Plus, Pencil, Trash2, Check, X, ListChecks, BookOpen, BarChart3, Tag, Search } from 'lucide-react'
+import { Plus, Pencil, Trash2, Check, X, ListChecks, BookOpen, BarChart3, Tag, Search, ChevronUp, ChevronDown } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
 import { SelectPicker } from '@/components/ui/SelectPicker'
 import { ToggleGroup } from '@/components/ui/ToggleGroup'
@@ -136,13 +136,32 @@ function CategoriesManager({ categories, items, produitId, qc, toast }: {
 
   function countFor(nomCat: string) { return items.filter(i => i.categorie === nomCat).length }
 
-  // Tri par code du 1er critère de chaque catégorie (items déjà triés
-  // naturellement depuis useDod), pour suivre l'ordre F1, F2, F9, F10…
-  const sortedCategories = [...categories].sort((a, b) => {
-    const codeA = items.find(i => i.categorie === a.nom)?.code ?? ''
-    const codeB = items.find(i => i.categorie === b.nom)?.code ?? ''
-    return naturalCompare(codeA, codeB)
-  })
+  // Même règle de tri que le trigger recompute_dod_codes (migration 0031) :
+  // (ordre, nom). La position dans CETTE liste est donc exactement le numéro
+  // de catégorie des codes "EX n.x" — affiché en badge devant chaque nom.
+  const sortedCategories = [...categories].sort((a, b) => a.ordre - b.ordre || a.nom.localeCompare(b.nom, 'fr'))
+
+  // Réordonne par flèches : matérialise ordre = rang×10 pour toutes les
+  // catégories dont la position change — le trigger recompute_dod_codes
+  // renumérote les codes EX n.x et cascade sur les lien_dod des US.
+  async function move(cat: DodCategorie, dir: -1 | 1) {
+    const idx = sortedCategories.findIndex(c => c.id === cat.id)
+    const target = idx + dir
+    if (target < 0 || target >= sortedCategories.length) return
+    const next = [...sortedCategories]
+    next.splice(idx, 1)
+    next.splice(target, 0, cat)
+    for (let i = 0; i < next.length; i++) {
+      const ordre = (i + 1) * 10
+      if (next[i].ordre !== ordre) {
+        const { error } = await supabase.from('dod_categories').update({ ordre }).eq('id', next[i].id)
+        if (error) { toast('Erreur lors du réordonnancement', 'error'); return }
+      }
+    }
+    qc.invalidateQueries({ queryKey: ['dod_categories', produitId] })
+    qc.invalidateQueries({ queryKey: ['dod', produitId] })
+    toast('Catégories réordonnées — codes EX renumérotés')
+  }
 
   // Catégories déjà utilisées sur des critères mais absentes de la table
   // dod_categories (ex: valeurs saisies directement, sans passer par ce gestionnaire).
@@ -225,9 +244,16 @@ function CategoriesManager({ categories, items, produitId, qc, toast }: {
       {categories.length === 0 ? (
         <p className="text-xs text-subtle italic">Aucune catégorie définie pour ce produit.</p>
       ) : (
+        <>
+        <p className="text-[11px] text-subtle -mb-1">
+          L'ordre définit la numérotation des codes : la 1ʳᵉ catégorie donne EX 1.x, la 2ᵉ EX 2.x… Réordonner renumérote automatiquement les exigences (les liens des US suivent).
+        </p>
         <div className="flex flex-col gap-1.5">
-          {sortedCategories.map(cat => (
+          {sortedCategories.map((cat, idx) => (
             <div key={cat.id} className="flex items-center gap-2 px-3 py-2 bg-card rounded-lg border border-border">
+              <span className="shrink-0 font-mono text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded" title="Numéro de catégorie calculé — préfixe des codes d'exigences">
+                EX {idx + 1}
+              </span>
               {editId === cat.id ? (
                 <>
                   <input value={editNom} onChange={e => setEditNom(e.target.value)} autoFocus
@@ -244,6 +270,16 @@ function CategoriesManager({ categories, items, produitId, qc, toast }: {
                 <>
                   <span className="flex-1 text-sm font-medium text-navy truncate">{cat.nom}</span>
                   <span className="text-xs text-subtle">{countFor(cat.nom)} exigence{countFor(cat.nom) !== 1 ? 's' : ''}</span>
+                  <div className="flex flex-col -my-1">
+                    <button onClick={() => move(cat, -1)} disabled={idx === 0} title="Monter (décale la numérotation)"
+                      className="p-0.5 rounded text-subtle hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-20 transition-colors">
+                      <ChevronUp size={13} />
+                    </button>
+                    <button onClick={() => move(cat, 1)} disabled={idx === sortedCategories.length - 1} title="Descendre (décale la numérotation)"
+                      className="p-0.5 rounded text-subtle hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-20 transition-colors">
+                      <ChevronDown size={13} />
+                    </button>
+                  </div>
                   <button onClick={() => { setEditId(cat.id); setEditNom(cat.nom) }} title="Renommer" className="p-1.5 rounded-lg text-subtle hover:text-navy hover:bg-bg transition-colors">
                     <Pencil size={12} />
                   </button>
@@ -255,6 +291,7 @@ function CategoriesManager({ categories, items, produitId, qc, toast }: {
             </div>
           ))}
         </div>
+        </>
       )}
     </div>
   )

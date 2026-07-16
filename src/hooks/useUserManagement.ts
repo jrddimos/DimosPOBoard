@@ -78,6 +78,29 @@ export function useInviteUser() {
   })
 }
 
+// ── Modifier l'email d'un utilisateur existant (Admin API via edge
+// function invite-user, action update_email) ─────────────────────
+export function useUpdateUserEmail() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ user_id, email }: { user_id: string; email: string }) => {
+      const { data, error } = await supabase.functions.invoke('invite-user', {
+        body: { action: 'update_email', user_id, email },
+      })
+      if (error) {
+        let msg = error.message
+        try {
+          const body = await (error as any).context?.json?.()
+          if (body?.error) msg = body.error
+        } catch { /* ignore */ }
+        throw new Error(msg)
+      }
+      return data
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['user-emails'] }),
+  })
+}
+
 // ── Mettre à jour le rôle global ─────────────────────────────
 export function useSetRoleGlobal() {
   const qc = useQueryClient()

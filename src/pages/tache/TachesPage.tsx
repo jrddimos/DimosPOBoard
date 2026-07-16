@@ -12,17 +12,17 @@ import { TacheTree } from '@/components/tache/TacheTree'
 import { TacheDetailPanel } from '@/components/tache/TacheDetailPanel'
 import { Grp, SelectPicker, PriorityPicker, MoSCoWPicker } from '@/components/tache/TacheFormControls'
 import { useIterationCounts } from '@/hooks/useTacheIterations'
-import { useSprintActif, useClosedSprints } from '@/hooks/useSprints'
+import { useSprints, useSprintActif, useClosedSprints } from '@/hooks/useSprints'
 import { useEquipes, useUtilisateurs } from '@/hooks/useEquipes'
 import { useToast } from '@/hooks/useToast'
 import { confirm } from '@/components/ui/ConfirmModal'
-import { MOSCOW_LIST, SPRINTS_LIST, METIERS_DEFAULT } from '@/constants'
+import { MOSCOW_LIST, METIERS_DEFAULT } from '@/constants'
 import { useEpics, useCreateEpic, epicFullName } from '@/hooks/useEpics'
 import { useJalons } from '@/hooks/useJalons'
 import { Search, Lock, Plus, Copy, Trash2, ChevronRight, ChevronDown, X, CornerDownRight, FilePlus, SlidersHorizontal, BookOpen, Target, AlignJustify, StickyNote } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
 import { ToggleGroup } from '@/components/ui/ToggleGroup'
-import { cn, parseCriteres, serializeCriteres, epicCode, epicShortName, naturalCompare, buildTacheIndex, isSousTache, effortEffectif } from '@/lib/utils'
+import { cn, parseCriteres, serializeCriteres, epicCode, epicShortName, naturalCompare, buildTacheIndex, isSousTache, effortEffectif, existingSprintNumeros } from '@/lib/utils'
 import type { CritereItem } from '@/lib/utils'
 import { CriteresEditor } from '@/components/ui/CriteresEditor'
 import { StatusPicker } from '@/components/ui/StatusPicker'
@@ -149,6 +149,8 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
   const { data: dodItems=[] } = useDod()
   const { data: epicsList=[] } = useEpics()
   const { data: jalonsList=[] } = useJalons()
+  const { data: sprints=[] } = useSprints()
+  const sprintNumeros = existingSprintNumeros(sprints)
   const mkBlank=()=>({epic:'',jalon:'',titre:initTitre,description:'',lien_dod:'',commentaire:'',
     sprint_debut:sprintActif??'',sprint_fin:'',moscow:'Must Have',priorite:'P2',effort_j:0,
     equipe:'',metier:'',type_fonction:'Fonction principale',type_tache:'Tâche',assigne_a:'',
@@ -351,11 +353,11 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
           <div className="grid grid-cols-8 gap-4">
             {form.type_tache!=='Conteneur' && <Grp label="Sprint début">
               <SelectPicker value={form.sprint_debut} onChange={v=>setForm(f=>({...f,sprint_debut:v}))}
-                options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
+                options={sprintNumeros.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
             </Grp>}
             {form.type_tache!=='Conteneur' && <Grp label="Sprint fin">
               <SelectPicker value={form.sprint_fin} onChange={v=>setForm(f=>({...f,sprint_fin:v}))}
-                options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="Même sprint"/>
+                options={sprintNumeros.map(s=>({value:s,label:s}))} placeholder="Même sprint"/>
             </Grp>}
             {form.type_tache!=='Conteneur' && <Grp label="Effort (j)"><input type="number" value={form.effort_j} onChange={set('effort_j')} className="ds-input" min={0} step={0.5}/></Grp>}
             {form.type_tache!=='Conteneur' && <Grp label="Assigné à">
@@ -434,7 +436,7 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
                 const isSelected=editTask?.id_tache===t.id_tache
                 const spDisplay=(t.sprint_debut&&t.sprint_fin&&t.sprint_debut!==t.sprint_fin)
                   ?`${t.sprint_debut}→${t.sprint_fin}`:(t.sprint_debut||t.sprint||'—')
-                const effJ=subs.length>0?subs.reduce((s,c)=>s+(c.effort_j??0),0):t.effort_j??0
+                const effJ=effortEffectif(t,childMap)
                 return (
                   <React.Fragment key={t.id_tache}>
                     <tr onClick={()=>selectTask(t)} className={cn('cursor-pointer',isSelected&&'!bg-indigo-100 ring-1 ring-inset ring-indigo-200')}>
@@ -508,6 +510,8 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
   const createEpic = useCreateEpic()
   const { isAdmin } = useAuth()
   const { data: jalonsList=[] } = useJalons()
+  const { data: sprints=[] } = useSprints()
+  const sprintNumeros = existingSprintNumeros(sprints)
   const epicColorMap = useMemo(() => new Map(epicsList.map(e => [epicFullName(e), e.couleur])), [epicsList])
   const epicBgMap = useMemo(() => new Map(epicsList.map(e => [epicFullName(e), e.bg_couleur])), [epicsList])
   const jalonColorMap = useMemo(() => new Map(jalonsList.map(j => [j.code, j.couleur])), [jalonsList])
@@ -897,7 +901,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
               <SelectPicker value={bulk.jalon} onChange={v=>setBulk(b=>({...b,jalon:v}))} className="w-52"
                 options={jalonCodes.map(j=>({value:j,label:j}))} placeholder="Jalon - Incrément majeur…"/>
               <SelectPicker value={bulk.sprint_debut} onChange={v=>setBulk(b=>({...b,sprint_debut:v}))} className="w-32"
-                options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="Sprint…"/>
+                options={sprintNumeros.map(s=>({value:s,label:s}))} placeholder="Sprint…"/>
               <SelectPicker value={bulk.assigne_a} onChange={v=>setBulk(b=>({...b,assigne_a:v}))} className="w-44"
                 options={membresActifs.filter(m=>m.trigramme).map(m=>({value:m.trigramme!,label:`${m.trigramme} — ${m.prenom??''} ${m.nom??''}`}))}
                 placeholder="Assigné…"/>
@@ -913,7 +917,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
             <div className="flex flex-wrap gap-2 items-center pt-2 border-t border-indigo-200/60">
               <span className="text-[11px] font-semibold text-subtle uppercase tracking-wide">Autres actions</span>
               <SelectPicker value={dupTarget} onChange={setDupTarget} className="w-32"
-                options={SPRINTS_LIST.map(s=>({value:s,label:s}))} placeholder="Backlog"/>
+                options={sprintNumeros.map(s=>({value:s,label:s}))} placeholder="Backlog"/>
               <button onClick={async()=>{await duplicateIds(selected,dupTarget);setSelected([])}}
                 disabled={createTache.isPending}
                 className="ds-btn ds-btn-sm flex items-center gap-1"><Copy size={11}/> Dupliquer</button>

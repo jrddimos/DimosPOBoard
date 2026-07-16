@@ -1,7 +1,8 @@
-import { useMemo, useRef, useState, useLayoutEffect } from 'react'
+import { useMemo, useRef, useState, useLayoutEffect, type CSSProperties } from 'react'
 import { Tree, type NodeRendererProps, type TreeApi } from 'react-arborist'
 import { ChevronRight, ChevronDown, Pencil, Trash2, ToggleLeft, ToggleRight, ShieldCheck, Shield, RotateCcw } from 'lucide-react'
 import { GuideRail } from '@/components/ui/TreeGuideRail'
+import { useColonneTitre, ColonneTitreHandle } from '@/components/ui/ColonneTitre'
 import { useFillHeight } from '@/hooks/useFillHeight'
 import { cn, naturalCompare } from '@/lib/utils'
 import { EXIGENCE_TYPE_CFG, CRITICITE_CFG } from '@/constants'
@@ -11,7 +12,9 @@ type TreeNode =
   | { id: string; kind: 'categorie'; label: string; count: number; children: TreeNode[] }
   | { id: string; kind: 'exigence'; item: DodItem }
 
-const ROW_COLUMNS = 'minmax(160px,380px) 104px 70px 96px'
+// --col-titre : largeur max de la colonne titre, redimensionnable à la
+// souris (useColonneTitre, variable posée sur le conteneur de l'arbre).
+const ROW_COLUMNS = 'minmax(160px, var(--col-titre, 380px)) 104px 70px 96px'
 
 export function ReferentielTree({ items, aStatuer, loops, canEditDod, onEdit, onDelete, onToggle, onVerify }: {
   items: DodItem[]
@@ -45,6 +48,7 @@ export function ReferentielTree({ items, aStatuer, loops, canEditDod, onEdit, on
   const treeRef = useRef<TreeApi<TreeNode>>(null)
   const height = useFillHeight(containerRef)
   const [width, setWidth] = useState(800)
+  const { width: colTitre, onMouseDown: onColResize } = useColonneTitre('dod-ref-col-titre', 380)
   useLayoutEffect(() => {
     if (!containerRef.current) return
     const el = containerRef.current
@@ -62,7 +66,10 @@ export function ReferentielTree({ items, aStatuer, loops, canEditDod, onEdit, on
         <button onClick={() => treeRef.current?.closeAll()}
           className="text-[11px] font-semibold text-subtle hover:text-navy transition-colors">Tout replier</button>
       </div>
-      <div ref={containerRef} className="w-full">
+      {/* relative + variable CSS : les lignes consomment --col-titre dans
+          leur grid, la poignée (+8px = padding gauche px-2 des lignes) suit. */}
+      <div ref={containerRef} className="w-full relative" style={{ '--col-titre': `${colTitre}px` } as CSSProperties}>
+        <ColonneTitreHandle left={colTitre + 8} onMouseDown={onColResize} />
         <Tree<TreeNode> ref={treeRef} data={data} openByDefault width={width} height={height} rowHeight={rowHeight} indent={0}
           disableDrag={() => true}>
           {(props) => (

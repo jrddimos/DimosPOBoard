@@ -3,12 +3,16 @@ import { supabase } from '@/lib/supabase'
 import { useProduit } from '@/contexts/ProduitContext'
 
 export interface Jalon {
-  id:         number
-  produit_id: number
-  code:       string
-  couleur:    string
-  ordre:      number
-  created_at: string
+  id:          number
+  produit_id:  number
+  // Numéro unique (ex: "I1") : c'est lui, tel quel, qui est stocké sur
+  // taches.jalon — contrairement à Epic, pas de libellé combiné code+nom.
+  code:        string
+  nom:         string
+  description: string
+  couleur:     string
+  ordre:       number
+  created_at:  string
 }
 
 export function useJalons() {
@@ -46,9 +50,9 @@ export function useCreateJalon() {
   const qc = useQueryClient()
   const { produitActif } = useProduit()
   return useMutation({
-    mutationFn: async ({ code, couleur }: { code: string; couleur: string }) => {
+    mutationFn: async ({ code, nom, description, couleur }: { code: string; nom: string; description: string; couleur: string }) => {
       if (!produitActif) throw new Error('Aucun produit sélectionné')
-      const { error } = await supabase.from('jalons').insert({ produit_id: produitActif.id, code, couleur })
+      const { error } = await supabase.from('jalons').insert({ produit_id: produitActif.id, code, nom, description, couleur })
       if (error) throw error
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jalons', produitActif?.id] }),
@@ -59,7 +63,7 @@ export function useUpdateJalon() {
   const qc = useQueryClient()
   const { produitActif } = useProduit()
   return useMutation({
-    mutationFn: async ({ id, updates }: { id: number; updates: Partial<Pick<Jalon, 'code' | 'couleur' | 'ordre'>> }) => {
+    mutationFn: async ({ id, updates }: { id: number; updates: Partial<Pick<Jalon, 'code' | 'nom' | 'description' | 'couleur' | 'ordre'>> }) => {
       const { error } = await supabase.from('jalons').update(updates).eq('id', id)
       if (error) throw error
     },

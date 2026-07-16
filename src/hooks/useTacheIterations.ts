@@ -4,11 +4,18 @@ import { useProduit } from '@/contexts/ProduitContext'
 import { useUpdateTache } from '@/hooks/useTaches'
 import type { Statut, Tache } from '@/types'
 
+// 'initial' = 1ʳᵉ ligne figée rétroactivement (état de la tâche avant sa
+// première itération) ; 'sprint' = reprise auto à la clôture d'un sprint sur
+// une tâche non finie (useTransferToNextIteration) ; 'rework' = nouvelle
+// boucle agile créée manuellement depuis le backlog (useCreateIteration).
+export type IterationOrigine = 'initial' | 'sprint' | 'rework'
+
 export interface TacheIteration {
   id: number
   produit_id: number
   id_tache: string
   numero: number
+  origine: IterationOrigine
   objectif: string | null
   criteres: string | null
   effort_j: number | null
@@ -89,7 +96,7 @@ export function useCreateIteration() {
         if (tacheError) throw tacheError
         if (currentTache) {
           const { error: freezeError } = await supabase.from('tache_iterations').insert({
-            produit_id: produitActif.id, id_tache: payload.id_tache, numero: 1,
+            produit_id: produitActif.id, id_tache: payload.id_tache, numero: 1, origine: 'initial',
             objectif: null, criteres: currentTache.criteres,
             effort_j: currentTache.effort_j, assigne_a: currentTache.assigne_a,
             sprint: currentTache.sprint_debut ?? currentTache.sprint ?? null,
@@ -104,7 +111,7 @@ export function useCreateIteration() {
 
       const { data, error } = await supabase
         .from('tache_iterations')
-        .insert({ ...payload, produit_id: produitActif.id, numero, statut: 'À faire' })
+        .insert({ ...payload, produit_id: produitActif.id, numero, origine: 'rework', statut: 'À faire' })
         .select()
         .single()
       if (error) throw error
@@ -117,6 +124,11 @@ export function useCreateIteration() {
           sprint: payload.sprint || null,
           sprint_debut: payload.sprint || null,
           statut: 'En cours',
+          // Sans ce champ, taches.criteres restait sur l'ancienne itération
+          // jusqu'à la prochaine édition manuelle — faussant le Kanban, les
+          // filtres backlog et le widget "Critères d'acceptation couverts"
+          // du dashboard produit, qui lisent tous taches.criteres.
+          criteres: payload.criteres,
         },
       })
 
@@ -280,7 +292,7 @@ export function useTransferToNextIteration() {
 
       if (iterations.length === 0) {
         const { error: freezeError } = await supabase.from('tache_iterations').insert({
-          produit_id: produitActif.id, id_tache: payload.id_tache, numero: 1,
+          produit_id: produitActif.id, id_tache: payload.id_tache, numero: 1, origine: 'initial',
           objectif: null, criteres,
           effort_j: currentTache.effort_j, assigne_a: currentTache.assigne_a,
           sprint: payload.closingSprint, statut: currentTache.statut,
@@ -298,7 +310,7 @@ export function useTransferToNextIteration() {
 
       const { data: newIter, error: insErr } = await supabase.from('tache_iterations')
         .insert({
-          produit_id: produitActif.id, id_tache: payload.id_tache, numero: closingNumero + 1,
+          produit_id: produitActif.id, id_tache: payload.id_tache, numero: closingNumero + 1, origine: 'sprint',
           objectif: null, criteres, effort_j: reste,
           assigne_a: currentTache.assigne_a, sprint: payload.destSprint, statut: 'En cours',
           resultat: null, commentaire: currentTache.commentaire,

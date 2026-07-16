@@ -1,8 +1,20 @@
 import { clsx, type ClassValue } from 'clsx'
+import { SPRINTS_LIST } from '@/constants'
 import type { Tache } from '@/types'
+import type { Sprint } from '@/types'
 
 export function cn(...inputs: ClassValue[]) {
   return clsx(inputs)
+}
+
+// Numéros des sprints RÉELLEMENT créés pour le produit, dans l'ordre
+// chronologique de SPRINTS_LIST (S1 < S2 < … < S10, pas l'ordre alphabétique
+// qui mettrait S10 avant S2) — pour que les sélecteurs de sprint ne proposent
+// jamais un S07 fantôme jamais créé, contrairement à SPRINTS_LIST brut (qui
+// reste la plage plafond S01-S16 utilisée pour créer/trier des sprints).
+export function existingSprintNumeros(sprints: Pick<Sprint, 'numero'>[]): string[] {
+  const set = new Set(sprints.map(s => s.numero))
+  return SPRINTS_LIST.filter(s => set.has(s))
 }
 
 export function buildTacheIndex(taches: Tache[]): Map<string, Tache> {
@@ -26,13 +38,26 @@ export function isSousTache(t: Tache, byId: Map<string, Tache>): boolean {
   return byId.get(t.parent_id)?.type_tache !== 'Conteneur'
 }
 
-// Effort effectif récursif : somme des sous-tâches si elles existent, sinon
-// l'effort propre. Permet à un Conteneur de remonter le bon total même si
-// une de ses US a elle-même des sous-tâches (2 niveaux de rollup).
+// Effort effectif récursif : effort PROPRE de la tâche + somme de ses
+// sous-tâches. `effort_j` d'une US porte donc uniquement le travail direct
+// sur l'US (coordination, intégration…), jamais un total matérialisé —
+// c'est ce calcul, partout, qui produit le total (migration 0057 : les
+// anciennes sommes matérialisées ont été remises à zéro).
 export function effortEffectif(t: Tache, childMap: Record<string, Tache[]>): number {
   const subs = childMap[t.id_tache] ?? []
-  if (subs.length === 0) return t.effort_j ?? 0
-  return subs.reduce((s, c) => s + effortEffectif(c, childMap), 0)
+  return (t.effort_j ?? 0) + subs.reduce((s, c) => s + effortEffectif(c, childMap), 0)
+}
+
+// childMap parent_id → enfants, sur l'ensemble des tâches passées — même
+// structure que celles construites localement par TachesPage/TacheTree,
+// centralisée pour les consommateurs d'effortEffectif (dashboards, stats).
+export function buildChildMap(taches: Tache[]): Record<string, Tache[]> {
+  const m: Record<string, Tache[]> = {}
+  for (const t of taches) {
+    if (!t.parent_id) continue
+    ;(m[t.parent_id] = m[t.parent_id] ?? []).push(t)
+  }
+  return m
 }
 
 // Numérotation d'affichage recalculée à la volée — jamais persistée,
@@ -127,6 +152,14 @@ export function serializeCriteres(items: CritereItem[]): string {
 export function hasPendingCriteres(raw: string | null | undefined): boolean {
   const items = parseCriteres(raw)
   return items.length > 0 && items.some(i => !i.checked)
+}
+
+// Codes d'exigences (F1.1, F1.2…) référencés par `Tache.lien_dod`, un champ
+// texte libre séparé par virgules/points-virgules — même parsing que
+// CouvertureTree/DodPage/SetupPage/SprintBoardPage, centralisé ici pour les
+// nouveaux usages (les call-sites existants gardent leur copie locale).
+export function parseLienDodCodes(lien: string | null | undefined): string[] {
+  return (lien ?? '').split(/[,;]/).map(s => s.trim()).filter(Boolean)
 }
 
 export function downloadCSV(data: Record<string, unknown>[], filename: string, headers: string[], cols: string[]) {

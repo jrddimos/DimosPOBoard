@@ -8,7 +8,7 @@ import { getWeeksForYear } from '@/pages/plancharges/utils'
 import { getISOWeek } from '@/lib/utils'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip } from 'recharts'
 import { Tooltip } from '@/components/ui/Tooltip'
-import { cn } from '@/lib/utils'
+import { cn, effortEffectif } from '@/lib/utils'
 import { scopedMetrics, getQuarterStart, getQuarterEnd } from '@/utils/produitMetrics'
 import type { MultiScope, ProduitMetrics, Rag } from '@/utils/produitMetrics'
 import type { Produit } from '@/hooks/useProduits'
@@ -16,7 +16,8 @@ import type { Tache } from '@/types'
 import type { UserProfile } from '@/contexts/AuthContext'
 import {
   Grid3x3, TrendingUp, CalendarClock, Euro, ShieldAlert, User, PieChart as PieChartIcon, Package,
-  BarChart3, Rows3, LineChart, Map as MapIcon, Users,
+  BarChart3, Rows3, LineChart, Map as MapIcon, Users, Check, AlertTriangle, AlertOctagon, Info,
+  type LucideIcon,
 } from 'lucide-react'
 import { SPRINTS_LIST } from '@/constants'
 import { PortfolioAvancementChart, PortfolioStatutsChart, PortfolioTendanceChart, BurndownSparkline } from '@/pages/dashboard/DashboardCharts'
@@ -27,6 +28,9 @@ export interface WidgetCtx {
   metricsMap: Map<number, ProduitMetrics>
   scope: MultiScope
   allTaches: Tache[]
+  // parent_id → sous-tâches (toutes tâches confondues) : l'effort d'une US
+  // = effort propre + somme de ses sous-tâches (effortEffectif, cf. 0057).
+  childMap: Record<string, Tache[]>
   faitDoneMap: Map<string, string>
   membres: UserProfile[]
   userTrigramme: string | null
@@ -46,17 +50,83 @@ export interface WidgetDef {
   render: (ctx: WidgetCtx) => React.ReactNode
 }
 
-const RAG_BG: Record<string, string> = {
+export const RAG_BG: Record<string, string> = {
   green: 'bg-emerald-400', amber: 'bg-amber-400', red: 'bg-rose-500',
 }
-const RAG_LABEL: Record<string, string> = { green: 'OK', amber: 'À risque', red: 'Alerte' }
+export const RAG_LABEL: Record<string, string> = { green: 'On track', amber: 'À risque', red: 'Off track' }
+// Icône par sévérité en plus de la couleur : lisible aussi pour un daltonien,
+// et rend la légende auto-explicative sans avoir à survoler chaque case.
+export const RAG_ICON: Record<string, LucideIcon> = { green: Check, amber: AlertTriangle, red: AlertOctagon }
+// Explique le repère vertical (curseur temps) affiché sur les barres
+// d'avancement — même logique que les seuils RAG mais pas un indicateur en soi.
+export const CURSOR_TIP = "Le repère vertical indique le curseur temps : la part de la période déjà écoulée (trimestre, ou jusqu'à la date cible en scope Global). Un produit on track a un avancement égal ou supérieur à ce repère."
+
+// Pastille compacte icône + couleur, réutilisée partout où un statut RAG doit
+// rester lisible sans survol (légendes, mini-cartes, KPI) — cf. RagCell
+// ci-dessous pour la variante pilule des cellules de tableau.
+export function RagIconDot({ rag, size = 14, iconSize = 8, className }: { rag: Rag; size?: number; iconSize?: number; className?: string }) {
+  const Icon = rag ? RAG_ICON[rag] : null
+  return (
+    <span
+      title={rag ? RAG_LABEL[rag] : 'Non évalué'}
+      className={cn('rounded flex items-center justify-center text-white/90 shrink-0', rag ? RAG_BG[rag] : 'bg-border', className)}
+      style={{ width: size, height: size }}
+    >
+      {Icon && <Icon size={iconSize} strokeWidth={3} />}
+    </span>
+  )
+}
 
 function RagCell({ rag, tip }: { rag: Rag; tip?: string }) {
+  const Icon = rag ? RAG_ICON[rag] : null
   return (
     <Tooltip content={tip ?? (rag ? RAG_LABEL[rag] : 'Non évalué')}>
-      <span className={cn('inline-block w-7 h-3.5 rounded-md cursor-help transition-transform hover:scale-110',
-        rag ? RAG_BG[rag] : 'bg-border')} />
+      <span className={cn('inline-flex items-center justify-center w-7 h-4 rounded-md cursor-help transition-transform hover:scale-110 text-white/90',
+        rag ? RAG_BG[rag] : 'bg-border')}>
+        {Icon && <Icon size={9} strokeWidth={3} />}
+      </span>
     </Tooltip>
+  )
+}
+
+// Légende compacte, toujours visible — évite de devoir survoler une case pour
+// comprendre le code couleur (ni les cases non-hoverables sur tactile).
+// `extra` ajoute des items après le trio RAG (ex : repère curseur temps).
+export function RagLegend({ extra }: { extra?: React.ReactNode } = {}) {
+  return (
+    <div className="flex items-center gap-3 text-[10px] text-subtle mb-2 flex-wrap">
+      {(['green', 'amber', 'red'] as const).map(r => (
+        <span key={r} className="flex items-center gap-1">
+          <RagIconDot rag={r} />
+          {RAG_LABEL[r]}
+        </span>
+      ))}
+      {extra}
+    </div>
+  )
+}
+
+// Info-bulle d'en-tête de colonne : explique ce qui est comparé (au survol,
+// via un petit ⓘ plutôt que de compter sur la mémoire de l'utilisateur).
+function ColHeader({ label, tip }: { label: string; tip: string }) {
+  return (
+    <Tooltip content={tip}>
+      <span className="inline-flex items-center gap-0.5 cursor-help">
+        {label}<Info size={9} className="text-subtle/50" />
+      </span>
+    </Tooltip>
+  )
+}
+
+// Nom de produit uniformisé pour tous les widgets du cockpit : toujours la
+// pastille à la couleur du produit devant le nom, même graisse, même hover
+// (indigo quand la ligne est cliquable, via le group parent).
+export function ProduitName({ p, className }: { p: Produit; className?: string }) {
+  return (
+    <span className={cn('flex items-center gap-1.5 min-w-0', className)}>
+      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: p.couleur ?? '#4A4CC8' }} />
+      <span className="text-xs font-semibold text-navy truncate group-hover:text-indigo-600 transition-colors">{p.nom}</span>
+    </span>
   )
 }
 
@@ -92,6 +162,10 @@ export interface PortfolioKpis {
   g: number; a: number; r: number
   avancement: number; cursor: number | null
   blocages: number; prodBloques: number
+  // Non-null uniquement quand un seul produit porte tous les blocages du
+  // périmètre — sert à rendre la tuile KPI cliquable vers ce produit précis
+  // (ambigu s'il y en a plusieurs, la tuile reste alors non cliquable).
+  soleBlockedProduct: Produit | null
   nextDelivery: { p: Produit; date: Date; late: boolean } | null
 }
 
@@ -99,6 +173,7 @@ export function portfolioKpis(ctx: WidgetCtx): PortfolioKpis {
   const { produits, metricsMap, scope } = ctx
   let g = 0, a = 0, r = 0, totalUS = 0, faitUS = 0, cursorSum = 0, cursorN = 0, blocages = 0, prodBloques = 0
   let nextDelivery: PortfolioKpis['nextDelivery'] = null
+  let soleBlockedProduct: Produit | null = null
   const today = new Date()
 
   produits.forEach(p => {
@@ -109,7 +184,10 @@ export function portfolioKpis(ctx: WidgetCtx): PortfolioKpis {
     totalUS += s.total; faitUS += s.fait
     const cur = scopeCursor(m, scope)
     if (cur !== null) { cursorSum += cur; cursorN++ }
-    if (m.bloqueUS > 0) { blocages += m.bloqueUS; prodBloques++ }
+    if (m.bloqueUS > 0) {
+      blocages += m.bloqueUS; prodBloques++
+      soleBlockedProduct = prodBloques === 1 ? p : null
+    }
     const target = m.estimatedDeliveryDate ?? (m.dateLancementCible ? new Date(m.dateLancementCible) : null)
     if (target && target >= today && (!nextDelivery || target < nextDelivery.date)) {
       nextDelivery = { p, date: target, late: m.ragD === 'red' || m.ragD === 'amber' }
@@ -118,43 +196,50 @@ export function portfolioKpis(ctx: WidgetCtx): PortfolioKpis {
 
   const avancement = totalUS > 0 ? Math.round(faitUS / totalUS * 100) : 0
   const cursor = cursorN > 0 ? Math.round(cursorSum / cursorN) : null
-  return { g, a, r, avancement, cursor, blocages, prodBloques, nextDelivery }
+  return { g, a, r, avancement, cursor, blocages, prodBloques, soleBlockedProduct, nextDelivery }
 }
 
 // ══ Widgets ═══════════════════════════════════════════════════════
+
+export const COL_TIPS: Record<string, string> = {
+  Avancement: "Compare le % d'US faites au curseur temps du trimestre (ou à la date cible en scope Global). On track = dans les 10 pts, à risque = dans les 20, off track = au-delà.",
+  Budget: 'Compare le budget consommé au même curseur temps. On track = consommation alignée ou en retrait, off track = ça brûle plus vite que le calendrier.',
+  Date: 'Compare la date de livraison projetée à la date cible (ou trimestre en cours). Off track = retard prévu.',
+  Blocages: 'US bloquées + risques ouverts. On track = aucun, à risque = 1-2, off track = 3 ou plus.',
+}
 
 function HeatmapWidget(ctx: WidgetCtx) {
   const { produits, metricsMap, scope, openProduct } = ctx
   if (!produits.length) return <EmptyHint>Aucun produit dans le périmètre</EmptyHint>
   return (
-    <table className="w-full text-xs">
-      <thead>
-        <tr className="text-subtle">
-          <th className="text-left font-medium pb-1.5">Produit</th>
-          {['Avanc.', 'Budget', 'Date', 'Blocages'].map(h => <th key={h} className="text-center font-medium pb-1.5">{h}</th>)}
-        </tr>
-      </thead>
-      <tbody>
-        {produits.map(p => {
-          const m = metricsMap.get(p.id); if (!m) return null
-          const s = scopedMetrics(m, scope)
-          return (
-            <tr key={p.id} onClick={() => openProduct(p)} className="cursor-pointer hover:bg-bg/60 transition-colors">
-              <td className="py-1.5 pr-2">
-                <span className="flex items-center gap-1.5 font-semibold text-navy">
-                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: p.couleur ?? '#4A4CC8' }} />
-                  <span className="truncate">{p.nom}</span>
-                </span>
-              </td>
-              <td className="text-center py-1.5"><RagCell rag={s.ragA} tip={s.tipA} /></td>
-              <td className="text-center py-1.5"><RagCell rag={s.ragB} /></td>
-              <td className="text-center py-1.5"><RagCell rag={s.ragD} tip={s.tipD} /></td>
-              <td className="text-center py-1.5"><RagCell rag={s.ragBl} tip={m.bloqueUS > 0 ? `${m.bloqueUS} US bloquée(s) · ${m.openRisques} risque(s)` : undefined} /></td>
-            </tr>
-          )
-        })}
-      </tbody>
-    </table>
+    <div>
+      <RagLegend />
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-subtle">
+            <th className="text-left font-medium pb-1.5">Produit</th>
+            {['Avancement', 'Budget', 'Date', 'Blocages'].map(h => (
+              <th key={h} className="text-center font-medium pb-1.5"><ColHeader label={h} tip={COL_TIPS[h]} /></th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {produits.map(p => {
+            const m = metricsMap.get(p.id); if (!m) return null
+            const s = scopedMetrics(m, scope)
+            return (
+              <tr key={p.id} onClick={() => openProduct(p)} className="group cursor-pointer hover:bg-bg/60 transition-colors">
+                <td className="py-1.5 pr-2"><ProduitName p={p} /></td>
+                <td className="text-center py-1.5"><RagCell rag={s.ragA} tip={s.tipA} /></td>
+                <td className="text-center py-1.5"><RagCell rag={s.ragB} tip={s.tipB} /></td>
+                <td className="text-center py-1.5"><RagCell rag={s.ragD} tip={s.tipD} /></td>
+                <td className="text-center py-1.5"><RagCell rag={s.ragBl} tip={s.tipBl} /></td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
@@ -163,6 +248,11 @@ function AvancementWidget(ctx: WidgetCtx) {
   if (!produits.length) return <EmptyHint>Aucun produit dans le périmètre</EmptyHint>
   return (
     <div className="flex flex-col gap-2.5">
+      <RagLegend extra={
+        <span className="flex items-center gap-1">
+          <span className="w-0.5 h-3 bg-navy rounded-full inline-block" /> curseur temps
+        </span>
+      } />
       {produits.map(p => {
         const m = metricsMap.get(p.id); if (!m) return null
         const s = scopedMetrics(m, scope)
@@ -191,9 +281,9 @@ function AvancementWidget(ctx: WidgetCtx) {
 
         return (
           <button key={p.id} onClick={() => openProduct(p)} className="text-left group">
-            <div className="flex justify-between items-baseline mb-1">
-              <span className="text-xs font-semibold text-navy group-hover:text-indigo-600 transition-colors truncate">{p.nom}</span>
-              <span className={cn('text-xs font-bold tabular-nums',
+            <div className="flex justify-between items-baseline mb-1 gap-2">
+              <ProduitName p={p} />
+              <span className={cn('text-xs font-bold tabular-nums shrink-0',
                 ahead ? 'text-emerald-600' : behind ? 'text-rose-600' : 'text-amber-600')}>
                 {pct}%{cursor !== null && <span className="text-subtle font-normal"> / {cursor}%</span>}
               </span>
@@ -245,7 +335,7 @@ function TimelineWidget(ctx: WidgetCtx) {
         const late = cible && proj && proj.getTime() > cible.getTime() + 3 * 86400000
         return (
           <button key={p.id} onClick={() => openProduct(p)} className="flex items-center gap-2.5 text-left group">
-            <span className="w-24 text-xs font-semibold text-navy truncate shrink-0 group-hover:text-indigo-600 transition-colors">{p.nom}</span>
+            <ProduitName p={p} className="w-24 shrink-0" />
             <div className="relative flex-1 h-5 rounded-md bg-bg">
               {/* Aujourd'hui */}
               <Tooltip content={`Aujourd'hui — ${fmtDate(today)}`}>
@@ -284,19 +374,19 @@ function TimelineWidget(ctx: WidgetCtx) {
 }
 
 function BudgetWidget(ctx: WidgetCtx) {
-  const { produits, allTaches, openProduct } = ctx
+  const { produits, allTaches, childMap, openProduct } = ctx
   if (!produits.length) return <EmptyHint>Aucun produit dans le périmètre</EmptyHint>
   return (
     <div className="flex flex-col gap-2.5">
       {produits.map(p => {
         const ts = allTaches.filter(t => t.produit_id === p.id && t.type_tache !== 'Conteneur')
-        const total = ts.reduce((s, t) => s + (t.effort_j ?? 0), 0)
-        const fait  = ts.filter(t => t.statut === 'Fait').reduce((s, t) => s + (t.effort_j ?? 0), 0)
+        const total = ts.reduce((s, t) => s + effortEffectif(t, childMap), 0)
+        const fait  = ts.filter(t => t.statut === 'Fait').reduce((s, t) => s + effortEffectif(t, childMap), 0)
         const pct   = total > 0 ? Math.round(fait / total * 100) : 0
         return (
           <button key={p.id} onClick={() => openProduct(p)} className="text-left group">
-            <div className="flex justify-between items-baseline mb-1">
-              <span className="text-xs font-semibold text-navy group-hover:text-indigo-600 transition-colors truncate">{p.nom}</span>
+            <div className="flex justify-between items-baseline mb-1 gap-2">
+              <ProduitName p={p} />
               <span className="text-xs text-subtle tabular-nums">{Math.round(fait)}j / {Math.round(total)}j</span>
             </div>
             <div className="h-2 rounded-full bg-bg overflow-hidden">
@@ -326,10 +416,7 @@ function BlocagesWidget(ctx: WidgetCtx) {
             <span className="text-rose-500 shrink-0">⛔</span>
             <span className="text-xs font-semibold text-indigo-600 shrink-0">{t.id_tache}</span>
             <span className="flex-1 text-xs text-navy truncate">{t.titre}</span>
-            <span className="text-[11px] text-subtle shrink-0 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full" style={{ background: p.couleur ?? '#4A4CC8' }} />
-              {p.nom}
-            </span>
+            <ProduitName p={p} className="shrink-0 max-w-28" />
           </button>
         )
       })}
@@ -423,10 +510,10 @@ function CartesProduitsWidget(ctx: WidgetCtx) {
         const w = worstRag(m, scope)
         return (
           <button key={p.id} onClick={() => openProduct(p)}
-            className="text-left border border-border rounded-xl p-2.5 hover:border-indigo-300 hover:shadow-sm transition-all bg-card">
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <span className={cn('w-2 h-2 rounded-full shrink-0', w ? RAG_BG[w] : 'bg-border')} />
-              <span className="text-xs font-bold text-navy truncate">{p.nom}</span>
+            className="group text-left border border-border rounded-xl p-2.5 hover:border-indigo-300 hover:shadow-sm transition-all bg-card">
+            <div className="flex items-center justify-between gap-1.5 mb-1.5">
+              <ProduitName p={p} />
+              <RagIconDot rag={w} size={13} iconSize={7} />
             </div>
             <div className="h-1.5 rounded-full bg-bg overflow-hidden mb-1.5">
               <div className="h-1.5 rounded-full" style={{ width: `${Math.min(100, s.backlogPct)}%`, background: p.couleur ?? '#4A4CC8' }} />
@@ -492,9 +579,8 @@ function RoadmapWidget(ctx: WidgetCtx) {
       </div>
       {rows.map(({ p, segs }) => (
         <div key={p.id} className="flex flex-col gap-1 py-1 border-t border-border/40">
-          <button onClick={() => openProduct(p)} className="flex items-center gap-1.5 text-left w-28 shrink-0 group">
-            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: p.couleur ?? '#4A4CC8' }} />
-            <span className="text-xs font-bold text-navy truncate group-hover:text-indigo-600 transition-colors">{p.nom}</span>
+          <button onClick={() => openProduct(p)} className="text-left w-28 shrink-0 group">
+            <ProduitName p={p} />
           </button>
           {segs.map(s => (
             <div key={s.jalon} className="flex items-center">

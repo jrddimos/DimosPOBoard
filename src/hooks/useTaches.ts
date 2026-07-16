@@ -2,6 +2,7 @@ import { logActivity } from '@/hooks/useActivityLog'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useProduit } from '@/contexts/ProduitContext'
+import { parseCriteres, serializeCriteres } from '@/lib/utils'
 import type { Tache } from '@/types'
 
 // ── Fetch ──────────────────────────────────────────────────────
@@ -12,7 +13,12 @@ export function useTaches() {
   return useQuery({
     queryKey: ['taches', produitId],
     queryFn: async () => {
-      let q = supabase.from('taches').select('*').order('id_tache')
+      // ordre_backlog d'abord (réordonnancement manuel, NULL = jamais
+      // réordonnée → après, par id_tache) : c'est cet ordre qui pilote la
+      // numérotation d'affichage 1.1, 1.2… dans toutes les vues.
+      let q = supabase.from('taches').select('*')
+        .order('ordre_backlog', { ascending: true, nullsFirst: false })
+        .order('id_tache')
       if (produitId) q = q.eq('produit_id', produitId)
       const { data, error } = await q
       if (error) throw error
@@ -26,7 +32,9 @@ export function useAllTaches() {
   return useQuery({
     queryKey: ['taches', 'all'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('taches').select('*').order('id_tache')
+      const { data, error } = await supabase.from('taches').select('*')
+        .order('ordre_backlog', { ascending: true, nullsFirst: false })
+        .order('id_tache')
       if (error) throw error
       return (data ?? []) as Tache[]
     },
@@ -38,7 +46,10 @@ export function useTachesByProduit(produitId: number) {
   return useQuery({
     queryKey: ['taches', produitId],
     queryFn: async () => {
-      const { data, error } = await supabase.from('taches').select('*').order('id_tache').eq('produit_id', produitId)
+      const { data, error } = await supabase.from('taches').select('*')
+        .order('ordre_backlog', { ascending: true, nullsFirst: false })
+        .order('id_tache')
+        .eq('produit_id', produitId)
       if (error) throw error
       return (data ?? []) as Tache[]
     },
@@ -126,8 +137,45 @@ export function useUpdateTache() {
           logActivity({ produit_id: produitId, action: 'update', target: id_tache, title: current?.titre ?? '', field: fields.join(', ') })
         }
       }
+
+      // Cascade "critère lié" : une sous-tâche qui passe à Fait peut couvrir
+      // un critère d'acceptation de sa tâche parente (cf. SousTacheModal).
+      // On ne coche ce critère que si TOUTES les sous-tâches rattachées au
+      // même critère sont Fait — jamais l'inverse (une sous-tâche Fait n'est
+      // pas rouverte, une nouvelle itération de la tâche prend le relais).
+      if (updates.statut === 'Fait') {
+        const { data: self } = await supabase.from('taches').select('parent_id, critere_lie_id')
+          .eq('id_tache', id_tache).eq('produit_id', produitId).single()
+        if (self?.parent_id && self?.critere_lie_id) {
+          const { data: siblings } = await supabase.from('taches').select('id_tache, statut')
+            .eq('parent_id', self.parent_id).eq('critere_lie_id', self.critere_lie_id).eq('produit_id', produitId)
+          const allDone = (siblings ?? []).every(s => s.id_tache === id_tache || s.statut === 'Fait')
+          if (allDone) {
+            const { data: iters } = await supabase.from('tache_iterations').select('id, criteres')
+              .eq('id_tache', self.parent_id).eq('produit_id', produitId).order('numero', { ascending: false }).limit(1)
+            const latestIter = iters?.[0]
+            const rawCriteres = latestIter
+              ? latestIter.criteres
+              : (await supabase.from('taches').select('criteres').eq('id_tache', self.parent_id).eq('produit_id', produitId).single()).data?.criteres ?? null
+
+            const items = parseCriteres(rawCriteres)
+            if (items.some(i => i.id === self.critere_lie_id && !i.checked)) {
+              const next = serializeCriteres(items.map(i => i.id === self.critere_lie_id ? { ...i, checked: true } : i))
+              if (latestIter) await supabase.from('tache_iterations').update({ criteres: next }).eq('id', latestIter.id)
+              // Synchronisé sur la tâche parente dans tous les cas : que la
+              // source soit la dernière itération ou la tâche elle-même,
+              // c'est `taches.criteres` que lisent le backlog et les vues
+              // filtrées (même logique que syncToTache ailleurs).
+              await supabase.from('taches').update({ criteres: next }).eq('id_tache', self.parent_id).eq('produit_id', produitId)
+            }
+          }
+        }
+      }
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['taches', produitActif?.id ?? null] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['taches', produitActif?.id ?? null] })
+      qc.invalidateQueries({ queryKey: ['tache_iterations'] })
+    },
   })
 }
 

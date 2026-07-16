@@ -9,7 +9,7 @@ import { useAllFaitTransitions } from '@/hooks/useActivityLog'
 import { useAuth } from '@/contexts/AuthContext'
 import { useProduit } from '@/contexts/ProduitContext'
 import { useToast } from '@/hooks/useToast'
-import { cn, buildTacheIndex, isUS } from '@/lib/utils'
+import { cn, buildTacheIndex, buildChildMap, isUS } from '@/lib/utils'
 import {
   LayoutGrid, Package, LayoutDashboard,
 } from 'lucide-react'
@@ -39,7 +39,7 @@ export default function DashboardPage() {
   const navigate                                     = useNavigate()
 
   const [mode, setMode]               = useState<DashMode>('multi')
-  const [scope]                       = useState<MultiScope>('trim')
+  const [scope, setScope]             = useState<MultiScope>('trim')
   const [viewProduitId, setViewProduitId] = useState<number | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number> | null>(null)
 
@@ -67,13 +67,16 @@ export default function DashboardPage() {
     [taches, byId, produits]
   )
 
+  // childMap sur TOUTES les tâches (pas les seules racines) : l'effort d'une
+  // US = effort propre + somme de ses sous-tâches (cf. effortEffectif/0057).
+  const childMap = useMemo(() => buildChildMap(taches), [taches])
   const metricsMap = useMemo(() => {
     const map = new Map<number, ProduitMetrics>()
     accessibles.forEach(p => {
-      map.set(p.id, computeProduitMetrics(p, allParents.filter((t: Tache) => t.produit_id === p.id), finConfig, today))
+      map.set(p.id, computeProduitMetrics(p, allParents.filter((t: Tache) => t.produit_id === p.id), finConfig, today, childMap))
     })
     return map
-  }, [accessibles, allParents, finConfig, today])
+  }, [accessibles, allParents, finConfig, today, childMap])
 
   // Date la plus ancienne à laquelle chaque US est passée à "Fait" (clé "produit_id:id_tache").
   const faitDoneMap = useMemo(() => {
@@ -84,6 +87,15 @@ export default function DashboardPage() {
     })
     return map
   }, [faitTransitions])
+
+  function toggleProduit(id: number) {
+    setSelectedIds(prev => {
+      const base = prev ?? new Set(accessibles.map(p => p.id))
+      const next = new Set(base)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
 
   function goToProductDashboard(p: Produit) {
     setProduitActif({ id: p.id, nom: p.nom, couleur: p.couleur })
@@ -151,7 +163,13 @@ export default function DashboardPage() {
                 produits={accessibles.filter(p => selectedIds === null || selectedIds.has(p.id))}
                 metricsMap={metricsMap}
                 scope={scope}
+                setScope={setScope}
+                accessibles={accessibles}
+                selectedIds={selectedIds}
+                toggleProduit={toggleProduit}
+                selectAll={() => setSelectedIds(new Set(accessibles.map(p => p.id)))}
                 allTaches={allParents}
+                childMap={childMap}
                 faitDoneMap={faitDoneMap}
                 navigate={navigate}
                 openProduct={goToProductDashboard}

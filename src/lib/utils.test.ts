@@ -10,6 +10,8 @@ function mkTache(overrides: Partial<Tache> = {}): Tache {
     moscow: null, priorite: null, statut: 'À faire', effort_j: 1, effort_realise_j: null,
     equipe: null, metier: null, assigne_a: null, type_tache: null, parent_id: null, famille_id: null,
     ordre_kanban: null,
+    ordre_backlog: null,
+    critere_lie_id: null,
     created_at: '2026-01-01T00:00:00Z', updated_at: null,
     ...overrides,
   }
@@ -74,20 +76,27 @@ describe('effortEffectif', () => {
     expect(effortEffectif(t, {})).toBe(5)
   })
 
-  it('remonte la somme des sous-tâches sur un niveau', () => {
+  it('additionne effort propre et somme des sous-tâches', () => {
+    const parent = mkTache({ id_tache: 'US-1', effort_j: 2 })
+    const childMap = { 'US-1': [mkTache({ id_tache: 'SS-1', effort_j: 2 }), mkTache({ id_tache: 'SS-2', effort_j: 3 })] }
+    expect(effortEffectif(parent, childMap)).toBe(7)
+  })
+
+  it('somme des sous-tâches seule quand l\'effort propre est nul', () => {
     const parent = mkTache({ id_tache: 'US-1', effort_j: 0 })
     const childMap = { 'US-1': [mkTache({ id_tache: 'SS-1', effort_j: 2 }), mkTache({ id_tache: 'SS-2', effort_j: 3 })] }
     expect(effortEffectif(parent, childMap)).toBe(5)
   })
 
   it('remonte récursivement sur 2 niveaux (Conteneur > US > sous-tâche)', () => {
-    const conteneur = mkTache({ id_tache: 'C-1', type_tache: 'Conteneur' })
-    const us = mkTache({ id_tache: 'US-1', parent_id: 'C-1', effort_j: 0 })
+    // effort_j: 0 sur le Conteneur — il n'en porte jamais dans l'appli
+    const conteneur = mkTache({ id_tache: 'C-1', type_tache: 'Conteneur', effort_j: 0 })
+    const us = mkTache({ id_tache: 'US-1', parent_id: 'C-1', effort_j: 1 })
     const childMap = {
       'C-1': [us],
       'US-1': [mkTache({ id_tache: 'SS-1', parent_id: 'US-1', effort_j: 4 })],
     }
-    expect(effortEffectif(conteneur, childMap)).toBe(4)
+    expect(effortEffectif(conteneur, childMap)).toBe(5)
   })
 })
 

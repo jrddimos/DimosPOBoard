@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState, useLayoutEffect } from 'react'
+import { useMemo, useRef, useState, useLayoutEffect, type CSSProperties } from 'react'
 import { Tree, type NodeApi, type NodeRendererProps, type TreeApi } from 'react-arborist'
 import { ChevronRight, ChevronDown, Folder, Copy, Trash2, Plus, RotateCcw } from 'lucide-react'
 import { StatutBadge, MoscowBadge, PrioBadge } from '@/components/ui/Badge'
 import { cn, epicShortName, effortEffectif, isUS, computeTacheNumbers, buildTacheIndex } from '@/lib/utils'
 import { GuideRail } from '@/components/ui/TreeGuideRail'
+import { useColonneTitre, ColonneTitreHandle } from '@/components/ui/ColonneTitre'
 import { useFillHeight } from '@/hooks/useFillHeight'
 import { epicFullName, useEpics, type Epic } from '@/hooks/useEpics'
 import type { useUpdateTache } from '@/hooks/useTaches'
@@ -36,7 +37,9 @@ function flattenUS(tasks: Tache[], childMap: Record<string, Tache[]>): Tache[] {
 // laisser respirer les titres longs, mais pas illimitée (1fr poussait les
 // badges Statut/Priorité/MoSCoW/Assigné trop loin à droite sur les titres
 // courts) — les badges restent ensuite alignés juste après, à taille fixe.
-const ROW_COLUMNS = 'minmax(160px,600px) 84px 46px 104px 32px'
+// --col-titre : largeur max de la colonne titre, redimensionnable à la
+// souris (useColonneTitre, variable posée sur le conteneur de l'arbre).
+const ROW_COLUMNS = 'minmax(160px, var(--col-titre, 600px)) 84px 46px 104px 32px'
 
 function buildTacheNode(t: Tache, childMap: Record<string, Tache[]>, numbers: Map<string, string>): TreeNode {
   const subs = childMap[t.id_tache] ?? []
@@ -116,6 +119,7 @@ export function TacheTree({
   const treeRef = useRef<TreeApi<TreeNode>>(null)
   const height = useFillHeight(containerRef)
   const [width, setWidth] = useState(800)
+  const { width: colTitre, onMouseDown: onColResize } = useColonneTitre('taches-col-titre', 600)
   useLayoutEffect(() => {
     if (!containerRef.current) return
     const el = containerRef.current
@@ -124,18 +128,59 @@ export function TacheTree({
     return () => ro.disconnect()
   }, [])
 
-  async function handleMove({ dragNodes, parentNode }: { dragNodes: NodeApi<TreeNode>[]; parentNode: NodeApi<TreeNode> | null }) {
+  // Déplacement ET réordonnancement : l'index de dépôt est respecté, et
+  // l'ordre de toute la fratrie cible est matérialisé dans ordre_backlog
+  // (pas de 10) — c'est lui qui pilote la numérotation 1.1, 1.2… puisque
+  // le fetch trie dessus. Seules les tâches dont l'ordre ou le rattachement
+  // change sont réellement mises à jour.
+  async function handleMove({ dragNodes, parentNode, index }: { dragNodes: NodeApi<TreeNode>[]; parentNode: NodeApi<TreeNode> | null; index: number }) {
     if (!parentNode) return
     const target = parentNode.data
-    for (const dn of dragNodes) {
-      if (dn.data.kind !== 'tache') continue
-      const dragged = dn.data.tache
-      if (target.kind === 'epic') {
-        await updateTache.mutateAsync({ id_tache: dragged.id_tache, updates: { parent_id: null, epic: target.label } })
-      } else {
-        await updateTache.mutateAsync({ id_tache: dragged.id_tache, updates: { parent_id: target.tache.id_tache, epic: target.tache.epic ?? dragged.epic } })
+    const dragged = dragNodes.flatMap(dn => dn.data.kind === 'tache' ? [dn.data.tache] : [])
+    if (!dragged.length) return
+    const draggedIds = new Set(dragged.map(t => t.id_tache))
+
+    // Fratrie cible complète (non filtrée), dans l'ordre effectif actuel,
+    // sans les éléments en cours de déplacement.
+    const fullSiblings = (target.kind === 'epic'
+      ? allTaches.filter(t => !t.parent_id && t.epic === target.label)
+      : (fullChildMap[target.tache.id_tache] ?? [])
+    ).filter(t => !draggedIds.has(t.id_tache))
+
+    // L'index fourni est relatif aux enfants AFFICHÉS (liste potentiellement
+    // filtrée) : on ancre l'insertion sur les voisins visibles du point de
+    // dépôt, puis on retrouve leur position dans la fratrie complète.
+    const displayedChildren = (parentNode.data.kind === 'epic' ? parentNode.data.children : parentNode.data.children ?? []) as TreeNode[]
+    const visibleTache = (n: TreeNode | undefined): Tache | null =>
+      n && n.kind === 'tache' && !draggedIds.has(n.tache.id_tache) ? n.tache : null
+    let prev: Tache | null = null
+    for (let i = index - 1; i >= 0 && !prev; i--) prev = visibleTache(displayedChildren[i])
+    let next: Tache | null = null
+    for (let i = index; i < displayedChildren.length && !next; i++) next = visibleTache(displayedChildren[i])
+
+    const insertAt = prev ? fullSiblings.findIndex(t => t.id_tache === prev!.id_tache) + 1
+      : next ? fullSiblings.findIndex(t => t.id_tache === next!.id_tache)
+      : fullSiblings.length
+    const newList = [...fullSiblings.slice(0, insertAt), ...dragged, ...fullSiblings.slice(insertAt)]
+
+    const updates: { id_tache: string; updates: Partial<Tache> }[] = []
+    newList.forEach((t, i) => {
+      const ordre = (i + 1) * 10
+      const u: Partial<Tache> = {}
+      if (t.ordre_backlog !== ordre) u.ordre_backlog = ordre
+      if (draggedIds.has(t.id_tache)) {
+        if (target.kind === 'epic') {
+          if (t.parent_id !== null) u.parent_id = null
+          if (t.epic !== target.label) u.epic = target.label
+        } else {
+          if (t.parent_id !== target.tache.id_tache) u.parent_id = target.tache.id_tache
+          const epicCible = target.tache.epic ?? t.epic
+          if (t.epic !== epicCible) u.epic = epicCible
+        }
       }
-    }
+      if (Object.keys(u).length) updates.push({ id_tache: t.id_tache, updates: u })
+    })
+    await Promise.all(updates.map(u => updateTache.mutateAsync(u)))
   }
 
   return (
@@ -149,7 +194,10 @@ export function TacheTree({
             className="text-[11px] font-semibold text-subtle hover:text-navy transition-colors">Tout replier</button>
         </div>
       )}
-      <div ref={containerRef} className="w-full">
+      {/* relative + variable CSS : les lignes consomment --col-titre dans
+          leur grid, la poignée (+8px = padding gauche px-2 des lignes) suit. */}
+      <div ref={containerRef} className="w-full relative" style={{ '--col-titre': `${colTitre}px` } as CSSProperties}>
+        <ColonneTitreHandle left={colTitre + 8} onMouseDown={onColResize} />
         <Tree<TreeNode>
           ref={treeRef}
           data={data}
@@ -159,9 +207,13 @@ export function TacheTree({
           rowHeight={rowHeight}
           indent={0}
           renderCursor={TacheDropCursor}
-          disableDrag={(d: TreeNode) => d.kind === 'epic' || d.tache.type_tache === 'Conteneur'}
+          disableDrag={(d: TreeNode) => d.kind === 'epic'}
           disableDrop={({ parentNode, dragNodes }) => {
             const target = parentNode.data
+            // Un Conteneur ne se dépose que directement dans un Epic
+            // (réordonnancement ou changement d'Epic — pas d'imbrication).
+            if (dragNodes.some(dn => dn.data.kind === 'tache' && dn.data.tache.type_tache === 'Conteneur'))
+              return target.kind !== 'epic'
             if (target.kind === 'epic') return false
             if (target.kind === 'tache' && target.tache.type_tache === 'Conteneur') return false
             // cible = US : refusé si la tâche déplacée a elle-même des sous-tâches (pas de 4e niveau)

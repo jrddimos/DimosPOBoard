@@ -30,8 +30,13 @@ export interface DodItem {
 
 export function useDod() {
   const { produitActif } = useProduit()
-  const produitId = produitActif?.id ?? null
+  return useDodByProduit(produitActif?.id ?? null)
+}
 
+// Variante explicitement scopée par produit — pour les vues qui peuvent
+// afficher un produit différent du produit actif (ex : Dashboard mode "Par
+// produit"), même besoin déjà résolu pour Epics/Jalons/Sprints/Taches.
+export function useDodByProduit(produitId: number | null) {
   return useQuery({
     queryKey: ['dod', produitId],
     queryFn: async () => {

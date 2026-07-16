@@ -1,8 +1,10 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { Layout } from '@/components/layout/Layout'
 import { useProduit } from '@/contexts/ProduitContext'
+import { useProduits } from '@/hooks/useProduits'
+import { getQuarterEnd } from '@/utils/produitMetrics'
 import { Spinner } from '@/components/ui/Spinner'
 import { SprintStatutBadge } from '@/components/ui/Badge'
 import { useSprints, useSprintActif, useUpsertSprint, useDeleteSprint } from '@/hooks/useSprints'
@@ -10,7 +12,7 @@ import { useTaches, useUpdateTache } from '@/hooks/useTaches'
 import { useToast } from '@/hooks/useToast'
 import { confirm } from '@/components/ui/ConfirmModal'
 import { supabase } from '@/lib/supabase'
-import { downloadCSV, naturalCompare, buildTacheIndex, parseCriteres, serializeCriteres, type CritereItem } from '@/lib/utils'
+import { downloadCSV, naturalCompare, buildTacheIndex, buildChildMap, effortEffectif, parseCriteres, serializeCriteres, type CritereItem } from '@/lib/utils'
 import { isEligibleForBacklog, isInThisSprint, buildEligibleTree } from '@/lib/sprintEligibility'
 import { TacheTree } from '@/components/tache/TacheTree'
 import { TacheDetailPanel } from '@/components/tache/TacheDetailPanel'
@@ -19,7 +21,7 @@ import { useProduitIterations, useUpdateIteration, useTransferToNextIteration, t
 // à la demande au clic sur export, pas au chargement de la page.
 import { METIERS_DEFAULT, SPRINTS_LIST, BRAND_COLORS } from '@/constants'
 import { useEpics, useCreateEpic, useUpdateEpic, useDeleteEpic, epicFullName, type Epic } from '@/hooks/useEpics'
-import { useJalons, useCreateJalon, useUpdateJalon, useDeleteJalon } from '@/hooks/useJalons'
+import { useJalons, useCreateJalon, useUpdateJalon, useDeleteJalon, type Jalon } from '@/hooks/useJalons'
 import { useDod } from '@/hooks/useDod'
 import {
   Pencil, Trash2, Plus, ChevronDown, ChevronRight, Check, X,
@@ -44,8 +46,8 @@ const GLOBAL_TABS_ALL   = [
   { key: 'metiers' as SetupTab, label: 'Thèmes',                 icon: <Tag size={12} /> },
 ]
 const GLOBAL_TABS_ADMIN = [
-  { key: 'finance' as SetupTab, label: 'Finance',                icon: <Euro size={12} /> },
   { key: 'equipes' as SetupTab, label: 'Équipes & Utilisateurs',  icon: <Users size={12} /> },
+  { key: 'finance' as SetupTab, label: 'Finance',                icon: <Euro size={12} /> },
 ]
 const PRODUCT_TABS = [
   { key: 'sprints' as SetupTab, label: 'Sprints',  icon: <Calendar size={12} /> },
@@ -62,7 +64,7 @@ export default function SetupPage() {
   const canEditProduct   = produitActif ? canEdit(produitActif.id) : false
 
   // Onglets visibles selon le contexte : jamais mélangés
-  const GLOBAL_TABS  = [...GLOBAL_TABS_ALL, ...(isAdmin ? GLOBAL_TABS_ADMIN : [])]
+  const GLOBAL_TABS  = [...(isAdmin ? GLOBAL_TABS_ADMIN : []), ...GLOBAL_TABS_ALL]
   const isProductTab = (t: SetupTab) => PRODUCT_TABS.some(x => x.key === t)
   const isGlobalTab  = (t: SetupTab) => t === 'metiers' || t === 'finance' || t === 'equipes'
   const tabs = isProductTab(tab) ? PRODUCT_TABS : GLOBAL_TABS
@@ -71,9 +73,11 @@ export default function SetupPage() {
     const t = params.get('tab') as SetupTab
     if (t && isGlobalTab(t)) { setTab(t); return }
     if (t && PRODUCT_TABS.some(x => x.key === t)) { setTab(t); return }
-    // Pas de tab dans l'URL : contexte produit → sprints, sinon → thèmes
-    setTab(produitActif ? 'sprints' : 'metiers')
-  }, [params, produitActif])
+    // Pas de tab dans l'URL : contexte produit → sprints ; sinon → Équipes &
+    // Utilisateurs pour un admin (premier onglet global), Thèmes sinon (seul
+    // onglet global accessible aux non-admins).
+    setTab(produitActif ? 'sprints' : isAdmin ? 'equipes' : 'metiers')
+  }, [params, produitActif, isAdmin])
 
   return (
     <Layout>
@@ -142,11 +146,49 @@ function InlineEdit({ value, onSave, placeholder = '', inputClassName = 'w-48' }
   )
 }
 
+// Variante multi-ligne d'InlineEdit, pour les champs longs (description) —
+// sauvegarde au blur plutôt qu'à l'Entrée (qui doit rester un retour à la
+// ligne dans un textarea), Échap annule.
+function InlineEditTextarea({ value, onSave, placeholder = '', missingHint }: {
+  value: string; onSave: (v: string) => void; placeholder?: string
+  // Affiché à la place du texte quand value est vide — signale un champ
+  // obligatoire pas encore rempli (ex: backfill de migration).
+  missingHint?: string
+}) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal]         = useState(value)
+  const ref                   = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => { if (editing) ref.current?.focus() }, [editing])
+  function commit() { const v = val.trim(); if (v !== value) onSave(v); setEditing(false) }
+  if (!editing) return (
+    <button onClick={() => { setVal(value); setEditing(true) }}
+      className="flex items-start gap-1 text-xs text-left text-subtle hover:text-navy transition-colors group w-full">
+      <span className="flex-1">
+        {value || (missingHint
+          ? <span className="text-amber-600 italic">⚠ {missingHint}</span>
+          : <span className="italic">{placeholder}</span>)}
+      </span>
+      <Pencil size={10} className="max-md:opacity-100 opacity-0 group-hover:opacity-60 shrink-0 mt-0.5" />
+    </button>
+  )
+  return (
+    <div className="flex flex-col gap-1">
+      <textarea ref={ref} value={val} onChange={e => setVal(e.target.value)} rows={2}
+        className="ds-textarea text-xs" placeholder={placeholder}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Escape') setEditing(false) }} />
+    </div>
+  )
+}
+
 // ─── SPRINTS TAB ──────────────────────────────────────────────
 function SprintsTab() {
   const { data: sprints = [], isLoading } = useSprints()
   const { data: sprintActif }             = useSprintActif()
   const { data: taches = [] }             = useTaches()
+  const { produitActif }                  = useProduit()
+  const { data: produits = [] }           = useProduits()
+  const produit = produits.find(p => p.id === produitActif?.id)
   const upsertSprint  = useUpsertSprint()
   const deleteSprint  = useDeleteSprint()
   const updateTache   = useUpdateTache()
@@ -169,9 +211,11 @@ function SprintsTab() {
   // ce qui est coché ici est figé sur l'itération du sprint qui ferme.
   const [criteresClose,  setCriteresClose]  = useState<Record<string, CritereItem[]>>({})
   const [plannedStart,   setPlannedStart]   = useState('')
-  const [plannedWeeks,   setPlannedWeeks]   = useState(2)
+  // 'trim' = jusqu'à la fin du trimestre auquel ce sprint est rattaché (via
+  // objectifs_trimestriels.sprints_ids) — pour les sprints "amélioration
+  // continue" qui courent sur tout le trimestre plutôt que 1-4 semaines.
+  const [plannedWeeks,   setPlannedWeeks]   = useState<number | 'trim'>(2)
   const transferIteration = useTransferToNextIteration()
-  const { produitActif }  = useProduit()
   const { data: iterationsMap = new Map<string, TacheIteration[]>() } = useProduitIterations(produitActif?.id ?? null)
 
   // Critères courants d'une US : ceux de sa dernière itération si elle en a,
@@ -188,6 +232,9 @@ function SprintsTab() {
   // (même bug que celui corrigé dans src/lib/sprintEligibility.ts).
   const spTaches   = taches.filter(t => !t.parent_id && t.type_tache !== 'Conteneur' && t.sprint_debut === selected)
   const unfinished = spTaches.filter(t => t.statut !== 'Fait')
+  // Effort d'une US = effort propre + somme de ses sous-tâches (cf.
+  // effortEffectif / migration 0057) — pour les stats et la clôture.
+  const spChildMap = useMemo(() => buildChildMap(taches), [taches])
   const statLabel: { [k: string]: string } = { planifie: 'planifié', en_cours: 'en cours', pause: 'en pause', cloture: 'clôturé' }
 
   // Seuls les sprints réellement créés pour CE produit apparaissent dans le
@@ -245,9 +292,23 @@ function SprintsTab() {
   async function savePlannedDates() {
     if (!selected || !plannedStart) { toast('Choisis une date de début', 'error'); return }
     const start = new Date(plannedStart + 'T00:00:00')
-    const end   = new Date(start.getTime() + plannedWeeks * 7 * 86400000)
+    let end: Date
+    let label: string
+    if (plannedWeeks === 'trim') {
+      const trim = (produit?.objectifs_trimestriels ?? []).find(t => (t.sprints_ids ?? []).includes(selected))
+      const trimEnd = trim ? getQuarterEnd(trim.trimestre) : null
+      if (!trimEnd) {
+        toast(`${selected} n'est rattaché à aucun trimestre — rattache-le d'abord dans Config produit.`, 'error')
+        return
+      }
+      end = trimEnd
+      label = `jusqu'à la fin de ${trim!.trimestre}`
+    } else {
+      end = new Date(start.getTime() + plannedWeeks * 7 * 86400000)
+      label = `${plannedWeeks} semaine${plannedWeeks > 1 ? 's' : ''}`
+    }
     await upsertSprint.mutateAsync({ numero: selected, started_at: start.toISOString(), closed_at: end.toISOString() } as Parameters<typeof upsertSprint.mutateAsync>[0])
-    toast(`Dates de ${selected} enregistrées (${plannedWeeks} semaine${plannedWeeks > 1 ? 's' : ''})`)
+    toast(`Dates de ${selected} enregistrées (${label})`)
   }
 
   async function action(type: 'start' | 'pause' | 'close' | 'unlock') {
@@ -283,7 +344,7 @@ function SprintsTab() {
       fait,
       encours: tasks.filter(t => t.statut === 'En cours').length,
       bloque:  tasks.filter(t => t.statut === 'Bloqué').length,
-      effort:  tasks.reduce((s, t) => s + (t.effort_j ?? 0), 0),
+      effort:  tasks.reduce((s, t) => s + effortEffectif(t, spChildMap), 0),
       pct:     total ? Math.round(fait / total * 100) : 0,
     }
   }
@@ -384,7 +445,7 @@ function SprintsTab() {
                         value={tempsPasse[t.id_tache] ?? ''}
                         onChange={e => setTempsPasse(p => ({ ...p, [t.id_tache]: e.target.value }))}
                         className="ds-input text-xs w-16 py-0.5" />
-                      <span className="text-subtle/70">/ {t.effort_j ?? 0}j estimés</span>
+                      <span className="text-subtle/70">/ {effortEffectif(t, spChildMap)}j estimés</span>
                     </div>
                   )}
                   {demarree && (criteresClose[t.id_tache]?.length ?? 0) > 0 && (
@@ -504,9 +565,10 @@ function SprintsTab() {
                 <div className="flex items-center gap-1.5">
                   <input type="date" value={plannedStart} onChange={e => setPlannedStart(e.target.value)}
                     className="ds-input text-xs flex-1" />
-                  <select value={plannedWeeks} onChange={e => setPlannedWeeks(Number(e.target.value))}
-                    className="ds-select text-xs w-24">
+                  <select value={plannedWeeks} onChange={e => setPlannedWeeks(e.target.value === 'trim' ? 'trim' : Number(e.target.value))}
+                    className="ds-select text-xs w-32">
                     {[1, 2, 3, 4].map(w => <option key={w} value={w}>{w} sem.</option>)}
+                    <option value="trim">Fin de trimestre</option>
                   </select>
                   <button onClick={savePlannedDates} disabled={!plannedStart || upsertSprint.isPending}
                     className="ds-btn ds-btn-sm shrink-0 disabled:opacity-40">Enregistrer</button>
@@ -845,61 +907,113 @@ function JalonsTab() {
   const updateJalon = useUpdateJalon()
   const deleteJalon = useDeleteJalon()
   const toast = useToast()
-  const [code, setCode] = useState('')
+  const [newCode, setNewCode] = useState('')
+  const [newNom, setNewNom] = useState('')
+  const [newDescription, setNewDescription] = useState('')
 
   const counts: Record<string, number> = {}
   taches.forEach(t => { if (t.jalon) counts[t.jalon] = (counts[t.jalon] ?? 0) + 1 })
-  const colorMap = new Map(jalonsList.map(j => [j.code, j.couleur]))
-  const items = jalonsList.map(j => j.code)
 
+  // Numéro unique + nom + description : les trois obligatoires pour créer
+  // un Jalon - Incrément majeur (avant : le code seul suffisait).
   async function add() {
-    const c = code.trim().toUpperCase()
-    if (!c) return
-    if (jalonsList.some(j => j.code.toLowerCase() === c.toLowerCase())) { toast('Ce Jalon existe déjà', 'error'); return }
-    await createJalon.mutateAsync({ code: c, couleur: BRAND_COLORS[jalonsList.length % BRAND_COLORS.length] })
-    toast(`Jalon - Incrément majeur "${c}" ajouté`)
-    setCode('')
+    const c = newCode.trim().toUpperCase(), nom = newNom.trim(), description = newDescription.trim()
+    if (!c || !nom || !description) return
+    if (jalonsList.some(j => j.code.toLowerCase() === c.toLowerCase())) { toast('Ce numéro de Jalon existe déjà', 'error'); return }
+    await createJalon.mutateAsync({ code: c, nom, description, couleur: BRAND_COLORS[jalonsList.length % BRAND_COLORS.length] })
+    toast(`Jalon - Incrément majeur "${c} — ${nom}" ajouté`)
+    setNewCode(''); setNewNom(''); setNewDescription('')
   }
 
-  async function rename(old: string, next: string) {
-    if (!next || next === old) return
-    const jalon = jalonsList.find(j => j.code === old); if (!jalon) return
-    if (jalonsList.some(j => j.id !== jalon.id && j.code.toLowerCase() === next.toLowerCase())) { toast('Ce Jalon existe déjà', 'error'); return }
-    const ok = await confirm({ title: 'Renommer partout ?', message: `"${old}" → "${next}" dans toutes les tâches.`, confirmLabel: 'Renommer' }); if (!ok) return
+  // Change juste le numéro (code) — c'est lui qui est stocké tel quel sur
+  // taches.jalon, donc le changement cascade sur toutes les tâches liées.
+  async function changeCode(jalon: Jalon, rawCode: string) {
+    const next = rawCode.trim().toUpperCase()
+    if (!next || next === jalon.code) return
+    if (jalonsList.some(j => j.id !== jalon.id && j.code.toLowerCase() === next.toLowerCase())) { toast('Ce numéro de Jalon existe déjà', 'error'); return }
+    const ok = await confirm({ title: 'Changer le numéro de Jalon ?', message: `"${jalon.code}" → "${next}" dans toutes les tâches.`, confirmLabel: 'Changer' }); if (!ok) return
     await updateJalon.mutateAsync({ id: jalon.id, updates: { code: next } })
-    await supabase.from('taches').update({ jalon: next }).eq('jalon', old)
+    await supabase.from('taches').update({ jalon: next }).eq('jalon', jalon.code)
     qc.invalidateQueries({ queryKey: ['taches'] })
-    toast('Jalon - Incrément majeur renommé')
+    toast('Numéro de Jalon changé')
   }
 
-  async function changeColor(code: string, couleur: string) {
-    const jalon = jalonsList.find(j => j.code === code); if (!jalon) return
+  async function renameNom(jalon: Jalon, rawNom: string) {
+    const nom = rawNom.trim()
+    if (!nom) { toast('Le nom est obligatoire', 'error'); return }
+    if (nom === jalon.nom) return
+    await updateJalon.mutateAsync({ id: jalon.id, updates: { nom } })
+    toast('Jalon renommé')
+  }
+
+  async function saveDescription(jalon: Jalon, description: string) {
+    if (!description) { toast('La description est obligatoire', 'error'); return }
+    await updateJalon.mutateAsync({ id: jalon.id, updates: { description } })
+  }
+
+  async function changeColor(jalon: Jalon, couleur: string) {
     await updateJalon.mutateAsync({ id: jalon.id, updates: { couleur } })
   }
 
-  async function del(code: string) {
-    const jalon = jalonsList.find(j => j.code === code); if (!jalon) return
+  async function del(jalon: Jalon) {
     const ok = await confirm({ title: 'Supprimer ce Jalon - Incrément majeur ?', message: `Les tâches perdront leur jalon - incrément majeur.`, confirmLabel: 'Supprimer', variant: 'danger' }); if (!ok) return
     await deleteJalon.mutateAsync(jalon.id)
-    await supabase.from('taches').update({ jalon: null }).eq('jalon', code)
+    await supabase.from('taches').update({ jalon: null }).eq('jalon', jalon.code)
     qc.invalidateQueries({ queryKey: ['taches'] })
     toast('Jalon - Incrément majeur supprimé')
   }
 
+  const canAdd = newCode.trim() && newNom.trim() && newDescription.trim()
+
   return (
-    <div className="flex flex-col gap-4 max-w-xl 3xl:max-w-3xl">
-      <div className="ds-card flex items-end gap-2">
-        <div><div className="ds-label mb-1">Code</div><input value={code} onChange={e => setCode(e.target.value.toUpperCase())} className="ds-input w-20" maxLength={5} placeholder="I7" /></div>
-        <button onClick={add} disabled={createJalon.isPending || !code.trim()}
-          className="ds-btn-primary flex items-center gap-1"><Plus size={13} /> Ajouter</button>
+    <div className="flex flex-col gap-4 max-w-2xl 3xl:max-w-4xl">
+      <div className="ds-card flex flex-col gap-2">
+        <div className="flex items-end gap-2">
+          <div className="flex-none"><div className="ds-label mb-1">Numéro</div>
+            <input value={newCode} onChange={e => setNewCode(e.target.value.toUpperCase())} className="ds-input w-20" maxLength={5} placeholder="I7" /></div>
+          <div className="flex-1"><div className="ds-label mb-1">Nom</div>
+            <input value={newNom} onChange={e => setNewNom(e.target.value)} className="ds-input" placeholder="Nom du Jalon" /></div>
+        </div>
+        <div>
+          <div className="ds-label mb-1">Description</div>
+          <textarea value={newDescription} onChange={e => setNewDescription(e.target.value)} rows={2}
+            className="ds-textarea text-sm w-full" placeholder="Ce que ce Jalon - Incrément majeur représente…" />
+        </div>
+        <button onClick={add} disabled={createJalon.isPending || !canAdd}
+          className="ds-btn-primary self-start flex items-center gap-1"><Plus size={13} /> Ajouter</button>
       </div>
-      <p className="text-xs text-subtle -mt-2">Cliquez sur le code pour le renommer, sur le carré pour changer sa couleur. Supprimer vide le champ Jalon - Incrément majeur des tâches concernées.</p>
-      {items.length === 0 ? (
+      <p className="text-xs text-subtle -mt-2">Numéro, nom et description sont obligatoires. Cliquez sur un champ pour le modifier, sur le carré pour changer sa couleur. Supprimer vide le champ Jalon - Incrément majeur des tâches concernées.</p>
+      {jalonsList.length === 0 ? (
         <p className="text-xs text-subtle italic">Aucun Jalon défini pour ce produit.</p>
       ) : (
-        <InlineList items={items}
-          onRename={rename} onDelete={del} onColorChange={changeColor}
-          colorFn={s => colorMap.get(s) ?? '#6366F1'} countFn={s => counts[s] ?? 0} isSystem={() => false} />
+        <div className="flex flex-col gap-1.5">
+          {jalonsList.map(jalon => {
+            const nb = counts[jalon.code] ?? 0
+            return (
+              <div key={jalon.id} className="flex items-start gap-3 p-2.5 bg-card rounded-xl border border-border group">
+                <label className="w-6 h-6 rounded-md shrink-0 cursor-pointer ring-1 ring-border/60 relative overflow-hidden mt-0.5" style={{ background: jalon.couleur ?? '#6366F1' }} title="Changer la couleur">
+                  <input type="color" value={jalon.couleur ?? '#6366F1'} onChange={e => changeColor(jalon, e.target.value)}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                </label>
+                <div className="flex-1 min-w-0 flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <InlineEdit value={jalon.code} onSave={v => changeCode(jalon, v)} placeholder={jalon.code} inputClassName="w-16 font-mono" />
+                    <InlineEdit value={jalon.nom} onSave={v => renameNom(jalon, v)} placeholder="Nom manquant" />
+                    <span className="text-xs text-subtle shrink-0 ml-auto">{nb} US</span>
+                  </div>
+                  <InlineEditTextarea value={jalon.description} onSave={v => saveDescription(jalon, v)}
+                    placeholder="Description…" missingHint="Description manquante — cliquez pour la compléter" />
+                </div>
+                {nb === 0 && (
+                  <button onClick={() => del(jalon)}
+                    className="p-1.5 rounded-lg max-md:opacity-100 opacity-0 group-hover:opacity-100 hover:bg-rose-50 text-subtle hover:text-rose-600 transition-all shrink-0">
+                    <Trash2 size={12} />
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
       )}
     </div>
   )

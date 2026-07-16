@@ -252,16 +252,21 @@ export function ProduitView({
                     onMouseDown={e => {
                       if (isEdit || isReadOnly) return
                       e.preventDefault()
+                      // N'arme que la ref — le range de drag n'est posé qu'au premier
+                      // mouseenter réel (cf. ci-dessous), pour qu'un simple clic sans
+                      // mouvement ne bascule jamais la cellule en rendu "isInDrag"
+                      // (qui n'a pas de onClick, ce qui cassait le clic seul).
                       dragRef.current = { produit_id: p.id, assigne_a, start: semaine }
                       hasDragged.current = false
-                      setDragRange(() => ({ produit_id: p.id, assigne_a, min: semaine, max: semaine }))
                     }}
                     onMouseEnter={() => {
                       if (!dragRef.current || dragRef.current.produit_id !== p.id || dragRef.current.assigne_a !== assigne_a) return
                       hasDragged.current = true
-                      setDragRange(prev => prev
-                        ? { ...prev, min: Math.min(prev.min, semaine), max: Math.max(prev.max, semaine) }
-                        : null)
+                      const start = dragRef.current.start
+                      setDragRange(prev => {
+                        const base = prev ?? { produit_id: p.id, assigne_a, min: start, max: start }
+                        return { ...base, min: Math.min(base.min, semaine), max: Math.max(base.max, semaine) }
+                      })
                     }}
                     onClick={() => {
                       if (hasDragged.current || isReadOnly) return

@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { useToast } from '@/hooks/useToast'
 import { useEquipes, useUtilisateurs, useCreateEquipe, useUpdateEquipe, useDeleteEquipe, useLastSignInDates, useUserEmails } from '@/hooks/useEquipes'
-import { useAllRoles, useInviteUser, useSetRoleGlobal, useUpdateProfile, useSetUserEquipes, useUploadAvatar, useUpsertRoleProduit, useDeleteRoleProduit, useDeleteUser, usePendingProfiles, useCreatePendingProfile, useDeletePendingProfile, useSendInvitationToPending, useUpdatePendingProfile } from '@/hooks/useUserManagement'
+import { useAllRoles, useInviteUser, useSetRoleGlobal, useUpdateProfile, useSetUserEquipes, useUploadAvatar, useUpsertRoleProduit, useDeleteRoleProduit, useDeleteUser, usePendingProfiles, useCreatePendingProfile, useDeletePendingProfile, useSendInvitationToPending, useUpdatePendingProfile, useUpdateUserEmail } from '@/hooks/useUserManagement'
 import type { PendingProfile } from '@/hooks/useUserManagement'
 import { useProduits } from '@/hooks/useProduits'
 import { useAuth } from '@/contexts/AuthContext'
@@ -368,6 +368,7 @@ export default function EquipesUtilisateursPage() {
   const updateEquipe   = useUpdateEquipe()
   const deleteEquipe   = useDeleteEquipe()
   const updateProfile  = useUpdateProfile()
+  const updateUserEmail = useUpdateUserEmail()
   const setEquipes     = useSetUserEquipes()
   const inviteUser     = useInviteUser()
   const setRoleGlobal  = useSetRoleGlobal()

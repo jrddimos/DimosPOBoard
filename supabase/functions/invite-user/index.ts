@@ -50,11 +50,34 @@ Deno.serve(async (req) => {
       })
     }
 
-    const { email, display_name } = await req.json()
+    const body = await req.json()
+    const { email, display_name, action, user_id } = body
 
     if (!email) {
       return new Response(JSON.stringify({ error: 'Email requis' }), {
         status: 400, headers: { ...CORS, 'Content-Type': 'application/json' },
+      })
+    }
+
+    // Correction de l'email d'un utilisateur existant (Setup → Équipes &
+    // Utilisateurs) : passe par l'Admin API pour appliquer le changement
+    // immédiatement (pas le flow de double confirmation du self-service).
+    if (action === 'update_email') {
+      if (!user_id) {
+        return new Response(JSON.stringify({ error: 'user_id requis' }), {
+          status: 400, headers: { ...CORS, 'Content-Type': 'application/json' },
+        })
+      }
+      const { error: updErr } = await supabaseAdmin.auth.admin.updateUserById(user_id, {
+        email, email_confirm: true,
+      })
+      if (updErr) {
+        return new Response(JSON.stringify({ error: updErr.message }), {
+          status: 400, headers: { ...CORS, 'Content-Type': 'application/json' },
+        })
+      }
+      return new Response(JSON.stringify({ user: { id: user_id, email } }), {
+        status: 200, headers: { ...CORS, 'Content-Type': 'application/json' },
       })
     }
 

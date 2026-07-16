@@ -7,10 +7,9 @@ import { useTaches, useUpdateTache, useCreateSousTache } from '@/hooks/useTaches
 import { useSprints, useSprintActif, useClosedSprints } from '@/hooks/useSprints'
 import { useUtilisateurs } from '@/hooks/useEquipes'
 import { useToast } from '@/hooks/useToast'
-import { SPRINTS_LIST } from '@/constants'
 import { useEpics, epicFullName } from '@/hooks/useEpics'
 import { useJalons } from '@/hooks/useJalons'
-import { sprintInRange, serializeCriteres, parseCriteres, buildTacheIndex, isUS } from '@/lib/utils'
+import { sprintInRange, serializeCriteres, parseCriteres, buildTacheIndex, isUS, existingSprintNumeros } from '@/lib/utils'
 import type { CritereItem } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { confirm } from '@/components/ui/ConfirmModal'
@@ -483,7 +482,7 @@ export default function SprintBoardPage() {
         {activeTab === 'all' && (
           <select value={allSprint} onChange={e => setAllSprint(e.target.value)} className="ds-select w-40 text-xs py-1">
             <option value="">-- Sprint --</option>
-            {SPRINTS_LIST.map(s => {
+            {existingSprintNumeros(sprints).map(s => {
               const sp = sprints.find(x => x.numero === s)
               return <option key={s} value={s}>{s}{sp ? ` (${sp.statut})` : ''}</option>
             })}
@@ -717,7 +716,7 @@ export default function SprintBoardPage() {
                         <select defaultValue={panel.sprint || panel.sprint_debut || ''}
                           className="ds-select text-xs flex-1" id={`sprint-move-${panel.id_tache}`}>
                           <option value="">Backlog</option>
-                          {SPRINTS_LIST.map(s => <option key={s}>{s}</option>)}
+                          {existingSprintNumeros(sprints).map(s => <option key={s}>{s}</option>)}
                         </select>
                         <button onClick={async () => {
                           const sel = document.getElementById(`sprint-move-${panel.id_tache}`) as HTMLSelectElement
