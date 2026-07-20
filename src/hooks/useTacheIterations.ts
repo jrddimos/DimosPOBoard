@@ -207,6 +207,31 @@ export function useIterationCounts(produitId: number | null) {
   })
 }
 
+// Sprint de la dernière itération (numero max) par tâche, pour tout le
+// produit — affiché à côté du MoSCoW dans le backlog par Epic (TacheTree),
+// sans requête par tâche.
+export function useLastIterationSprints(produitId: number | null) {
+  return useQuery({
+    queryKey: ['tache_iterations_last_sprint', produitId],
+    queryFn: async () => {
+      if (!produitId) return new Map<string, string>()
+      const { data, error } = await supabase.from('tache_iterations')
+        .select('id_tache, numero, sprint').eq('produit_id', produitId)
+      if (error) throw error
+      const best = new Map<string, { numero: number; sprint: string | null }>()
+      for (const row of data ?? []) {
+        const cur = best.get(row.id_tache)
+        if (!cur || row.numero > cur.numero) best.set(row.id_tache, { numero: row.numero, sprint: row.sprint })
+      }
+      const result = new Map<string, string>()
+      best.forEach((v, k) => { if (v.sprint) result.set(k, v.sprint) })
+      return result
+    },
+    staleTime: 30_000,
+    enabled: !!produitId,
+  })
+}
+
 export function useDeleteIteration() {
   const qc = useQueryClient()
   const { produitActif } = useProduit()

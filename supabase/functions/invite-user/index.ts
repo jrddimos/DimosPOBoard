@@ -6,6 +6,15 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
+// Mot de passe temporaire lisible (pas de 0/O/1/l/I ambigus) — communiqué
+// hors bande par l'admin, à changer obligatoirement à la première connexion
+// (user_profiles.must_change_password, cf. action create_with_password).
+function generateTempPassword(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%'
+  const bytes = crypto.getRandomValues(new Uint8Array(14))
+  return Array.from(bytes, b => chars[b % chars.length]).join('')
+}
+
 Deno.serve(async (req) => {
   // Preflight CORS
   if (req.method === 'OPTIONS') {
@@ -51,7 +60,49 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json()
-    const { email, display_name, action, user_id } = body
+    const { email, display_name, action, user_id, banned } = body
+
+    // Suppression réelle du compte (Setup > Équipes & Utilisateurs) —
+    // auth.users cascade sur user_profiles / user_produit_roles (FK ON
+    // DELETE CASCADE), pas besoin de nettoyer ces tables séparément. Ne
+    // requiert pas d'email : placé avant le garde-fou plus bas.
+    if (action === 'delete_user') {
+      if (!user_id) {
+        return new Response(JSON.stringify({ error: 'user_id requis' }), {
+          status: 400, headers: { ...CORS, 'Content-Type': 'application/json' },
+        })
+      }
+      const { error: delErr } = await supabaseAdmin.auth.admin.deleteUser(user_id)
+      if (delErr) {
+        return new Response(JSON.stringify({ error: delErr.message }), {
+          status: 400, headers: { ...CORS, 'Content-Type': 'application/json' },
+        })
+      }
+      return new Response(JSON.stringify({ success: true }), {
+        status: 200, headers: { ...CORS, 'Content-Type': 'application/json' },
+      })
+    }
+
+    // Désactivation temporaire (bloque la connexion sans supprimer le
+    // compte) / réactivation — via le ban Admin API. Pas d'email requis.
+    if (action === 'set_banned') {
+      if (!user_id) {
+        return new Response(JSON.stringify({ error: 'user_id requis' }), {
+          status: 400, headers: { ...CORS, 'Content-Type': 'application/json' },
+        })
+      }
+      const { error: banErr } = await supabaseAdmin.auth.admin.updateUserById(user_id, {
+        ban_duration: banned ? '876000h' : 'none',
+      })
+      if (banErr) {
+        return new Response(JSON.stringify({ error: banErr.message }), {
+          status: 400, headers: { ...CORS, 'Content-Type': 'application/json' },
+        })
+      }
+      return new Response(JSON.stringify({ success: true }), {
+        status: 200, headers: { ...CORS, 'Content-Type': 'application/json' },
+      })
+    }
 
     if (!email) {
       return new Response(JSON.stringify({ error: 'Email requis' }), {
@@ -81,6 +132,38 @@ Deno.serve(async (req) => {
       })
     }
 
+    // Création directe avec mot de passe temporaire, sans email d'invitation
+    // — contourne la rate-limit du service email par défaut de Supabase
+    // (quelques emails/heure sans SMTP personnalisé). Le mot de passe est
+    // renvoyé une seule fois dans la réponse : à communiquer hors bande par
+    // l'admin. must_change_password force l'écran de définition du mot de
+    // passe à la première connexion (App.tsx, SetPasswordPage.tsx).
+    if (action === 'create_with_password') {
+      const tempPassword = generateTempPassword()
+      const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+        email, password: tempPassword, email_confirm: true,
+        user_metadata: { display_name: display_name || email },
+      })
+      if (createErr) {
+        return new Response(JSON.stringify({ error: createErr.message }), {
+          status: 400, headers: { ...CORS, 'Content-Type': 'application/json' },
+        })
+      }
+      const newUserId = created.user?.id
+      if (!newUserId) {
+        return new Response(JSON.stringify({ error: 'Création utilisateur échouée' }), {
+          status: 500, headers: { ...CORS, 'Content-Type': 'application/json' },
+        })
+      }
+      await supabaseAdmin.from('user_profiles').upsert(
+        { user_id: newUserId, display_name: display_name || email, must_change_password: true },
+        { onConflict: 'user_id' }
+      )
+      return new Response(JSON.stringify({ user: { id: newUserId, email }, password: tempPassword }), {
+        status: 200, headers: { ...CORS, 'Content-Type': 'application/json' },
+      })
+    }
+
     let userId: string | null = null
 
     // Sans redirectTo explicite, GoTrue retombe sur la Site URL configurée
@@ -89,13 +172,29 @@ Deno.serve(async (req) => {
     // mot de passe. On force l'origine de l'appel (= le domaine de l'app
     // depuis lequel l'admin invite), comme le fait déjà resetPasswordForEmail
     // côté client (LoginPage.tsx, EquipesUtilisateursPage.tsx).
+    // Slash final obligatoire : la liste blanche Redirect URLs du dashboard
+    // contient l'entrée exacte "https://domaine/" (avec slash) — sans lui,
+    // `new URL(origin).origin` (jamais de slash final) ne matche ni cette
+    // entrée exacte ni le pattern "https://domaine/**", et GoTrue rejette
+    // l'invitation entière avec un 400 au lieu de retomber sur la Site URL.
     const origin = req.headers.get('origin') ?? req.headers.get('referer')
-    const redirectTo = origin ? new URL(origin).origin : undefined
+    const redirectTo = origin ? `${new URL(origin).origin}/` : undefined
 
-    const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+    let { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
       data: { display_name: display_name || email },
       redirectTo,
     })
+
+    // Filet de sécurité : si le domaine n'est (pas encore) whitelisté côté
+    // dashboard, GoTrue rejette l'invitation entière plutôt que de retomber
+    // sur la Site URL — on retente sans redirectTo pour ne jamais bloquer
+    // l'invitation elle-même (le lien atterrira alors sur /login, à corriger
+    // en whitelistant le domaine plutôt qu'en subissant un 400).
+    if (error && redirectTo && /redirect/i.test(error.message ?? '')) {
+      ;({ data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+        data: { display_name: display_name || email },
+      }))
+    }
 
     if (error) {
       // Si l'utilisateur existe déjà, on récupère son ID pour mettre à jour ses rôles

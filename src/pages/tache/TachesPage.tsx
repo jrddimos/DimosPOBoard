@@ -11,7 +11,7 @@ import { FastTaskBoard } from '@/components/tache/FastTaskBoard'
 import { TacheTree } from '@/components/tache/TacheTree'
 import { TacheDetailPanel } from '@/components/tache/TacheDetailPanel'
 import { Grp, SelectPicker, PriorityPicker, MoSCoWPicker } from '@/components/tache/TacheFormControls'
-import { useIterationCounts } from '@/hooks/useTacheIterations'
+import { useIterationCounts, useLastIterationSprints } from '@/hooks/useTacheIterations'
 import { useSprints, useSprintActif, useClosedSprints } from '@/hooks/useSprints'
 import { useEquipes, useUtilisateurs } from '@/hooks/useEquipes'
 import { useToast } from '@/hooks/useToast'
@@ -507,6 +507,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
 }) {
   const { data: epicsList=[] } = useEpics()
   const { data: iterationCounts=new Map<string,number>() } = useIterationCounts(produitId)
+  const { data: lastIterSprints=new Map<string,string>() } = useLastIterationSprints(produitId)
   const createEpic = useCreateEpic()
   const { isAdmin } = useAuth()
   const { data: jalonsList=[] } = useJalons()
@@ -968,7 +969,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
               panelId={panelId} onOpenPanel={openPanel} dependances={dependances} updateTache={updateTache}
               onDuplicateEpic={duplicateEpic} isAdmin={isAdmin} onClearEpic={clearEpic}
               onQuickAdd={(epicLabel,conteneurParent)=>setQuickAdd({epicLabel,conteneurParent})}
-              onAddSousTache={setSousTacheParent} iterationCounts={iterationCounts}
+              onAddSousTache={setSousTacheParent} iterationCounts={iterationCounts} lastIterSprints={lastIterSprints}
             />
           ) : (
           <table className="ds-table" style={{minWidth:'1400px'}}>

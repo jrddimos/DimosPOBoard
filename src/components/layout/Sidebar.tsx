@@ -8,8 +8,8 @@ import type { ActionLop } from '@/hooks/useProduits'
 import { useUploadAvatar, useUpdateProfile } from '@/hooks/useUserManagement'
 import { useQuickNotes, useCreateQuickNote, useToggleQuickNote, useDeleteQuickNote, useMigrateLegacyQuickNotes } from '@/hooks/useQuickNotes'
 import { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead, useDeleteNotification } from '@/hooks/useNotifications'
-import { useSuggestions, useCreateSuggestion, useUpdateSuggestionStatut } from '@/hooks/useSuggestions'
-import type { Suggestion, SuggestionStatut } from '@/hooks/useSuggestions'
+import { useSuggestions, useCreateSuggestion, useUpdateSuggestion, useUpdateSuggestionStatut } from '@/hooks/useSuggestions'
+import type { Suggestion, SuggestionStatut, SuggestionImportance } from '@/hooks/useSuggestions'
 import { useProduitMessages, useAddProduitMessage, useDeleteProduitMessage } from '@/hooks/useProduitMessages'
 import { useUtilisateurs } from '@/hooks/useEquipes'
 import { MentionField } from '@/components/ui/MentionField'
@@ -26,6 +26,7 @@ import {
   Package, CalendarClock, BarChart3, Camera, TrendingUp,
   StickyNote, Plus, Check, ArrowRight, ChevronRight, ChevronLeft, Sun, Moon, Layers, Bell, Search, Square, Timer,
   SlidersHorizontal, MessageCircle, Send, Lightbulb, ThumbsUp, ThumbsDown, Archive, Milestone,
+  Pencil, ArrowUpDown,
 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
@@ -410,6 +411,60 @@ const SUGGESTION_STATUT_CFG: Record<SuggestionStatut, { label: string; className
   rejetee:  { label: 'Rejetée',   className: 'bg-rose-50 text-rose-600' },
   fermee:   { label: 'Fermée',    className: 'bg-slate-100 text-slate-500' },
 }
+const SUGGESTION_IMPORTANCE_CFG: Record<SuggestionImportance, { label: string; className: string; order: number }> = {
+  haute:   { label: 'Haute',   className: 'bg-rose-50 text-rose-600',    order: 0 },
+  moyenne: { label: 'Moyenne', className: 'bg-amber-50 text-amber-600',  order: 1 },
+  basse:   { label: 'Basse',   className: 'bg-slate-100 text-slate-500', order: 2 },
+}
+const SUGGESTION_IMPORTANCE_LEVELS: SuggestionImportance[] = ['basse', 'moyenne', 'haute']
+
+type SuggestionSort = 'recent' | 'importance' | 'auteur'
+
+// Formulaire d'édition d'une proposition — composant top-level (pas défini
+// dans SuggestionsPanel) pour que son état local (texte en cours de frappe)
+// survive aux re-renders du parent (ex. refetch de la query suggestions en
+// arrière-plan) au lieu d'être démonté/perdu.
+function SuggestionEditForm({ s, onDone, updateSuggestion }: {
+  s: Suggestion
+  onDone: () => void
+  updateSuggestion: ReturnType<typeof useUpdateSuggestion>
+}) {
+  const [t, setT] = useState(s.titre)
+  const [d, setD] = useState(s.description ?? '')
+  const [imp, setImp] = useState<SuggestionImportance>(s.importance)
+
+  async function save() {
+    if (!t.trim()) return
+    await updateSuggestion.mutateAsync({ id: s.id, titre: t.trim(), description: d.trim() || null, importance: imp })
+    onDone()
+  }
+
+  return (
+    <div className="px-4 py-3 bg-bg/50 flex flex-col gap-2">
+      <input value={t} onChange={e => setT(e.target.value)} autoFocus
+        className="text-sm text-navy outline-none bg-card border border-border rounded-lg px-3 py-2 focus:border-indigo-300 transition-colors" />
+      <textarea value={d} onChange={e => setD(e.target.value)} rows={2}
+        placeholder="Détails (optionnel)…"
+        className="text-xs text-navy outline-none bg-card border border-border rounded-lg px-3 py-2 focus:border-indigo-300 transition-colors resize-none" />
+      <div className="flex items-center gap-1.5">
+        {SUGGESTION_IMPORTANCE_LEVELS.map(lvl => (
+          <button key={lvl} type="button" onClick={() => setImp(lvl)}
+            className={cn('text-[11px] font-semibold px-2 py-1 rounded-lg border transition-colors',
+              imp === lvl ? cn(SUGGESTION_IMPORTANCE_CFG[lvl].className, 'border-transparent') : 'border-border text-subtle hover:border-indigo-200')}>
+            {SUGGESTION_IMPORTANCE_CFG[lvl].label}
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center gap-2 self-end">
+        <button onClick={onDone} className="text-xs font-semibold text-subtle hover:text-navy px-2 py-1.5 rounded-lg transition-colors">Annuler</button>
+        <button onClick={save} disabled={!t.trim() || updateSuggestion.isPending}
+          className="text-xs font-semibold text-white bg-indigo-500 px-3 py-1.5 rounded-lg hover:bg-indigo-400 transition-colors disabled:opacity-40">
+          {updateSuggestion.isPending ? 'Enregistrement…' : 'Enregistrer'}
+        </button>
+      </div>
+    </div>
+  )
+}
 
 function SuggestionsPanel({ userId, isAdmin, onClose, leftOffset }: {
   userId: string; isAdmin: boolean; onClose: () => void; leftOffset: string
@@ -417,10 +472,14 @@ function SuggestionsPanel({ userId, isAdmin, onClose, leftOffset }: {
   const { data: suggestions = [] } = useSuggestions()
   const { data: membres = [] } = useUtilisateurs()
   const createSuggestion = useCreateSuggestion()
+  const updateSuggestion = useUpdateSuggestion()
   const updateStatut     = useUpdateSuggestionStatut()
   const [titre, setTitre] = useState('')
   const [description, setDescription] = useState('')
+  const [importance, setImportance] = useState<SuggestionImportance>('moyenne')
   const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [sortBy, setSortBy] = useState<SuggestionSort>('recent')
 
   function authorName(id: string) {
     const m = membres.find(u => u.user_id === id)
@@ -429,15 +488,30 @@ function SuggestionsPanel({ userId, isAdmin, onClose, leftOffset }: {
 
   async function submit() {
     if (!titre.trim()) return
-    await createSuggestion.mutateAsync({ auteur_id: userId, titre: titre.trim(), description: description.trim() || null })
-    setTitre(''); setDescription(''); setShowForm(false)
+    await createSuggestion.mutateAsync({ auteur_id: userId, titre: titre.trim(), description: description.trim() || null, importance })
+    setTitre(''); setDescription(''); setImportance('moyenne'); setShowForm(false)
   }
 
-  const nouvelles = suggestions.filter(s => s.statut === 'nouvelle')
-  const autres     = suggestions.filter(s => s.statut !== 'nouvelle')
+  // Tri appliqué séparément aux deux groupes (nouvelles / traitées) — le
+  // regroupement par statut reste toujours prioritaire sur le tri choisi.
+  function sortList(list: Suggestion[]): Suggestion[] {
+    if (sortBy === 'importance') return [...list].sort((a, b) => SUGGESTION_IMPORTANCE_CFG[a.importance].order - SUGGESTION_IMPORTANCE_CFG[b.importance].order)
+    if (sortBy === 'auteur') return [...list].sort((a, b) => authorName(a.auteur_id).localeCompare(authorName(b.auteur_id), 'fr'))
+    return list // 'recent' : déjà trié par created_at desc depuis la query
+  }
+
+  const nouvelles = sortList(suggestions.filter(s => s.statut === 'nouvelle'))
+  const autres     = sortList(suggestions.filter(s => s.statut !== 'nouvelle'))
 
   function SuggestionRow({ s }: { s: Suggestion }) {
     const cfg = SUGGESTION_STATUT_CFG[s.statut]
+    const impCfg = SUGGESTION_IMPORTANCE_CFG[s.importance]
+    const canEdit = s.auteur_id === userId || isAdmin
+
+    if (editingId === s.id) {
+      return <SuggestionEditForm s={s} onDone={() => setEditingId(null)} updateSuggestion={updateSuggestion} />
+    }
+
     return (
       <div className="px-4 py-3 group/row hover:bg-bg/40 transition-colors">
         <div className="flex items-start gap-2.5">
@@ -446,12 +520,19 @@ function SuggestionsPanel({ userId, isAdmin, onClose, leftOffset }: {
             <div className="flex items-center gap-1.5 flex-wrap">
               <p className="text-sm font-medium text-navy/85 leading-snug">{s.titre}</p>
               <span className={cn('text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0', cfg.className)}>{cfg.label}</span>
+              <span className={cn('text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0', impCfg.className)}>{impCfg.label}</span>
             </div>
             {s.description && <p className="text-xs text-subtle mt-1 leading-snug">{s.description}</p>}
             <p className="text-[11px] text-subtle/50 mt-1.5">
               {authorName(s.auteur_id)} · {new Date(s.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}
             </p>
           </div>
+          {canEdit && (
+            <button onClick={() => setEditingId(s.id)} title="Modifier"
+              className="shrink-0 p-1 rounded-lg max-md:opacity-100 opacity-0 group-hover/row:opacity-100 text-subtle hover:text-indigo-600 hover:bg-indigo-50 transition-all">
+              <Pencil size={12} />
+            </button>
+          )}
         </div>
         {isAdmin && (
           <div className="mt-2 ml-6 flex items-center gap-1.5">
@@ -509,10 +590,32 @@ function SuggestionsPanel({ userId, isAdmin, onClose, leftOffset }: {
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2}
               placeholder="Détails (optionnel)…"
               className="text-xs text-navy placeholder:text-subtle/40 outline-none bg-card border border-border rounded-lg px-3 py-2 focus:border-indigo-300 transition-colors resize-none" />
+            <div className="flex items-center gap-1.5">
+              {SUGGESTION_IMPORTANCE_LEVELS.map(lvl => (
+                <button key={lvl} type="button" onClick={() => setImportance(lvl)}
+                  className={cn('text-[11px] font-semibold px-2 py-1 rounded-lg border transition-colors',
+                    importance === lvl ? cn(SUGGESTION_IMPORTANCE_CFG[lvl].className, 'border-transparent') : 'border-border text-subtle hover:border-indigo-200')}>
+                  {SUGGESTION_IMPORTANCE_CFG[lvl].label}
+                </button>
+              ))}
+            </div>
             <button onClick={submit} disabled={!titre.trim() || createSuggestion.isPending}
               className="text-xs font-semibold text-white bg-indigo-500 px-3 py-1.5 rounded-lg hover:bg-indigo-400 transition-colors disabled:opacity-40 self-end">
               {createSuggestion.isPending ? 'Envoi…' : 'Envoyer'}
             </button>
+          </div>
+        )}
+
+        {suggestions.length > 0 && (
+          <div className="flex items-center gap-1 px-4 py-1.5 border-b border-border/50 shrink-0">
+            <ArrowUpDown size={10} className="text-subtle/50 shrink-0" />
+            {([['recent', 'Récentes'], ['importance', 'Importance'], ['auteur', 'Créateur']] as [SuggestionSort, string][]).map(([key, label]) => (
+              <button key={key} onClick={() => setSortBy(key)}
+                className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full transition-colors',
+                  sortBy === key ? 'bg-indigo-50 text-indigo-600' : 'text-subtle hover:text-navy')}>
+                {label}
+              </button>
+            ))}
           </div>
         )}
 

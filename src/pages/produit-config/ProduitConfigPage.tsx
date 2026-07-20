@@ -22,7 +22,7 @@ import { BRAND_COLORS } from '@/constants'
 import type { Sprint, Tache, RagConfig, Equipe } from '@/types'
 import { RAG_CONFIG_DEFAULT } from '@/types'
 import {
-  Plus, Check, X, ChevronDown, ChevronRight, Lock, Unlock,
+  Plus, Check, X, ChevronDown, ChevronLeft, ChevronRight, Lock, Unlock,
   Target, TrendingUp, Calendar, Activity, LayoutDashboard, Save,
   Layers, Play, Archive, RotateCcw, Pause,
 } from 'lucide-react'
@@ -796,6 +796,7 @@ export default function ProduitConfigPage() {
   const [resumeMode,      setResumeMode]      = useState<'global' | 'trim'>('global')
   const [resumeTrimId,    setResumeTrimId]    = useState<string | null>(null)
   const [showTrimPicker,  setShowTrimPicker]  = useState(false)
+  const [pickerYear,      setPickerYear]      = useState(new Date().getFullYear())
 
   useEffect(() => {
     if (!produit) return
@@ -1137,31 +1138,58 @@ export default function ProduitConfigPage() {
             </button>
           </div>
 
-          {/* Picker trimestre */}
+          {/* Picker trimestre — année choisie puis Q1-Q4 proposés pour cette
+              année ; les trimestres déjà écoulés (année passée, ou trimestre
+              passé de l'année en cours) ne sont pas proposables : on ne
+              dépend plus d'une pré-génération manuelle côté Finance pour
+              pouvoir ajouter une année future (ex. 2027). */}
           {showTrimPicker && (() => {
             const usedLabels = new Set(trims.map(t => t.trimestre))
-            const available  = (financeConfig?.trimestres ?? []).filter(tc => !usedLabels.has(tc.label))
+            const now = new Date()
+            const curYear = now.getFullYear()
+            const curQ = Math.floor(now.getMonth() / 3) + 1
+            const quarters = [1, 2, 3, 4]
+              .filter(q => pickerYear > curYear || q >= curQ)
+              .map(q => {
+                const label = `Q${q} ${pickerYear}`
+                const preset = financeConfig?.trimestres.find(tc => tc.label === label)
+                return { q, label, jours_ouvres: preset?.jours_ouvres ?? financeConfig?.jours_par_trim ?? 65, used: usedLabels.has(label) }
+              })
             return (
               <div className="bg-card border border-purple/30 rounded-2xl p-4 space-y-3 shadow-sm">
-                <p className="text-xs font-semibold text-navy">Choisir un trimestre</p>
-                {available.length > 0 ? (
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-navy">Choisir un trimestre</p>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => setPickerYear(y => Math.max(curYear, y - 1))} disabled={pickerYear <= curYear}
+                      className="p-1 rounded hover:bg-bg text-subtle hover:text-navy disabled:opacity-30 disabled:pointer-events-none">
+                      <ChevronLeft size={12} />
+                    </button>
+                    <span className="text-xs font-bold text-navy tabular-nums w-10 text-center">{pickerYear}</span>
+                    <button onClick={() => setPickerYear(y => y + 1)}
+                      className="p-1 rounded hover:bg-bg text-subtle hover:text-navy">
+                      <ChevronRight size={12} />
+                    </button>
+                  </div>
+                </div>
+                {quarters.length > 0 ? (
                   <div className="grid grid-cols-2 gap-2">
-                    {available.map(tc => (
-                      <button key={tc.id} onClick={() => {
+                    {quarters.map(({ q, label, jours_ouvres, used }) => (
+                      <button key={q} disabled={used} onClick={() => {
                           const t = newTrim()
-                          setTrims(ts => [...ts, { ...t, trimestre: tc.label, jours_ouvres: tc.jours_ouvres }])
+                          setTrims(ts => [...ts, { ...t, trimestre: label, jours_ouvres }])
                           setDirty(true)
                           setShowTrimPicker(false)
                         }}
-                        className="flex items-center justify-between px-3 py-2 rounded-xl border border-border hover:border-purple/50 hover:bg-purple/5 transition-colors text-left">
-                        <span className="text-xs font-semibold text-navy">{tc.label}</span>
-                        <span className="text-[11px] text-subtle">{tc.jours_ouvres} j</span>
+                        className={cn('flex items-center justify-between px-3 py-2 rounded-xl border text-left transition-colors',
+                          used ? 'border-border/50 opacity-40 cursor-not-allowed' : 'border-border hover:border-purple/50 hover:bg-purple/5')}>
+                        <span className="text-xs font-semibold text-navy">{label}</span>
+                        <span className="text-[11px] text-subtle">{used ? 'déjà ajouté' : `${jours_ouvres} j`}</span>
                       </button>
                     ))}
                   </div>
                 ) : (
                   <p className="text-xs text-subtle text-center py-2">
-                    Tous les trimestres configurés sont déjà utilisés.
+                    Tous les trimestres de {pickerYear} sont déjà écoulés ou ajoutés.
                   </p>
                 )}
                 <div className="flex items-center gap-2 pt-1 border-t border-border">

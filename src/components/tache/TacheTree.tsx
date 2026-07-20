@@ -51,7 +51,7 @@ function buildTacheNode(t: Tache, childMap: Record<string, Tache[]>, numbers: Ma
 
 export function TacheTree({
   filtered, childMap, epicsList, epicColorMap, byId, allTaches,
-  selected, onToggleSelect, panelId, onOpenPanel, dependances, updateTache, onDuplicateEpic, isAdmin, onClearEpic, onQuickAdd, onAddSousTache, iterationCounts, renderExtra, showExpandControls = true,
+  selected, onToggleSelect, panelId, onOpenPanel, dependances, updateTache, onDuplicateEpic, isAdmin, onClearEpic, onQuickAdd, onAddSousTache, iterationCounts, lastIterSprints, renderExtra, showExpandControls = true,
 }: {
   filtered: Tache[]
   childMap: Record<string, Tache[]>
@@ -71,6 +71,10 @@ export function TacheTree({
   onQuickAdd: (epicLabel: string, conteneurParent?: Tache) => void
   onAddSousTache: (t: Tache) => void
   iterationCounts: Map<string, number>
+  // Sprint de la dernière itération par tâche — affiché à côté du MoSCoW.
+  // Optionnel : la vue Setup > sprint (autre appelant de TacheTree) n'a pas
+  // besoin de cette info, chaque tâche y étant déjà scopée à un sprint.
+  lastIterSprints?: Map<string, string>
   renderExtra?: (t: Tache) => React.ReactNode
   showExpandControls?: boolean
 }) {
@@ -225,7 +229,7 @@ export function TacheTree({
             <TacheTreeRow {...props} byId={byId} allTaches={allTaches} dependances={dependances} childMap={childMap}
               selected={selected} onToggleSelect={onToggleSelect} panelId={panelId} onOpenPanel={onOpenPanel}
               onDuplicateEpic={onDuplicateEpic} isAdmin={isAdmin} onClearEpic={onClearEpic} onQuickAdd={onQuickAdd}
-              onAddSousTache={onAddSousTache} iterationCounts={iterationCounts} renderExtra={renderExtra} />
+              onAddSousTache={onAddSousTache} iterationCounts={iterationCounts} lastIterSprints={lastIterSprints} renderExtra={renderExtra} />
           )}
         </Tree>
       </div>
@@ -244,7 +248,7 @@ function TacheDropCursor({ top, left, indent }: { top: number; left: number; ind
   )
 }
 
-function TacheTreeRow({ node, style, dragHandle, byId, allTaches, dependances, childMap, selected, onToggleSelect, panelId, onOpenPanel, onDuplicateEpic, isAdmin, onClearEpic, onQuickAdd, onAddSousTache, iterationCounts, renderExtra }: NodeRendererProps<TreeNode> & {
+function TacheTreeRow({ node, style, dragHandle, byId, allTaches, dependances, childMap, selected, onToggleSelect, panelId, onOpenPanel, onDuplicateEpic, isAdmin, onClearEpic, onQuickAdd, onAddSousTache, iterationCounts, lastIterSprints, renderExtra }: NodeRendererProps<TreeNode> & {
   byId: Map<string, Tache>
   allTaches: Tache[]
   dependances: TacheDependance[]
@@ -259,6 +263,7 @@ function TacheTreeRow({ node, style, dragHandle, byId, allTaches, dependances, c
   onQuickAdd: (epicLabel: string, conteneurParent?: Tache) => void
   onAddSousTache: (t: Tache) => void
   iterationCounts: Map<string, number>
+  lastIterSprints?: Map<string, string>
   renderExtra?: (t: Tache) => React.ReactNode
 }) {
   const d = node.data
@@ -370,7 +375,22 @@ function TacheTreeRow({ node, style, dragHandle, byId, allTaches, dependances, c
         <>
           <span className="min-w-0 overflow-hidden"><StatutBadge value={t.statut} className="truncate" /></span>
           <span className="min-w-0 overflow-hidden">{isTacheUS && t.priorite && <PrioBadge value={t.priorite} />}</span>
-          <span className="min-w-0 overflow-hidden">{isTacheUS && t.moscow && <MoscowBadge value={t.moscow} className="truncate" />}</span>
+          <span className="min-w-0 overflow-hidden flex items-center gap-1">
+            {isTacheUS && t.moscow && <MoscowBadge value={t.moscow} className="truncate" />}
+            {isTacheUS && (() => {
+              // Pas d'itération pour cette tâche (ou aucune avec un sprint
+              // renseigné) : on retombe sur le sprint de la tâche elle-même
+              // (sprint_debut — seul champ fiable, `sprint` est un ancien
+              // champ resté à 'S01' par défaut sur la quasi-totalité des
+              // tâches, cf. useRealiseFromTasks).
+              const sprintLabel = lastIterSprints?.get(t.id_tache) || t.sprint_debut
+              return sprintLabel ? (
+                <span title="Sprint" className="shrink-0 text-[10px] font-semibold text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-full">
+                  {sprintLabel}
+                </span>
+              ) : null
+            })()}
+          </span>
           <span className="min-w-0 overflow-hidden">
             {isTacheUS && t.assigne_a && (
               <span title={t.assigne_a} className="w-5 h-5 rounded-full bg-indigo-50 text-indigo-700 font-bold flex items-center justify-center text-[10px] shrink-0">

@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/contexts/AuthContext'
 import { Zap } from 'lucide-react'
 
 export default function SetPasswordPage() {
   const navigate  = useNavigate()
+  const { refreshProfile } = useAuth()
   const [password,  setPassword]  = useState('')
   const [confirm,   setConfirm]   = useState('')
   const [loading,   setLoading]   = useState(false)
@@ -20,6 +22,16 @@ export default function SetPasswordPage() {
     setLoading(false)
 
     if (error) { setError(error.message); return }
+
+    // Lève le flag de changement forcé (no-op pour un flow invite/reset
+    // classique, où il n'est jamais posé) — sinon on retomberait sur cet
+    // écran en boucle après le navigate('/').
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      await supabase.from('user_profiles').update({ must_change_password: false }).eq('user_id', user.id)
+      await refreshProfile()
+    }
+
     sessionStorage.removeItem('auth_flow')
     navigate('/')
   }

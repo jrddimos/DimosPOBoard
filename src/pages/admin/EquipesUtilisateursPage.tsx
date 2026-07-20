@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { useToast } from '@/hooks/useToast'
 import { useEquipes, useUtilisateurs, useCreateEquipe, useUpdateEquipe, useDeleteEquipe, useLastSignInDates, useUserEmails } from '@/hooks/useEquipes'
-import { useAllRoles, useInviteUser, useSetRoleGlobal, useUpdateProfile, useSetUserEquipes, useUploadAvatar, useUpsertRoleProduit, useDeleteRoleProduit, useDeleteUser, usePendingProfiles, useCreatePendingProfile, useDeletePendingProfile, useSendInvitationToPending, useUpdatePendingProfile, useUpdateUserEmail } from '@/hooks/useUserManagement'
+import { useAllRoles, useInviteUser, useCreateUserWithPassword, useSetRoleGlobal, useUpdateProfile, useSetUserEquipes, useUploadAvatar, useUpsertRoleProduit, useDeleteRoleProduit, useDeleteUser, useSetUserBanned, usePendingProfiles, useCreatePendingProfile, useDeletePendingProfile, useCreatePendingWithPassword, useUpdatePendingProfile, useUpdateUserEmail } from '@/hooks/useUserManagement'
 import type { PendingProfile } from '@/hooks/useUserManagement'
 import { useProduits } from '@/hooks/useProduits'
 import { useAuth } from '@/contexts/AuthContext'
@@ -9,7 +9,7 @@ import { confirm } from '@/components/ui/ConfirmModal'
 import { BRAND_COLORS } from '@/constants'
 import type { RoleProduit, UserProfile } from '@/contexts/AuthContext'
 import type { Equipe } from '@/types'
-import { Plus, X, Pencil, Trash2, Users, UserPlus, Shield, ChevronDown, ChevronRight, Camera, Mail, Clock, Send, Search, ArrowUpDown, KeyRound } from 'lucide-react'
+import { Plus, X, Pencil, Trash2, Users, UserPlus, Shield, ChevronDown, ChevronRight, Camera, Mail, Clock, Send, Search, ArrowUpDown, KeyRound, Copy, Check, Ban, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Spinner } from '@/components/ui/Spinner'
 import { supabase } from '@/lib/supabase'
@@ -59,7 +59,7 @@ function PendingSection({
   inviteEmail: string
   setInviteTarget: (p: PendingProfile | null) => void
   setInviteEmail: (v: string) => void
-  onInvite: () => void
+  onInvite: () => Promise<void>
   onDelete: (p: PendingProfile) => void
   onUpdate: (id: number, updates: Partial<Omit<PendingProfile, 'id' | 'created_at'>>) => void
   sendingPending: boolean
@@ -118,7 +118,7 @@ function PendingRow({
   onEdit: () => void
   onInviteOpen: () => void
   onInviteCancel: () => void
-  onInviteSend: () => void
+  onInviteSend: () => Promise<void>
   onDelete: () => void
   onUpdate: (updates: Partial<Omit<PendingProfile, 'id' | 'created_at'>>) => void
   sendingPending: boolean
@@ -197,9 +197,9 @@ function PendingRow({
             <Pencil size={11} />
           </button>
           {!inviting && (
-            <button onClick={onInviteOpen}
+            <button onClick={onInviteOpen} title="Créer le compte (mot de passe temporaire)"
               className="p-1.5 rounded hover:bg-amber-50 text-subtle hover:text-amber-600 transition-colors">
-              <Mail size={11} />
+              <KeyRound size={11} />
             </button>
           )}
           <button onClick={onDelete}
@@ -209,7 +209,12 @@ function PendingRow({
         </div>
       </div>
 
-      {/* Form invitation */}
+      {/* Form de création (mot de passe temporaire, mode par défaut) — le
+          mot de passe généré est révélé dans la modale principale
+          (showInvite/createdCreds, cf. page), pas ici : cette ligne est
+          démontée dès la conversion réussie (elle sort de la liste "en
+          attente"), donc tout état local posé ici serait perdu avant d'avoir
+          pu s'afficher. */}
       {inviting && (
         <div className="flex items-center gap-2 px-3 pb-2">
           <input value={inviteEmail} onChange={e => setInviteEmail(e.target.value)}
@@ -218,7 +223,7 @@ function PendingRow({
             className="ds-input text-xs py-1 flex-1" />
           <button onClick={onInviteSend} disabled={sendingPending || !inviteEmail.trim()}
             className="ds-btn-primary ds-btn-sm flex items-center gap-1 text-xs">
-            <Send size={11} /> {sendingPending ? 'Envoi…' : 'Envoyer'}
+            <KeyRound size={11} /> {sendingPending ? 'Création…' : 'Créer le compte'}
           </button>
           <button onClick={onInviteCancel} className="ds-btn ds-btn-sm text-xs">✕</button>
         </div>
@@ -371,14 +376,16 @@ export default function EquipesUtilisateursPage() {
   const updateUserEmail = useUpdateUserEmail()
   const setEquipes     = useSetUserEquipes()
   const inviteUser     = useInviteUser()
+  const createUserWithPassword = useCreateUserWithPassword()
   const setRoleGlobal  = useSetRoleGlobal()
   const upsertRole     = useUpsertRoleProduit()
   const deleteRole     = useDeleteRoleProduit()
   const deleteUser     = useDeleteUser()
+  const setUserBanned  = useSetUserBanned()
   const uploadAvatar   = useUploadAvatar()
   const createPending  = useCreatePendingProfile()
   const deletePending  = useDeletePendingProfile()
-  const sendInvitation = useSendInvitationToPending()
+  const createPendingWithPassword = useCreatePendingWithPassword()
   const updatePending  = useUpdatePendingProfile()
 
   const { data: pendingProfiles = [] } = usePendingProfiles()
@@ -392,7 +399,11 @@ export default function EquipesUtilisateursPage() {
     try { return (localStorage.getItem('users-sortBy') as SortKey) || 'nom' } catch { return 'nom' }
   })
   const [showInvite,    setShowInvite]    = useState(false)
-  const [formMode,      setFormMode]      = useState<'email' | 'pending'>('email')
+  const [formMode,      setFormMode]      = useState<'email' | 'pending' | 'password'>('email')
+  // Identifiants d'un compte créé sans email (mot de passe temporaire) —
+  // affichés une seule fois après création, à communiquer hors bande.
+  const [createdCreds,  setCreatedCreds]  = useState<{ email: string; password: string } | null>(null)
+  const [credsCopied,   setCredsCopied]   = useState(false)
   const [editingUser,   setEditingUser]   = useState<string | null>(null)
   const [expandRoles,   setExpandRoles]   = useState<string | null>(null)
   const [inviteTarget,  setInviteTarget]  = useState<PendingProfile | null>(null)
@@ -404,7 +415,7 @@ export default function EquipesUtilisateursPage() {
   })
   const [invEquipes, setInvEquipes] = useState<number[]>([])
   const [invRoles,   setInvRoles]   = useState<Record<number, RoleProduit | 'none'>>({})
-  const [editForm,   setEditForm]   = useState({ trigramme: '', prenom: '', nom: '', role_metier: '', couleur: BRAND_COLORS[0], email: '' })
+  const [editForm,   setEditForm]   = useState({ display_name: '', trigramme: '', prenom: '', nom: '', role_metier: '', couleur: BRAND_COLORS[0], email: '' })
 
   if (loadEq || loadU) return <div className="flex items-center justify-center h-40"><Spinner /></div>
 
@@ -413,7 +424,8 @@ export default function EquipesUtilisateursPage() {
   const equipeMap      = Object.fromEntries(equipes.map(e => [e.id, e])) as Record<number, Equipe>
 
   const usersFiltered = utilisateurs.filter(u => {
-    if (!u.actif) return false
+    // Les désactivés restent visibles (badge "Désactivé") — sinon impossible
+    // de les retrouver pour les réactiver depuis cette liste.
     if (filterEquipe !== null && !(u.equipe_ids ?? []).includes(filterEquipe)) return false
     if (search) {
       const q = search.toLowerCase()
@@ -483,6 +495,7 @@ export default function EquipesUtilisateursPage() {
   function startEdit(u: UserProfile) {
     setEditingUser(u.user_id)
     setEditForm({
+      display_name: u.display_name ?? '',
       trigramme: u.trigramme ?? '', prenom: u.prenom ?? '', nom: u.nom ?? '',
       role_metier: u.role_metier ?? '', couleur: u.couleur ?? BRAND_COLORS[0],
       email: userEmails.get(u.user_id) ?? '',
@@ -490,6 +503,7 @@ export default function EquipesUtilisateursPage() {
   }
   async function saveEdit(user_id: string) {
     await updateProfile.mutateAsync({ user_id, updates: {
+      display_name: editForm.display_name.trim() || null,
       trigramme:   editForm.trigramme.toUpperCase() || null,
       prenom:      editForm.prenom || null,
       nom:         editForm.nom || null,
@@ -530,6 +544,22 @@ export default function EquipesUtilisateursPage() {
     toast(`"${name}" supprimé`)
   }
 
+  async function handleToggleBanned(u: UserProfile) {
+    const name = `${u.prenom ?? ''} ${u.nom ?? u.display_name ?? u.user_id}`.trim()
+    const banning = u.actif
+    if (banning && !await confirm({
+      title: 'Désactiver cet utilisateur ?',
+      message: `"${name}" ne pourra plus se connecter tant qu'il n'est pas réactivé. Réversible à tout moment.`,
+      confirmLabel: 'Désactiver', variant: 'danger',
+    })) return
+    try {
+      await setUserBanned.mutateAsync({ user_id: u.user_id, banned: banning })
+      toast(banning ? `"${name}" désactivé` : `"${name}" réactivé`)
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Erreur', 'error')
+    }
+  }
+
   async function sendPasswordReset(u: UserProfile) {
     const name = `${u.prenom ?? ''} ${u.nom ?? u.display_name ?? u.user_id}`.trim()
     const email = userEmails.get(u.user_id)
@@ -548,7 +578,9 @@ export default function EquipesUtilisateursPage() {
     setInv({ email: '', display_name: '', trigramme: '', prenom: '', nom: '', role_metier: '', couleur: BRAND_COLORS[0], isAdmin: false })
     setInvEquipes(filterEquipe !== null ? [filterEquipe] : [])
     setInvRoles({})
-    setFormMode('email')
+    setFormMode('password')
+    setCreatedCreds(null)
+    setCredsCopied(false)
     setShowInvite(true)
   }
 
@@ -582,6 +614,37 @@ export default function EquipesUtilisateursPage() {
     }
   }
 
+  async function handleCreateWithPassword() {
+    if (!inv.email.trim()) { toast('Email obligatoire', 'error'); return }
+    const roles = Object.fromEntries(
+      Object.entries(invRoles).filter(([, r]) => r !== 'none').map(([id, r]) => [id, r as RoleProduit])
+    ) as Record<number, RoleProduit>
+    try {
+      const res = await createUserWithPassword.mutateAsync({
+        email:        inv.email.trim(),
+        display_name: inv.display_name.trim() || inv.email.trim(),
+        role_global:  inv.isAdmin ? 'admin' : null,
+        produit_roles: Object.keys(roles).length ? roles : undefined,
+      })
+      const userId = res.user?.id
+      if (userId) {
+        await updateProfile.mutateAsync({ user_id: userId, updates: {
+          trigramme:   inv.trigramme.toUpperCase() || null,
+          prenom:      inv.prenom || null,
+          nom:         inv.nom || null,
+          role_metier: inv.role_metier || null,
+          couleur:     inv.couleur || null,
+        }})
+        if (invEquipes.length > 0) await setEquipes.mutateAsync({ user_id: userId, equipe_ids: invEquipes })
+      }
+      // Ne ferme pas la modale : le mot de passe n'est visible qu'une fois,
+      // il faut le laisser affiché le temps que l'admin le copie.
+      setCreatedCreds({ email: inv.email.trim(), password: res.password })
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Erreur création', 'error')
+    }
+  }
+
   async function handleCreatePending() {
     if (!inv.display_name.trim() && !inv.prenom.trim()) { toast('Nom obligatoire', 'error'); return }
     const name = inv.display_name.trim() || `${inv.prenom} ${inv.nom}`.trim()
@@ -604,14 +667,25 @@ export default function EquipesUtilisateursPage() {
     }
   }
 
-  async function handleSendInvitation() {
+  // Convertit un profil en attente en compte réel avec mot de passe
+  // temporaire (mode par défaut — contourne la rate-limit email). La ligne
+  // "en attente" est démontée dès que la conversion réussit (elle sort de
+  // pendingProfiles), donc le mot de passe est révélé dans la modale
+  // principale (showInvite/createdCreds, partagée avec "Ajouter un
+  // utilisateur") plutôt que dans un état local de la ligne.
+  async function handleCreatePendingAccount() {
     if (!inviteTarget || !inviteEmail.trim()) { toast('Email obligatoire', 'error'); return }
+    const email = inviteEmail.trim()
     try {
-      await sendInvitation.mutateAsync({ pending: inviteTarget, email: inviteEmail.trim() })
-      toast(`Invitation envoyée à ${inviteEmail}`)
+      const res = await createPendingWithPassword.mutateAsync({ pending: inviteTarget, email })
       setInviteTarget(null); setInviteEmail('')
+      if (res.password) {
+        setCreatedCreds({ email, password: res.password })
+        setCredsCopied(false)
+        setShowInvite(true)
+      }
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Erreur lors de l'invitation", 'error')
+      toast(err instanceof Error ? err.message : 'Erreur lors de la création', 'error')
     }
   }
 
@@ -658,6 +732,9 @@ export default function EquipesUtilisateursPage() {
               )}
               {isMe && (
                 <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full shrink-0">Vous</span>
+              )}
+              {!u.actif && (
+                <span className="text-[11px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded-full shrink-0">Désactivé</span>
               )}
             </div>
             <div className="text-xs text-subtle">
@@ -728,6 +805,12 @@ export default function EquipesUtilisateursPage() {
                       : 'text-subtle hover:bg-indigo-50 hover:text-indigo-600')}>
                   <Shield size={12} />
                 </button>
+                <button onClick={() => handleToggleBanned(u)} disabled={setUserBanned.isPending}
+                  title={u.actif ? 'Désactiver (bloque la connexion, réversible)' : 'Réactiver'}
+                  className={cn('p-1.5 rounded transition-colors disabled:opacity-40',
+                    u.actif ? 'text-subtle hover:bg-rose-50 hover:text-rose-600' : 'bg-rose-100 text-rose-600 hover:bg-emerald-50 hover:text-emerald-600')}>
+                  {u.actif ? <Ban size={12} /> : <RotateCcw size={12} />}
+                </button>
                 <button onClick={() => handleDeleteUser(u)}
                   className="p-1.5 rounded hover:bg-rose-50 text-subtle hover:text-rose-600 transition-colors">
                   <Trash2 size={12} />
@@ -740,6 +823,11 @@ export default function EquipesUtilisateursPage() {
         {/* Edition profil */}
         {isEditing && (
           <div className="px-3 pb-3 border-t border-border/60 bg-bg flex flex-col gap-2 pt-2.5">
+            <div>
+              <div className="ds-label mb-1">Nom affiché</div>
+              <input value={editForm.display_name} onChange={e => setEditForm(f => ({ ...f, display_name: e.target.value }))}
+                className="ds-input text-sm" placeholder="Prénom Nom" />
+            </div>
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <div className="ds-label mb-1">Trigramme</div>
@@ -943,14 +1031,37 @@ export default function EquipesUtilisateursPage() {
             <div className="bg-card rounded-2xl border border-indigo-200 p-5 shadow-sm">
               <div className="flex items-center gap-2 mb-4">
                 <UserPlus size={15} className="text-indigo-600" />
-                <span className="text-sm font-semibold text-navy">Ajouter un utilisateur</span>
+                <span className="text-sm font-semibold text-navy">{createdCreds ? 'Compte créé' : 'Ajouter un utilisateur'}</span>
                 <button onClick={() => setShowInvite(false)} className="ml-auto p-1 rounded-lg hover:bg-bg text-subtle hover:text-navy"><X size={14} /></button>
               </div>
 
-              <div className="flex gap-1 p-1 bg-bg rounded-xl mb-4 w-fit">
+              {createdCreds ? (
+                <div className="flex flex-col gap-3">
+                  <p className="text-xs text-subtle">
+                    Communique ces identifiants à <strong className="text-navy">{createdCreds.email}</strong> hors bande (Slack, oral…) —
+                    le mot de passe ne sera plus jamais affiché après fermeture de cette fenêtre.
+                  </p>
+                  <div className="flex items-center gap-2 bg-bg border border-border rounded-xl px-3 py-2.5">
+                    <code className="flex-1 text-sm font-mono font-semibold text-navy tracking-wide select-all">{createdCreds.password}</code>
+                    <button onClick={async () => {
+                      await navigator.clipboard.writeText(createdCreds.password)
+                      setCredsCopied(true)
+                      setTimeout(() => setCredsCopied(false), 2000)
+                    }} className="ds-btn ds-btn-sm flex items-center gap-1 shrink-0">
+                      {credsCopied ? <Check size={12} className="text-green" /> : <Copy size={12} />}
+                      {credsCopied ? 'Copié' : 'Copier'}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-subtle/70">L'utilisateur devra changer ce mot de passe dès sa première connexion.</p>
+                  <button onClick={() => setShowInvite(false)} className="ds-btn-primary ds-btn-sm self-end mt-1">Terminé</button>
+                </div>
+              ) : (
+              <>
+              <div className="flex gap-1 p-1 bg-bg rounded-xl mb-4 w-fit flex-wrap">
                 {([
-                  { mode: 'email'   as const, label: 'Inviter par email', icon: <Mail size={11} /> },
-                  { mode: 'pending' as const, label: 'Créer sans email',  icon: <Clock size={11} /> },
+                  { mode: 'password' as const, label: 'Créer avec mot de passe',  icon: <KeyRound size={11} /> },
+                  { mode: 'email'    as const, label: 'Inviter par email',        icon: <Mail size={11} /> },
+                  { mode: 'pending'  as const, label: 'Créer sans email',         icon: <Clock size={11} /> },
                 ] as const).map(opt => (
                   <button key={opt.mode} type="button" onClick={() => setFormMode(opt.mode)}
                     className={cn(
@@ -962,6 +1073,14 @@ export default function EquipesUtilisateursPage() {
                 ))}
               </div>
 
+              {formMode === 'password' && (
+                <p className="text-xs text-subtle bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 mb-3">
+                  Le compte est créé immédiatement avec un mot de passe temporaire (affiché une seule fois, à toi de le communiquer).
+                  Aucun email n'est envoyé — utile si la limite d'invitations par email de Supabase est atteinte.
+                  L'utilisateur devra le changer à sa première connexion.
+                </p>
+              )}
+
               {formMode === 'pending' && (
                 <p className="text-xs text-subtle bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
                   Le profil est créé immédiatement et peut être assigné aux produits / plan de charges.
@@ -970,7 +1089,7 @@ export default function EquipesUtilisateursPage() {
               )}
 
               <div className="grid grid-cols-2 gap-3 mb-3">
-                {formMode === 'email' && (
+                {(formMode === 'email' || formMode === 'password') && (
                   <div><div className="ds-label mb-1">Email *</div>
                     <input value={inv.email} onChange={e => setInv(f => ({ ...f, email: e.target.value }))}
                       className="ds-input" placeholder="prenom.nom@exemple.fr" type="email" autoFocus />
@@ -1099,6 +1218,11 @@ export default function EquipesUtilisateursPage() {
                     className="ds-btn-primary ds-btn-sm flex items-center gap-1.5 disabled:opacity-40">
                     <Send size={13} /> {inviteUser.isPending ? 'Envoi…' : "Envoyer l'invitation"}
                   </button>
+                ) : formMode === 'password' ? (
+                  <button onClick={handleCreateWithPassword} disabled={createUserWithPassword.isPending || !inv.email.trim()}
+                    className="ds-btn-primary ds-btn-sm flex items-center gap-1.5 disabled:opacity-40">
+                    <KeyRound size={13} /> {createUserWithPassword.isPending ? 'Création…' : 'Créer le compte'}
+                  </button>
                 ) : (
                   <button onClick={handleCreatePending}
                     disabled={createPending.isPending || (!inv.display_name.trim() && !inv.prenom.trim())}
@@ -1108,6 +1232,8 @@ export default function EquipesUtilisateursPage() {
                 )}
                 <button onClick={() => setShowInvite(false)} className="ds-btn ds-btn-sm">Annuler</button>
               </div>
+              </>
+              )}
             </div>
           )}
 
@@ -1119,14 +1245,14 @@ export default function EquipesUtilisateursPage() {
               equipesActives={equipesActives}
               inviteTarget={inviteTarget} inviteEmail={inviteEmail}
               setInviteTarget={setInviteTarget} setInviteEmail={setInviteEmail}
-              onInvite={handleSendInvitation}
+              onInvite={handleCreatePendingAccount}
               onDelete={async pp => {
                 if (!window.confirm(`Supprimer "${pp.display_name}" ?`)) return
                 await deletePending.mutateAsync(pp.id)
                 toast(`"${pp.display_name}" supprimé`)
               }}
               onUpdate={(id, updates) => updatePending.mutate({ id, updates })}
-              sendingPending={sendInvitation.isPending}
+              sendingPending={createPendingWithPassword.isPending}
               BRAND_COLORS={BRAND_COLORS}
             />
           )}
@@ -1173,7 +1299,7 @@ export default function EquipesUtilisateursPage() {
               </div>
             )}
             <div className="text-xs text-subtle shrink-0">
-              {usersSorted.length} / {utilisateurs.filter(u => u.actif).length}
+              {usersSorted.length} / {utilisateurs.length}
             </div>
           </div>
 

@@ -81,7 +81,8 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   actif        boolean NOT NULL DEFAULT true,
   equipe_id    bigint REFERENCES equipes(id) ON DELETE SET NULL,
   equipe_ids   bigint[] NOT NULL DEFAULT '{}',
-  avatar_url   text
+  avatar_url   text,
+  must_change_password boolean NOT NULL DEFAULT false
 );
 
 CREATE TABLE IF NOT EXISTS user_produit_roles (
@@ -249,6 +250,7 @@ CREATE TABLE IF NOT EXISTS suggestions (
   titre       text NOT NULL,
   description text,
   statut      text NOT NULL DEFAULT 'nouvelle' CHECK (statut IN ('nouvelle', 'acceptee', 'rejetee', 'fermee')),
+  importance  text NOT NULL DEFAULT 'moyenne' CHECK (importance IN ('basse', 'moyenne', 'haute')),
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz
 );
@@ -588,7 +590,7 @@ CREATE POLICY "quick_notes_delete" ON quick_notes FOR DELETE TO authenticated US
 ALTER TABLE suggestions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "suggestions_select" ON suggestions FOR SELECT TO authenticated USING (true);
 CREATE POLICY "suggestions_insert" ON suggestions FOR INSERT TO authenticated WITH CHECK (auteur_id = auth.uid());
-CREATE POLICY "suggestions_update" ON suggestions FOR UPDATE TO authenticated USING (is_admin()) WITH CHECK (is_admin());
+CREATE POLICY "suggestions_update" ON suggestions FOR UPDATE TO authenticated USING (auteur_id = auth.uid() OR is_admin()) WITH CHECK (auteur_id = auth.uid() OR is_admin());
 CREATE POLICY "suggestions_delete" ON suggestions FOR DELETE TO authenticated USING (is_admin());
 
 ALTER TABLE activite ENABLE ROW LEVEL SECURITY;

@@ -233,24 +233,37 @@ export function useCreateSousTache() {
         .select('id_tache')
         .like('id_tache', `${parentId}.%`)
         .eq('produit_id', produitActif.id)
-      const nums = (subs ?? []).map(s => parseInt(s.id_tache.split('.')[1] ?? '0', 10))
-      const nextNum = nums.length ? Math.max(...nums) + 1 : 1
-      const id_tache = `${parentId}.${nextNum}`
+      // Dernier segment, pas le 2e (`split('.')[1]`) : quand le parent est
+      // lui-même une sous-tâche (id du type "US-005.2"), [1] retombait
+      // systématiquement sur le "2" du parent au lieu du suffixe du sibling
+      // — les nums calculés étaient donc tous égaux, produisant un id déjà
+      // pris dès la 2e sous-tâche (collision silencieuse) puis un 409 sur la
+      // 3e (violation de la contrainte unique id_tache+produit_id).
+      const nums = (subs ?? []).map(s => parseInt(s.id_tache.split('.').pop() ?? '0', 10))
+      let nextNum = nums.length ? Math.max(...nums) + 1 : 1
 
-      const { data, error } = await supabase
-        .from('taches')
-        .insert({
-          ...payload,
-          id_tache,
-          parent_id: parentId,
-          produit_id: produitActif.id,
-          statut: 'À faire',
-          iteration: payload.iteration ?? 1,
-        })
-        .select()
-        .single()
-      if (error) throw error
-      return data as Tache
+      // Filet de sécurité contre une vraie collision concurrente (double
+      // clic, deux onglets…) : retente avec le numéro suivant plutôt que de
+      // remonter un 409 à l'utilisateur.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const id_tache = `${parentId}.${nextNum}`
+        const { data, error } = await supabase
+          .from('taches')
+          .insert({
+            ...payload,
+            id_tache,
+            parent_id: parentId,
+            produit_id: produitActif.id,
+            statut: 'À faire',
+            iteration: payload.iteration ?? 1,
+          })
+          .select()
+          .single()
+        if (!error) return data as Tache
+        if (error.code !== '23505') throw error
+        nextNum++
+      }
+      throw new Error("Impossible de générer un identifiant de sous-tâche unique")
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['taches', produitActif?.id ?? null] }),
   })

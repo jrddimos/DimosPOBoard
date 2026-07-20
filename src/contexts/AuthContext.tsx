@@ -18,6 +18,11 @@ export interface UserProfile {
   equipe_id:   number | null
   equipe_ids:  number[]
   avatar_url:  string | null
+  // Force l'écran de définition du mot de passe à la prochaine connexion —
+  // posé lors d'une création admin sans email d'invitation (edge function
+  // invite-user, action create_with_password), levé une fois le mot de
+  // passe changé (SetPasswordPage).
+  must_change_password: boolean
 }
 
 export interface UserProduitRole {
@@ -60,7 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(prof)
     } else {
       // Créer le profil à la première connexion
-      const newProfile: UserProfile = { user_id: u.id, display_name: u.email ?? null, role_global: null, trigramme: null, prenom: null, nom: null, role_metier: null, couleur: null, actif: true, equipe_id: null, equipe_ids: [], avatar_url: null }
+      const newProfile: UserProfile = { user_id: u.id, display_name: u.email ?? null, role_global: null, trigramme: null, prenom: null, nom: null, role_metier: null, couleur: null, actif: true, equipe_id: null, equipe_ids: [], avatar_url: null, must_change_password: false }
       await supabase.from('user_profiles').insert(newProfile)
       setProfile(newProfile)
     }

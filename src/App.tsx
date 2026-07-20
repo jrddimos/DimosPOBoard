@@ -50,7 +50,7 @@ const queryClient = new QueryClient({
 
 // ── Guard interne (a accès au contexte) ──────────────────────
 function AppRoutes() {
-  const { user, isLoading } = useAuth()
+  const { user, profile, isLoading } = useAuth()
   const { produitActif } = useProduit()
 
   if (isLoading) return (
@@ -71,6 +71,13 @@ function AppRoutes() {
       <Route path="*"      element={<Navigate to="/login" replace />} />
     </Routes>
   )
+
+  // Utilisateur créé par un admin avec un mot de passe temporaire (pas
+  // d'email d'invitation, cf. Setup > Équipes & Utilisateurs) : changement
+  // obligatoire avant tout accès à l'app.
+  if (profile?.must_change_password) {
+    return <SetPasswordPage />
+  }
 
   // Pages produit-spécifiques : redirige vers / si pas de produit
   const requireProduit = (el: React.ReactNode) =>

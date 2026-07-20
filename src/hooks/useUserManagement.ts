@@ -78,6 +78,58 @@ export function useInviteUser() {
   })
 }
 
+// ── Créer un utilisateur avec mot de passe temporaire, sans email
+// d'invitation (Admin API via edge function invite-user, action
+// create_with_password) — contourne la rate-limit du service email par
+// défaut de Supabase. Le mot de passe renvoyé est à communiquer hors bande
+// par l'admin ; l'utilisateur devra le changer à sa première connexion
+// (user_profiles.must_change_password, posé côté edge function). ──
+export function useCreateUserWithPassword() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      email, display_name, role_global, produit_roles,
+    }: {
+      email: string
+      display_name: string
+      role_global?: 'admin' | null
+      produit_roles?: Record<number, RoleProduit>
+    }) => {
+      const { data, error } = await supabase.functions.invoke('invite-user', {
+        body: { action: 'create_with_password', email, display_name },
+      })
+      if (error) {
+        let msg = error.message
+        try {
+          const body = await (error as any).context?.json?.()
+          if (body?.error) msg = body.error
+        } catch { /* ignore */ }
+        throw new Error(msg)
+      }
+
+      const userId: string | undefined = data?.user?.id
+      if (userId) {
+        if (role_global === 'admin') {
+          await supabase.from('user_profiles').update({ role_global: 'admin' }).eq('user_id', userId)
+        }
+        if (produit_roles) {
+          for (const [produitIdStr, role] of Object.entries(produit_roles)) {
+            await supabase.from('user_produit_roles').upsert(
+              { user_id: userId, produit_id: Number(produitIdStr), role },
+              { onConflict: 'user_id,produit_id' }
+            )
+          }
+        }
+      }
+      return data as { user: { id: string; email: string }; password: string }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['user_profiles'] })
+      qc.invalidateQueries({ queryKey: ['user_produit_roles'] })
+    },
+  })
+}
+
 // ── Modifier l'email d'un utilisateur existant (Admin API via edge
 // function invite-user, action update_email) ─────────────────────
 export function useUpdateUserEmail() {
@@ -332,18 +384,114 @@ export function useSendInvitationToPending() {
   })
 }
 
+// ── Convertir un profil en attente en compte réel, avec mot de passe
+// temporaire plutôt qu'un email d'invitation (même contournement de la
+// rate-limit email que useCreateUserWithPassword) — mode par défaut pour
+// les profils en attente. ─────────────────────────────────────────
+export function useCreatePendingWithPassword() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ pending, email }: { pending: PendingProfile; email: string }) => {
+      const { data, error } = await supabase.functions.invoke('invite-user', {
+        body: { action: 'create_with_password', email: email.trim(), display_name: pending.display_name },
+      })
+      if (error) {
+        let msg = error.message
+        try {
+          const body = await (error as unknown as { context?: { json?: () => Promise<{ error?: string }> } }).context?.json?.()
+          if (body?.error) msg = body.error
+        } catch { /* ignore */ }
+        throw new Error(msg)
+      }
+      const userId: string | undefined = (data as { user?: { id?: string } })?.user?.id
+      const password: string | undefined = (data as { password?: string })?.password
+      if (userId) {
+        await supabase.from('user_profiles').upsert({
+          user_id:      userId,
+          display_name: pending.display_name,
+          trigramme:    pending.trigramme,
+          prenom:       pending.prenom,
+          nom:          pending.nom,
+          couleur:      pending.couleur,
+          role_global:  pending.role_global,
+          equipe_ids:   pending.equipe_ids ?? [],
+          equipe_id:    pending.equipe_ids?.[0] ?? null,
+          actif:        true,
+        }, { onConflict: 'user_id' })
+        const roles = pending.pending_produit_roles ?? {}
+        for (const [produitIdStr, role] of Object.entries(roles)) {
+          await supabase.from('user_produit_roles').upsert(
+            { user_id: userId, produit_id: Number(produitIdStr), role },
+            { onConflict: 'user_id,produit_id' }
+          )
+        }
+        await supabase.from('pending_profiles').delete().eq('id', pending.id)
+      }
+      return { user: { id: userId, email: email.trim() }, password }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pending_profiles'] })
+      qc.invalidateQueries({ queryKey: ['user_profiles'] })
+    },
+  })
+}
+
 // ── Supprimer un utilisateur ──────────────────────────────────
+// Vraie suppression du compte auth (Admin API via edge function) — un
+// simple DELETE sur user_profiles ne supprimait que le profil : le compte
+// auth.users restait actif (login toujours possible) et un profil vide se
+// recréait tout seul à la reconnexion (AuthContext.loadProfile). La cascade
+// FK (user_produit_roles, user_profiles) est gérée côté base.
 export function useDeleteUser() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (user_id: string) => {
-      const { error } = await supabase.from('user_profiles').delete().eq('user_id', user_id)
-      if (error) throw error
+      const { error } = await supabase.functions.invoke('invite-user', {
+        body: { action: 'delete_user', user_id },
+      })
+      if (error) {
+        let msg = error.message
+        try {
+          const body = await (error as any).context?.json?.()
+          if (body?.error) msg = body.error
+        } catch { /* ignore */ }
+        throw new Error(msg)
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user_profiles'] })
       qc.invalidateQueries({ queryKey: ['utilisateurs'] })
       qc.invalidateQueries({ queryKey: ['user_produit_roles'] })
+    },
+  })
+}
+
+// ── Désactiver / réactiver un utilisateur ──────────────────────
+// Bloque (ou débloque) la connexion via le ban Admin API — réversible,
+// contrairement à la suppression. Synchronise aussi user_profiles.actif
+// pour que le reste de l'app (Plan de charges, assignations…) cesse de le
+// traiter comme un membre disponible tant qu'il est désactivé.
+export function useSetUserBanned() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ user_id, banned }: { user_id: string; banned: boolean }) => {
+      const { error } = await supabase.functions.invoke('invite-user', {
+        body: { action: 'set_banned', user_id, banned },
+      })
+      if (error) {
+        let msg = error.message
+        try {
+          const body = await (error as any).context?.json?.()
+          if (body?.error) msg = body.error
+        } catch { /* ignore */ }
+        throw new Error(msg)
+      }
+      const { error: profErr } = await supabase.from('user_profiles').update({ actif: !banned }).eq('user_id', user_id)
+      if (profErr) throw profErr
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['user_profiles'] })
+      qc.invalidateQueries({ queryKey: ['utilisateurs'] })
     },
   })
 }

@@ -74,6 +74,10 @@ export interface TrimCheckItem {
   id:      string
   texte:   string
   checked: boolean
+  // Équipes (table `equipes`, Setup > Équipes & Utilisateurs) qui portent cet
+  // objectif ce trimestre — optionnel, sert uniquement à la vue Roadmap "par
+  // équipe" (src/pages/roadmap/RoadmapPage.tsx). Absent partout ailleurs.
+  equipe_ids?: number[]
 }
 
 export interface TrimObjectif {

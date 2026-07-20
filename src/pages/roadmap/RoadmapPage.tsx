@@ -8,7 +8,7 @@ import { ToggleGroup } from '@/components/ui/ToggleGroup'
 import { confirm } from '@/components/ui/ConfirmModal'
 import {
   Milestone, Settings, Plus, Minus, Trash2, X, Layers, Boxes, CalendarDays, Check, Pencil,
-  Rocket, Star, Target, Flag, Zap, Trophy, Gem, Lightbulb, type LucideIcon,
+  Rocket, Star, Target, Flag, Zap, Trophy, Gem, Lightbulb, Users, type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -21,9 +21,12 @@ import {
 } from '@/hooks/useRoadmapItems'
 import { useAuth } from '@/contexts/AuthContext'
 import { useDarkModeStore } from '@/hooks/useDarkMode'
+import { useEquipes } from '@/hooks/useEquipes'
+import { useClickOutside } from '@/hooks/useClickOutside'
 import { getQuarterStart, getQuarterEnd } from '@/utils/produitMetrics'
 import { type TrimCheckItem } from '@/hooks/useProduits'
 import { BRAND_COLORS } from '@/constants'
+import type { Equipe } from '@/types'
 
 // Roadmap : vue globale (menu Global), 100% décorrélée de la table produits
 // et de son avancement — ses propres gammes (gammes_produits) et ses propres
@@ -179,10 +182,12 @@ function PeriodCell({ row }: { row: RmRow }) {
   )
 }
 
-const ROADMAP_COLUMNS = [
-  { id: 'text', header: 'Gamme / Produit', flexgrow: 1, align: 'left' as const, cell: ({ row }: { row: RmRow }) => <NameCell row={row} /> },
-  { id: 'period', header: 'Période', width: 140, align: 'center' as const, cell: ({ row }: { row: RmRow }) => <PeriodCell row={row} /> },
-]
+function buildRoadmapColumns(nameHeader: string) {
+  return [
+    { id: 'text', header: nameHeader, flexgrow: 1, align: 'left' as const, cell: ({ row }: { row: RmRow }) => <NameCell row={row} /> },
+    { id: 'period', header: 'Période', width: 140, align: 'center' as const, cell: ({ row }: { row: RmRow }) => <PeriodCell row={row} /> },
+  ]
+}
 
 const ROADMAP_SCALES = [
   { unit: 'year' as const, step: 1, format: (d: Date) => String(d.getFullYear()) },
@@ -192,6 +197,81 @@ const ROADMAP_SCALES = [
 // Badge d'objectifs positionné sur la barre, au centre de chaque trimestre
 // couvert par l'élément (left en % de la largeur de la barre).
 type BarMarker = { trimestre: string; left: number; done: number; total: number; tooltip: string; icone?: string | null }
+
+// Calcule les badges d'objectifs d'un item sur une fenêtre [start, end]
+// donnée (positions en % relatives à CETTE fenêtre, pas forcément la période
+// complète de l'item). Sans equipeId : tous les objectifs du trimestre. Avec
+// equipeId : uniquement ceux taggés à cette équipe — utilisé pour la vue
+// Roadmap "par équipe", où la barre ne doit refléter que sa contribution.
+function buildItemMarkers(it: RoadmapItem, start: Date, end: Date, equipeId?: number): { markers: BarMarker[]; done: number; total: number } {
+  const span = end.getTime() - start.getTime()
+  let done = 0, total = 0
+  const markers: BarMarker[] = quartersBetween(it.trimestre_debut, it.trimestre_fin).flatMap(qid => {
+    const qs = getQuarterStart(qid), qe = getQuarterEnd(qid)
+    if (!qs || !qe) return []
+    if (qs.getTime() < start.getTime() || qe.getTime() > end.getTime()) return []
+    const qData = it.trimestre_objectifs?.find(t => t.trimestre === qid)
+    const allObjectifs = qData?.objectifs ?? []
+    const objectifs = equipeId == null ? allObjectifs : allObjectifs.filter(o => o.equipe_ids?.includes(equipeId))
+    const doneQ = objectifs.filter(o => o.checked).length
+    total += objectifs.length
+    done += doneQ
+    const tooltip = objectifs.length
+      ? `${formatQuarterLabel(qid)} — ${doneQ}/${objectifs.length} objectif(s)\n` + objectifs.map(o => `${o.checked ? '✓' : '○'} ${o.texte}`).join('\n')
+      : `${formatQuarterLabel(qid)} — aucun objectif${equipeId == null ? ' (cliquez pour en ajouter)' : ' de cette équipe'}`
+    const mid = (qs.getTime() + qe.getTime()) / 2
+    return [{ trimestre: qid, left: span ? ((mid - start.getTime()) / span) * 100 : 50, done: doneQ, total: objectifs.length, tooltip, icone: qData?.icone }]
+  })
+  return { markers, done, total }
+}
+
+// Fenêtre [start, end] resserrée aux seuls trimestres où au moins un badge a
+// du contenu (total > 0) — sert à faire porter la barre "équipe" uniquement
+// sur les trimestres où elle a vraiment un objectif taggé, pas toute la
+// période de l'item d'origine.
+function activeWindowFromMarkers(markers: BarMarker[]): { start: Date; end: Date } | null {
+  const active = markers.filter(m => m.total > 0)
+  if (!active.length) return null
+  const starts = active.map(m => getQuarterStart(m.trimestre)).filter((d): d is Date => !!d)
+  const ends = active.map(m => getQuarterEnd(m.trimestre)).filter((d): d is Date => !!d)
+  if (!starts.length || !ends.length) return null
+  return { start: new Date(Math.min(...starts.map(d => d.getTime()))), end: new Date(Math.max(...ends.map(d => d.getTime()))) }
+}
+
+// Feuilles de style des barres du Gantt à partir de la palette type→couleur
+// collectée pendant la construction des tâches — identique pour la vue par
+// gamme et la vue par équipe (seul le regroupement des lignes change).
+function buildColorCss(typeColors: Map<string, { color: string; kind: 'gamme' | 'sous' | 'item' }>): string {
+  return [...typeColors.entries()].map(([type, { color, kind }]) => {
+    if (kind !== 'item') {
+      const h = kind === 'gamme' ? 14 : 10
+      return `
+        .wx-gantt .wx-bar.wx-task.${type} {
+          height: ${h}px !important;
+          margin-top: ${kind === 'gamme' ? 9 : 11}px;
+          background: linear-gradient(90deg, ${color}30, ${color}59);
+          border: 1px solid ${color}66;
+          border-radius: 999px;
+          box-shadow: none;
+        }
+        .wx-gantt .wx-bar.wx-task.${type}:hover { filter: none; box-shadow: none; }
+      `
+    }
+    const light = mix(color, '#ffffff', 0.5)
+    return `
+      .wx-gantt .wx-bar.wx-task.${type} {
+        background: linear-gradient(135deg, ${light} 0%, ${color} 100%);
+        border: none;
+        border-radius: 999px;
+        box-shadow: 0 3px 10px -2px ${color}77;
+      }
+      .wx-gantt .wx-bar.wx-task.${type}:hover {
+        filter: brightness(1.08) saturate(1.1);
+        box-shadow: 0 6px 18px -2px ${color}99;
+      }
+    `
+  }).join('\n')
+}
 
 // Contenu custom des barres du Gantt : icône de l'élément à gauche + un badge
 // par trimestre (étoile dorée = tout validé, cible+compteur = en cours,
@@ -333,6 +413,8 @@ export default function RoadmapPage() {
 function RoadmapGanttView() {
   const { data: gammes = [] } = useGammesProduits()
   const { data: items = [] } = useRoadmapItems()
+  const { data: equipesData = [] } = useEquipes()
+  const equipes = useMemo(() => equipesData.filter(e => e.actif), [equipesData])
   const { isAdmin } = useAuth()
   const createItem = useCreateRoadmapItem()
   const updateItem = useUpdateRoadmapItem()
@@ -342,8 +424,14 @@ function RoadmapGanttView() {
   const [modal, setModal] = useState<{ mode: 'create' | 'edit'; item?: RoadmapItem } | null>(null)
   const [detailId, setDetailId] = useState<number | null>(null)
   const [horizonYears, setHorizonYears] = useState(3)
+  // Vue "par gamme" (structure produit, défaut) ou "par équipe" (transverse :
+  // quels objectifs, toutes gammes confondues, portent chaque équipe et
+  // quand — répond à « mon équipe X travaille sur quoi ce trimestre »).
+  const [groupBy, setGroupBy] = useState<'gamme' | 'equipe'>('gamme')
   // Gammes masquées via les puces filtres de la légende (ids de gammes).
   const [hiddenGammes, setHiddenGammes] = useState<Set<number>>(new Set())
+  // Symétrique, pour la légende de la vue par équipe.
+  const [hiddenEquipes, setHiddenEquipes] = useState<Set<number>>(new Set())
 
   // L'élément affiché dans le panneau détail est re-dérivé de la liste à
   // chaque rendu pour rester frais après chaque mutation (auto-save).
@@ -383,27 +471,9 @@ function RoadmapGanttView() {
       const itemCouleur = it.couleur ?? fallbackCouleur
       typeColors.set(type, { color: itemCouleur, kind: 'item' })
 
-      // Un badge par trimestre couvert, centré sur le milieu du trimestre
-      // (left en % de la durée totale de la barre).
-      const span = end.getTime() - start.getTime()
-      let itemDone = 0
-      let itemTotal = 0
-      const markers: BarMarker[] = quartersBetween(it.trimestre_debut, it.trimestre_fin).flatMap(qid => {
-        const qs = getQuarterStart(qid), qe = getQuarterEnd(qid)
-        if (!qs || !qe) return []
-        const qData = it.trimestre_objectifs?.find(t => t.trimestre === qid)
-        const objectifs = qData?.objectifs ?? []
-        const done = objectifs.filter(o => o.checked).length
-        totalObjectifs += objectifs.length
-        doneObjectifs += done
-        itemDone += done
-        itemTotal += objectifs.length
-        const tooltip = objectifs.length
-          ? `${formatQuarterLabel(qid)} — ${done}/${objectifs.length} objectif(s)\n` + objectifs.map(o => `${o.checked ? '✓' : '○'} ${o.texte}`).join('\n')
-          : `${formatQuarterLabel(qid)} — aucun objectif (cliquez pour en ajouter)`
-        const mid = (qs.getTime() + qe.getTime()) / 2
-        return [{ trimestre: qid, left: span ? ((mid - start.getTime()) / span) * 100 : 50, done, total: objectifs.length, tooltip, icone: qData?.icone }]
-      })
+      const { markers, done: itemDone, total: itemTotal } = buildItemMarkers(it, start, end)
+      totalObjectifs += itemTotal
+      doneObjectifs += itemDone
 
       tasks.push({
         id: `item-${it.id}`, text: it.nom, type, parent, start, end,
@@ -460,37 +530,7 @@ function RoadmapGanttView() {
     }
 
     const taskTypes = [...typeColors.keys()].map(id => ({ id, label: id }))
-    const colorCss = [...typeColors.entries()].map(([type, { color, kind }]) => {
-      if (kind !== 'item') {
-        // Bandeaux de section : fins, translucides, sans relief — gamme et
-        // sous-gamme cadrent la période, les produits portent le contenu.
-        const h = kind === 'gamme' ? 14 : 10
-        return `
-          .wx-gantt .wx-bar.wx-task.${type} {
-            height: ${h}px !important;
-            margin-top: ${kind === 'gamme' ? 9 : 11}px;
-            background: linear-gradient(90deg, ${color}30, ${color}59);
-            border: 1px solid ${color}66;
-            border-radius: 999px;
-            box-shadow: none;
-          }
-          .wx-gantt .wx-bar.wx-task.${type}:hover { filter: none; box-shadow: none; }
-        `
-      }
-      const light = mix(color, '#ffffff', 0.5)
-      return `
-        .wx-gantt .wx-bar.wx-task.${type} {
-          background: linear-gradient(135deg, ${light} 0%, ${color} 100%);
-          border: none;
-          border-radius: 999px;
-          box-shadow: 0 3px 10px -2px ${color}77;
-        }
-        .wx-gantt .wx-bar.wx-task.${type}:hover {
-          filter: brightness(1.08) saturate(1.1);
-          box-shadow: 0 6px 18px -2px ${color}99;
-        }
-      `
-    }).join('\n')
+    const colorCss = buildColorCss(typeColors)
 
     return {
       tasks, taskTypes, colorCss, gammeLegend,
@@ -498,10 +538,68 @@ function RoadmapGanttView() {
     }
   }, [items, gammes, hiddenGammes])
 
+  // ── Regroupement alternatif : par équipe ────────────────────────
+  // Transverse aux gammes : pour chaque équipe active, ne garde que les
+  // produits où elle a au moins un objectif taggé sur au moins un trimestre,
+  // et resserre la barre de chacun sur sa fenêtre réelle d'implication (pas
+  // la période complète du produit) — répond à « mon équipe X travaille sur
+  // quoi, et quand ».
+  const { tasks: equipeTasks, taskTypes: equipeTaskTypes, colorCss: equipeColorCss, equipeLegend } = useMemo(() => {
+    const tasks: RmRow[] = []
+    const typeColors = new Map<string, { color: string; kind: 'gamme' | 'sous' | 'item' }>()
+    const equipeLegend: { id: number; nom: string; couleur: string; count: number }[] = []
+
+    const validItems = items
+      .map(it => ({ it, start: getQuarterStart(it.trimestre_debut), end: getQuarterEnd(it.trimestre_fin) }))
+      .filter((x): x is { it: RoadmapItem; start: Date; end: Date } => !!x.start && !!x.end)
+
+    for (const eq of equipes) {
+      const couleur = eq.couleur ?? '#4A4CC8'
+      const concerned = validItems
+        .map(v => {
+          const probe = buildItemMarkers(v.it, v.start, v.end, eq.id)
+          const window = activeWindowFromMarkers(probe.markers)
+          if (!window) return null
+          const final = buildItemMarkers(v.it, window.start, window.end, eq.id)
+          return { it: v.it, start: window.start, end: window.end, markers: final.markers, done: final.done, total: final.total }
+        })
+        .filter((x): x is { it: RoadmapItem; start: Date; end: Date; markers: BarMarker[]; done: number; total: number } => !!x)
+        .sort((a, b) => a.start.getTime() - b.start.getTime())
+
+      // La légende liste toutes les équipes actives, y compris sans objectif
+      // taggé (0) et les masquées (il faut pouvoir les réafficher).
+      equipeLegend.push({ id: eq.id, nom: eq.nom, couleur, count: concerned.length })
+      if (!concerned.length || hiddenEquipes.has(eq.id)) continue
+
+      const eqRowId = `equipe-${eq.id}`
+      typeColors.set(eqRowId, { color: couleur, kind: 'gamme' })
+      const start = new Date(Math.min(...concerned.map(v => v.start.getTime())))
+      const end = new Date(Math.max(...concerned.map(v => v.end.getTime())))
+      tasks.push({ id: eqRowId, text: eq.nom, type: eqRowId, parent: 0, start, end, kind: 'gamme', couleur, count: concerned.length })
+
+      concerned.forEach(({ it, start, end, markers, done, total }) => {
+        const type = slugify(`${eq.nom}-${it.nom}`) || `equipe-${eq.id}-item-${it.id}`
+        const itemCouleur = it.couleur ?? couleur
+        typeColors.set(type, { color: itemCouleur, kind: 'item' })
+        tasks.push({
+          id: `equipe-${eq.id}-item-${it.id}`, text: it.nom, type, parent: eqRowId, start, end,
+          markers, icone: it.icone ?? 'rocket',
+          kind: 'item', couleur: itemCouleur, done, total, depth: 1,
+        })
+      })
+    }
+
+    const taskTypes = [...typeColors.keys()].map(id => ({ id, label: id }))
+    return { tasks, taskTypes, colorCss: buildColorCss(typeColors), equipeLegend }
+  }, [items, equipes, hiddenEquipes])
+
   function onSelectTask(ev: { id: string | number }) {
     const idStr = String(ev.id)
     setSelected(idStr)
-    const m = idStr.match(/^item-(\d+)$/)
+    // La vue par équipe préfixe les lignes produit en `equipe-{id}-item-{id}`
+    // (un même produit peut apparaître sous plusieurs équipes) — les deux
+    // formats ouvrent le même panneau détail.
+    const m = idStr.match(/^(?:equipe-\d+-)?item-(\d+)$/)
     if (!m) return
     // Clic sur un élément : déplie le panneau détail sous le Gantt
     // (l'édition de structure passe par le bouton "Modifier" du panneau).
@@ -589,11 +687,22 @@ function RoadmapGanttView() {
     const ro = new ResizeObserver(update)
     ro.observe(chart)
     return () => { chart.removeEventListener('scroll', update); ro.disconnect(); chartElRef.current = null }
-  }, [horizonYears, tasks.length])
+  }, [horizonYears, groupBy, tasks.length, equipeTasks.length])
   // Fenêtre du Gantt : 3 ans par défaut (année en cours + suivantes),
   // extensible/réductible via le stepper, indépendamment des éléments.
   const chartStart = new Date(now.getFullYear(), 0, 1)
   const chartEnd = new Date(now.getFullYear() + horizonYears - 1, 11, 31, 23, 59, 59)
+
+  // Bascule Gamme/Équipe : deux jeux de lignes/légende/styles construits en
+  // parallèle plus haut, on choisit juste lequel alimente le rendu ici.
+  const isEquipeView = groupBy === 'equipe' && equipes.length > 0
+  const activeTasks = isEquipeView ? equipeTasks : tasks
+  const activeTaskTypes = isEquipeView ? equipeTaskTypes : taskTypes
+  const activeColorCss = isEquipeView ? equipeColorCss : colorCss
+  const activeLegend = isEquipeView ? equipeLegend : gammeLegend
+  const activeHidden = isEquipeView ? hiddenEquipes : hiddenGammes
+  const setActiveHidden = isEquipeView ? setHiddenEquipes : setHiddenGammes
+  const columns = buildRoadmapColumns(isEquipeView ? 'Équipe / Produit' : 'Gamme / Produit')
 
   return (
     <>
@@ -605,19 +714,19 @@ function RoadmapGanttView() {
       </div>
 
       <div className="flex items-center justify-between mb-3 gap-3">
-        {gammeLegend.length > 0 ? (
+        {activeLegend.length > 0 ? (
           <div className="flex flex-wrap items-center gap-1.5">
-            {gammeLegend.map(g => {
-              const hidden = hiddenGammes.has(g.id)
+            {activeLegend.map(g => {
+              const hidden = activeHidden.has(g.id)
               return (
                 <button
                   key={g.id}
-                  onClick={() => setHiddenGammes(prev => {
+                  onClick={() => setActiveHidden(prev => {
                     const next = new Set(prev)
                     if (next.has(g.id)) next.delete(g.id); else next.add(g.id)
                     return next
                   })}
-                  title={hidden ? 'Afficher cette gamme' : 'Masquer cette gamme'}
+                  title={hidden ? 'Afficher' : 'Masquer'}
                   className={cn(
                     'inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-full border px-2.5 py-1 transition-all',
                     hidden ? 'opacity-45 grayscale border-border text-subtle' : 'text-navy shadow-sm',
@@ -636,6 +745,12 @@ function RoadmapGanttView() {
           </div>
         ) : <span />}
         <div className="flex items-center gap-2 shrink-0">
+          {equipes.length > 0 && (
+            <ToggleGroup value={groupBy} onChange={setGroupBy} options={[
+              { key: 'gamme', label: 'Par gamme', icon: <Layers size={11} /> },
+              { key: 'equipe', label: 'Par équipe', icon: <Users size={11} /> },
+            ]} />
+          )}
           <div className="flex items-center gap-0.5 text-xs font-semibold text-subtle bg-card border border-border rounded-lg px-1 py-0.5">
             <button onClick={() => setHorizonYears(y => Math.max(1, y - 1))} disabled={horizonYears <= 1}
               className="p-1 rounded hover:bg-bg hover:text-navy disabled:opacity-40" title="Réduire la fenêtre d'un an"><Minus size={12} /></button>
@@ -654,8 +769,14 @@ function RoadmapGanttView() {
         </div>
       </div>
 
-      {tasks.length === 0 ? (
-        items.length > 0 ? (
+      {activeTasks.length === 0 ? (
+        isEquipeView ? (
+          <p className="text-sm text-subtle italic">
+            {equipeLegend.some(e => e.count > 0)
+              ? 'Toutes les équipes concernées sont masquées — réactive-les via les puces ci-dessus.'
+              : "Aucune équipe n'a d'objectif taggé pour le moment — tague des équipes sur les objectifs d'un produit (panneau détail, par trimestre)."}
+          </p>
+        ) : items.length > 0 ? (
           <p className="text-sm text-subtle italic">Toutes les gammes sont masquées — réactive-les via les puces ci-dessus.</p>
         ) : (
           <div className="ds-card flex flex-col items-center justify-center text-center py-14 gap-3">
@@ -684,13 +805,13 @@ function RoadmapGanttView() {
             Cliquez un produit pour l'éditer — <Star size={10} className="inline text-amber-500" fill="currentColor" /> trimestre validé,
             <Target size={10} className="inline mx-1" /> objectifs en cours, halo = trimestre actuel, ligne rouge = aujourd'hui.
           </p>
-          <style>{colorCss + BASE_GANTT_CSS}</style>
-          <div ref={ganttBoxRef} className="ds-card overflow-hidden rounded-2xl p-0 relative" style={{ height: Math.max(320, 118 + tasks.length * 40) }}>
+          <style>{activeColorCss + BASE_GANTT_CSS}</style>
+          <div ref={ganttBoxRef} className="ds-card overflow-hidden rounded-2xl p-0 relative" style={{ height: Math.max(320, 118 + activeTasks.length * 40) }}>
             <div className="absolute inset-x-0 top-0 h-1 z-10" style={{ background: 'linear-gradient(90deg,#6366f1,#4A4CC8,#ea580c,#16a34a)' }} />
             <ThemeWrapper>
               <SvarGantt
-                key={horizonYears}
-                tasks={tasks} taskTypes={taskTypes} columns={ROADMAP_COLUMNS} scales={ROADMAP_SCALES}
+                key={`${horizonYears}-${groupBy}`}
+                tasks={activeTasks} taskTypes={activeTaskTypes} columns={columns} scales={ROADMAP_SCALES}
                 start={chartStart} end={chartEnd}
                 highlightTime={anchorQuarterNow}
                 readonly selected={selected ? [selected] : []}
@@ -738,6 +859,7 @@ function RoadmapGanttView() {
               gamme={detailGamme}
               parentNom={detailParent?.nom}
               isAdmin={isAdmin}
+              equipes={equipes}
               onClose={() => setDetailId(null)}
               onEdit={() => setModal({ mode: 'edit', item: detailItem })}
               onSaveQuarter={(qid, patch) => saveQuarter(detailItem, qid, patch)}
@@ -883,11 +1005,12 @@ function ItemModal({ mode, item, gammes, isAdmin, onClose, onSave, onDelete }: {
 }
 
 // ── Panneau détail : un élément déplié, une carte par trimestre ──
-function ItemDetailPanel({ item, gamme, parentNom, isAdmin, onClose, onEdit, onSaveQuarter }: {
+function ItemDetailPanel({ item, gamme, parentNom, isAdmin, equipes, onClose, onEdit, onSaveQuarter }: {
   item: RoadmapItem
   gamme?: GammeProduit
   parentNom?: string
   isAdmin: boolean
+  equipes: Equipe[]
   onClose: () => void
   onEdit: () => void
   onSaveQuarter: (qid: string, patch: Partial<Omit<TrimQuarterObjectifs, 'trimestre'>>) => void
@@ -928,7 +1051,7 @@ function ItemDetailPanel({ item, gamme, parentNom, isAdmin, onClose, onEdit, onS
       <div className="p-4 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))' }}>
         {quarterIds.map(qid => (
           <QuarterCard
-            key={qid} qid={qid} couleur={couleur} isAdmin={isAdmin} isCurrent={qid === nowQ}
+            key={qid} qid={qid} couleur={couleur} isAdmin={isAdmin} isCurrent={qid === nowQ} equipes={equipes}
             data={item.trimestre_objectifs?.find(t => t.trimestre === qid)}
             onSave={patch => onSaveQuarter(qid, patch)}
           />
@@ -938,12 +1061,13 @@ function ItemDetailPanel({ item, gamme, parentNom, isAdmin, onClose, onEdit, onS
   )
 }
 
-function QuarterCard({ qid, data, couleur, isAdmin, isCurrent, onSave }: {
+function QuarterCard({ qid, data, couleur, isAdmin, isCurrent, equipes, onSave }: {
   qid: string
   data?: TrimQuarterObjectifs
   couleur: string
   isAdmin: boolean
   isCurrent: boolean
+  equipes: Equipe[]
   onSave: (patch: Partial<Omit<TrimQuarterObjectifs, 'trimestre'>>) => void
 }) {
   const [showIcons, setShowIcons] = useState(false)
@@ -1021,10 +1145,11 @@ function QuarterCard({ qid, data, couleur, isAdmin, isCurrent, onSave }: {
         {objectifs.length === 0 && <p className="text-[11px] italic text-subtle/60">Aucun objectif pour ce trimestre.</p>}
         {objectifs.map(o => (
           <ObjectifRow
-            key={o.id} obj={o} isAdmin={isAdmin}
+            key={o.id} obj={o} isAdmin={isAdmin} equipes={equipes}
             onToggle={() => onSave({ objectifs: objectifs.map(x => x.id === o.id ? { ...x, checked: !x.checked } : x) })}
             onDelete={() => onSave({ objectifs: objectifs.filter(x => x.id !== o.id) })}
             onCommitText={texte => onSave({ objectifs: objectifs.map(x => x.id === o.id ? { ...x, texte } : x) })}
+            onUpdateEquipes={ids => onSave({ objectifs: objectifs.map(x => x.id === o.id ? { ...x, equipe_ids: ids } : x) })}
           />
         ))}
       </div>
@@ -1048,15 +1173,18 @@ function QuarterCard({ qid, data, couleur, isAdmin, isCurrent, onSave }: {
 
 // Ligne d'objectif : le texte est bufferisé localement et persisté au blur
 // (ou Entrée) pour éviter une mutation Supabase à chaque frappe.
-function ObjectifRow({ obj, isAdmin, onToggle, onDelete, onCommitText }: {
+function ObjectifRow({ obj, isAdmin, equipes, onToggle, onDelete, onCommitText, onUpdateEquipes }: {
   obj: TrimCheckItem
   isAdmin: boolean
+  equipes: Equipe[]
   onToggle: () => void
   onDelete: () => void
   onCommitText: (texte: string) => void
+  onUpdateEquipes: (equipeIds: number[]) => void
 }) {
   const [texte, setTexte] = useState(obj.texte)
   useEffect(() => { setTexte(obj.texte) }, [obj.texte])
+  const taggedEquipes = equipes.filter(e => obj.equipe_ids?.includes(e.id))
 
   return (
     <div className="flex items-center gap-2 group">
@@ -1074,10 +1202,67 @@ function ObjectifRow({ obj, isAdmin, onToggle, onDelete, onCommitText }: {
         onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
         className={cn('flex-1 bg-transparent text-xs outline-none text-navy min-w-0', obj.checked && 'line-through text-subtle')}
       />
+      {isAdmin ? (
+        equipes.length > 0 && <EquipeTagPicker equipes={equipes} selectedIds={obj.equipe_ids ?? []} onChange={onUpdateEquipes} />
+      ) : taggedEquipes.length > 0 && (
+        <span className="flex items-center -space-x-1 shrink-0">
+          {taggedEquipes.map(e => (
+            <span key={e.id} className="w-2.5 h-2.5 rounded-full border border-card" style={{ background: e.couleur ?? '#4A4CC8' }} title={e.nom} />
+          ))}
+        </span>
+      )}
       {isAdmin && (
         <button onClick={onDelete} className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red/10 text-subtle hover:text-red shrink-0 transition-opacity">
           <X size={10} />
         </button>
+      )}
+    </div>
+  )
+}
+
+// Popover de tag multi-select — affiche les pastilles des équipes déjà
+// taggées sur l'objectif (ou une icône neutre si aucune), clic pour ouvrir
+// la liste à cocher. Compact : pensé pour tenir dans une ligne d'objectif.
+function EquipeTagPicker({ equipes, selectedIds, onChange }: {
+  equipes: Equipe[]
+  selectedIds: number[]
+  onChange: (ids: number[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useClickOutside(ref, () => setOpen(false), open)
+  const selected = equipes.filter(e => selectedIds.includes(e.id))
+
+  function toggle(id: number) {
+    onChange(selectedIds.includes(id) ? selectedIds.filter(x => x !== id) : [...selectedIds, id])
+  }
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button onClick={() => setOpen(v => !v)} title="Équipes sur cet objectif"
+        className={cn('flex items-center rounded-full transition-colors',
+          selected.length ? '-space-x-1' : 'p-0.5 text-subtle/40 hover:text-subtle')}>
+        {selected.length > 0
+          ? selected.slice(0, 3).map(e => (
+              <span key={e.id} className="w-2.5 h-2.5 rounded-full border border-card" style={{ background: e.couleur ?? '#4A4CC8' }} />
+            ))
+          : <Users size={11} />}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-20 w-44 rounded-lg border border-border bg-card shadow-lg p-1.5">
+          {equipes.map(e => {
+            const sel = selectedIds.includes(e.id)
+            return (
+              <button key={e.id} onClick={() => toggle(e.id)}
+                className={cn('w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-[11px] font-medium text-left transition-colors',
+                  sel ? 'bg-bg text-navy' : 'text-subtle hover:bg-bg hover:text-navy')}>
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: e.couleur ?? '#4A4CC8' }} />
+                <span className="flex-1 truncate">{e.nom}</span>
+                {sel && <Check size={10} className="shrink-0" />}
+              </button>
+            )
+          })}
+        </div>
       )}
     </div>
   )
