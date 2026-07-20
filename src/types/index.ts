@@ -42,8 +42,16 @@ export interface Tache {
   statut: Statut
   effort_j: number
   effort_realise_j: number | null
+  // Répartition de l'effort réalisé entre plusieurs assignés (trigramme →
+  // jours) — posé uniquement pour une US sans sous-tâche ayant plusieurs
+  // assignés (cf. popup de clôture, SprintBoardPage) ; null sinon, y
+  // compris pour toute sous-tâche (toujours mono-assignée).
+  effort_realise_split: Record<string, number> | null
   equipe: string | null
   metier: string | null
+  // Un ou plusieurs trigrammes séparés par des virgules pour une US
+  // ("ABC, DEF") — une sous-tâche n'en porte jamais qu'un seul (règle
+  // appliquée côté UI). parseAssignees/serializeAssignees, src/lib/utils.ts.
   assigne_a: string | null
   type_tache: string | null
   parent_id: string | null

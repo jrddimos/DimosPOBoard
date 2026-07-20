@@ -22,11 +22,11 @@ import { useJalons } from '@/hooks/useJalons'
 import { Search, Lock, Plus, Copy, Trash2, ChevronRight, ChevronDown, X, CornerDownRight, FilePlus, SlidersHorizontal, BookOpen, Target, AlignJustify, StickyNote } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
 import { ToggleGroup } from '@/components/ui/ToggleGroup'
-import { cn, parseCriteres, serializeCriteres, epicCode, epicShortName, naturalCompare, buildTacheIndex, isSousTache, effortEffectif, existingSprintNumeros } from '@/lib/utils'
+import { cn, parseCriteres, serializeCriteres, epicCode, epicShortName, naturalCompare, buildTacheIndex, isSousTache, effortEffectif, existingSprintNumeros, parseAssignees, serializeAssignees } from '@/lib/utils'
 import type { CritereItem } from '@/lib/utils'
 import { CriteresEditor } from '@/components/ui/CriteresEditor'
 import { StatusPicker } from '@/components/ui/StatusPicker'
-import { AssignPicker } from '@/components/ui/AssignPicker'
+import { AssignPicker, AssignPickerMulti } from '@/components/ui/AssignPicker'
 import { MentionField } from '@/components/ui/MentionField'
 import { DodLinkPicker } from '@/components/ui/DodLinkPicker'
 import { useDod } from '@/hooks/useDod'
@@ -223,6 +223,14 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
     setForm(f=>({...f,assigne_a:tri,equipe:eq?.nom??f.equipe}))
   }
 
+  // Une sous-tâche (parent = US) garde un seul assigné ; une US (parent
+  // vide ou Conteneur) peut en avoir plusieurs — cf. QuickAddModal.
+  const parentTaskForForm=useMemo(()=>allTaches.find(t=>t.id_tache===parentId),[allTaches,parentId])
+  const wouldBeSousTache=!!parentTaskForForm&&parentTaskForForm.type_tache!=='Conteneur'
+  function setMembresMulti(list:string[]){
+    setForm(f=>({...f,assigne_a:serializeAssignees(list)}))
+  }
+
   function selectTask(t:Tache){
     setEditTask(t);setConfirmNew(false)
     setParentId(t.parent_id??'')
@@ -359,10 +367,14 @@ function AddTab({sprintActif,equipeNoms,membresActifs,equipes,createTache,create
               <SelectPicker value={form.sprint_fin} onChange={v=>setForm(f=>({...f,sprint_fin:v}))}
                 options={sprintNumeros.map(s=>({value:s,label:s}))} placeholder="Même sprint"/>
             </Grp>}
-            {form.type_tache!=='Conteneur' && <Grp label="Effort (j)"><input type="number" value={form.effort_j} onChange={set('effort_j')} className="ds-input" min={0} step={0.5}/></Grp>}
+            {form.type_tache!=='Conteneur' && <Grp label="Effort (j)"><input type="number" value={form.effort_j} onChange={set('effort_j')} className="ds-input" min={0} step={0.1}/></Grp>}
             {form.type_tache!=='Conteneur' && <Grp label="Assigné à">
               <div className="pt-1">
-                <AssignPicker value={form.assigne_a} membres={membresActifs} onAssign={setMembre} />
+                {wouldBeSousTache ? (
+                  <AssignPicker value={form.assigne_a} membres={membresActifs} onAssign={setMembre} />
+                ) : (
+                  <AssignPickerMulti value={parseAssignees(form.assigne_a)} membres={membresActifs} onChange={setMembresMulti} />
+                )}
               </div>
             </Grp>}
             {form.type_tache!=='Conteneur' && <Grp label="Équipe">

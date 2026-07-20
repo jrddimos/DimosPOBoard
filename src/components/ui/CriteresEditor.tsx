@@ -19,7 +19,11 @@ export function CriteresEditor({ items, onChange, readOnly = false, compact = fa
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
   function toggle(id: string) {
-    onChange(items.map(i => i.id === id ? { ...i, checked: !i.checked } : i))
+    // Date de la dernière coche — effacée si décoché (une recoche
+    // ultérieure prend une date fraîche), sert au burndown "par critères".
+    onChange(items.map(i => i.id === id
+      ? { ...i, checked: !i.checked, checked_at: !i.checked ? new Date().toISOString() : null }
+      : i))
   }
 
   function remove(id: string) {

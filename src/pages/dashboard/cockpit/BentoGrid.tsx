@@ -29,11 +29,23 @@ interface BentoGridProps {
   /** false = grille figée sans bouton Personnaliser (ex : overlay réunion) */
   editable?: boolean
   rowHeight?: number
+  /** Contrôle externe du mode édition — l'appelant affiche son propre bouton
+      "Personnaliser" ailleurs dans sa page (ex : à côté d'un autre sélecteur)
+      plutôt que celui interne, ci-dessous. Non fourni = état interne, comme
+      avant (Cockpit, inchangé). */
+  isEditing?: boolean
+  onEditingChange?: (v: boolean) => void
+  /** Masque le bouton "Personnaliser" interne — à utiliser avec isEditing/
+      onEditingChange ci-dessus, sinon plus aucun moyen d'entrer en édition. */
+  hideToggle?: boolean
 }
 
 // Grille bento générique : les blocs sont rendus tels quels (aucun chrome
 // ajouté hors édition) ; la personnalisation est sauvegardée par utilisateur.
-export function BentoGrid({ contexte, items, defaultLayout, editable = true, rowHeight = 56 }: BentoGridProps) {
+export function BentoGrid({
+  contexte, items, defaultLayout, editable = true, rowHeight = 56,
+  isEditing, onEditingChange, hideToggle = false,
+}: BentoGridProps) {
   const { user } = useAuth()
   const toast = useToast()
   const itemByKey = new Map(items.map(i => [i.key, i]))
@@ -48,7 +60,9 @@ export function BentoGrid({ contexte, items, defaultLayout, editable = true, row
   const baseLayout = (saved?.layout?.length ? saved.layout : defaultLayout)
     .filter(l => itemByKey.has(l.i))
 
-  const [editing, setEditing] = useState(false)
+  const [editingState, setEditingState] = useState(false)
+  const editing = isEditing ?? editingState
+  const setEditing = onEditingChange ?? setEditingState
   const [layout, setLayout]   = useState<ViewLayoutItem[]>(baseLayout)
 
   useEffect(() => {
@@ -89,7 +103,7 @@ export function BentoGrid({ contexte, items, defaultLayout, editable = true, row
 
   return (
     <div>
-      {editable && (
+      {editable && (editing || !hideToggle) && (
         <div className="flex items-center gap-1.5 mb-2 justify-end">
           {editing ? (
             <>
@@ -107,12 +121,12 @@ export function BentoGrid({ contexte, items, defaultLayout, editable = true, row
               <button onClick={save} disabled={updateView.isPending || createView.isPending}
                 className="ds-btn-primary ds-btn-sm flex items-center gap-1.5"><Check size={12} /> Terminer</button>
             </>
-          ) : (
+          ) : !hideToggle ? (
             <button onClick={() => setEditing(true)}
               className="ds-btn ds-btn-sm flex items-center gap-1.5">
               <SlidersHorizontal size={12} /> Personnaliser
             </button>
-          )}
+          ) : null}
         </div>
       )}
 

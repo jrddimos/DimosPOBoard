@@ -127,6 +127,7 @@ CREATE TABLE IF NOT EXISTS taches (
   statut            text NOT NULL DEFAULT 'À faire',
   effort_j          numeric NOT NULL DEFAULT 0,
   effort_realise_j  numeric,
+  effort_realise_split jsonb,
   equipe            text,
   metier            text,
   assigne_a         text,
@@ -617,13 +618,27 @@ CREATE OR REPLACE FUNCTION notify_task_assignment()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
   v_user_id uuid;
+  v_new_tri text;
+  v_old_set text[];
 BEGIN
   IF NEW.assigne_a IS NULL OR NEW.produit_id IS NULL THEN RETURN NEW; END IF;
   IF TG_OP = 'UPDATE' AND NEW.assigne_a IS NOT DISTINCT FROM OLD.assigne_a THEN RETURN NEW; END IF;
-  SELECT user_id INTO v_user_id FROM user_profiles WHERE trigramme = NEW.assigne_a LIMIT 1;
-  IF v_user_id IS NULL OR v_user_id = auth.uid() THEN RETURN NEW; END IF;
-  INSERT INTO notifications (user_id, produit_id, type, title, body, target)
-  VALUES (v_user_id, NEW.produit_id, 'assignation', 'Nouvelle tâche assignée', NEW.titre, NEW.id_tache);
+
+  -- assigne_a peut porter plusieurs trigrammes séparés par des virgules
+  -- (US multi-assignée) : on ne notifie que les nouveaux (absents de
+  -- OLD.assigne_a), pas tous ceux déjà en place à chaque autre modif.
+  v_old_set := CASE WHEN TG_OP = 'UPDATE' AND OLD.assigne_a IS NOT NULL
+    THEN (SELECT array_agg(trim(t)) FROM regexp_split_to_table(OLD.assigne_a, '[,;]+') AS t WHERE trim(t) <> '')
+    ELSE '{}'::text[] END;
+
+  FOR v_new_tri IN SELECT trim(t) FROM regexp_split_to_table(NEW.assigne_a, '[,;]+') AS t WHERE trim(t) <> ''
+  LOOP
+    IF v_new_tri = ANY(v_old_set) THEN CONTINUE; END IF;
+    SELECT user_id INTO v_user_id FROM user_profiles WHERE trigramme = v_new_tri LIMIT 1;
+    IF v_user_id IS NULL OR v_user_id = auth.uid() THEN CONTINUE; END IF;
+    INSERT INTO notifications (user_id, produit_id, type, title, body, target)
+    VALUES (v_user_id, NEW.produit_id, 'assignation', 'Nouvelle tâche assignée', NEW.titre, NEW.id_tache);
+  END LOOP;
   RETURN NEW;
 END;
 $$;

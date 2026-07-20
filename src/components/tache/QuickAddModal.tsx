@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { ChevronDown, X, Plus, Folder } from 'lucide-react'
 import { CriteresEditor } from '@/components/ui/CriteresEditor'
-import { AssignPicker } from '@/components/ui/AssignPicker'
-import { cn, serializeCriteres } from '@/lib/utils'
+import { AssignPickerMulti } from '@/components/ui/AssignPicker'
+import { cn, serializeCriteres, serializeAssignees } from '@/lib/utils'
 import type { CritereItem } from '@/lib/utils'
 import type { Tache } from '@/types'
 import type { UserProfile } from '@/contexts/AuthContext'
@@ -25,7 +25,7 @@ export function QuickAddModal({ epicLabel, conteneurParent, membres, onClose, on
   const [moscow, setMoscow] = useState<string>(conteneurParent?.moscow ?? 'Must Have')
   const [priorite, setPriorite] = useState<string>(conteneurParent?.priorite ?? 'P2')
   const [effortJ, setEffortJ] = useState('')
-  const [assigneA, setAssigneA] = useState('')
+  const [assignes, setAssignes] = useState<string[]>([])
   const [critereItems, setCritereItems] = useState<CritereItem[]>([])
   const [description, setDescription] = useState('')
   const [showMore, setShowMore] = useState(false)
@@ -48,7 +48,7 @@ export function QuickAddModal({ epicLabel, conteneurParent, membres, onClose, on
         moscow: moscow as Tache['moscow'],
         priorite,
         effort_j: Number(effortJ) || 0,
-        assigne_a: assigneA || null,
+        assigne_a: assignes.length ? serializeAssignees(assignes) : null,
         criteres: serializeCriteres(critereItems),
         description,
       })
@@ -97,12 +97,12 @@ export function QuickAddModal({ epicLabel, conteneurParent, membres, onClose, on
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="ds-label mb-1 block">Assigné à</label>
-                  <AssignPicker value={assigneA || null} membres={membres} onAssign={setAssigneA} />
+                  <AssignPickerMulti value={assignes} membres={membres} onChange={setAssignes} />
                 </div>
                 <div>
                   <label className="ds-label mb-1 block">Effort (j)</label>
                   <input type="number" value={effortJ} onChange={e => setEffortJ(e.target.value)}
-                    className="ds-input w-full" min={0} step={0.5} placeholder="0" />
+                    className="ds-input w-full" min={0} step={0.1} placeholder="0" />
                 </div>
               </div>
 

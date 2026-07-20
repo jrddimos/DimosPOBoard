@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { X, CornerDownRight, RotateCcw, Copy, Trash2, CalendarClock, Sparkles } from 'lucide-react'
 import { StatusPicker } from '@/components/ui/StatusPicker'
-import { AssignPicker } from '@/components/ui/AssignPicker'
+import { AssignPicker, AssignPickerMulti } from '@/components/ui/AssignPicker'
 import { MentionField } from '@/components/ui/MentionField'
 import { CriteresEditor } from '@/components/ui/CriteresEditor'
 import { DodLinkPicker } from '@/components/ui/DodLinkPicker'
@@ -21,7 +21,7 @@ import { useToast } from '@/hooks/useToast'
 import { useAuth, type UserProfile } from '@/contexts/AuthContext'
 import { useProduit } from '@/contexts/ProduitContext'
 import { confirm } from '@/components/ui/ConfirmModal'
-import { cn, parseCriteres, serializeCriteres, hasPendingCriteres, buildTacheIndex, isSousTache, effortEffectif, existingSprintNumeros, parseLienDodCodes } from '@/lib/utils'
+import { cn, parseCriteres, serializeCriteres, hasPendingCriteres, buildTacheIndex, isSousTache, effortEffectif, existingSprintNumeros, parseLienDodCodes, parseAssignees, serializeAssignees } from '@/lib/utils'
 import { METIERS_DEFAULT } from '@/constants'
 import type { Tache, Statut } from '@/types'
 
@@ -78,7 +78,7 @@ function IterationCard({iteration,membres,sprintNumeros,onUpdate}:{
         <div>
           <span className="ds-label mb-1 block">Effort (j)</span>
           <input type="number" value={effortJ} onChange={e=>setEffortJ(e.target.value)}
-            onBlur={()=>onUpdate({effort_j:Number(effortJ)||0})} className="ds-input text-xs" min={0} step={0.5}/>
+            onBlur={()=>onUpdate({effort_j:Number(effortJ)||0})} className="ds-input text-xs" min={0} step={0.1}/>
         </div>
         <div>
           <span className="ds-label mb-1 block">Assigné à</span>
@@ -185,6 +185,11 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
     const m=membresActifs.find(x=>x.trigramme===tri)
     const eq=m?.equipe_id?equipes.find(e=>e.id===m.equipe_id):null
     setEditForm(f=>({...f,assigne_a:tri,...(eq?{equipe:eq.nom}:{})}))
+  }
+
+  // Sous-tâche : un seul assigné. US : plusieurs possibles (cf. QuickAddModal).
+  function setMembresMulti(list:string[]){
+    setEditForm(f=>({...f,assigne_a:serializeAssignees(list)}))
   }
 
   async function savePanel(){
@@ -322,7 +327,7 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
             {!hasIterations && (
               <>
                 <Grp label={(childMap[panelTask.id_tache]??[]).length > 0 ? 'Effort propre (j)' : 'Effort (j)'} className="col-span-1">
-                  <input type="number" value={Number(editForm.effort_j??0)} onChange={setF('effort_j')} className="ds-input text-xs" min={0} step={0.5}/>
+                  <input type="number" value={String(editForm.effort_j??'')} onChange={setF('effort_j')} className="ds-input text-xs" min={0} step={0.1}/>
                   {(childMap[panelTask.id_tache]??[]).length > 0 && (
                     <div className="text-[10px] text-subtle mt-0.5 tabular-nums whitespace-nowrap">
                       + ∑ {(childMap[panelTask.id_tache]??[]).reduce((s,c)=>s+effortEffectif(c,childMap),0)}j ss-tâches
@@ -331,7 +336,11 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
                   )}
                 </Grp>
                 <Grp label="Assigné à" className="col-span-2">
-                  <AssignPicker value={String(editForm.assigne_a??'')} membres={membresActifs} onAssign={setMembre} />
+                  {isSousTache(panelTask,byId) ? (
+                    <AssignPicker value={String(editForm.assigne_a??'')} membres={membresActifs} onAssign={setMembre} />
+                  ) : (
+                    <AssignPickerMulti value={parseAssignees(String(editForm.assigne_a??''))} membres={membresActifs} onChange={setMembresMulti} />
+                  )}
                 </Grp>
               </>
             )}

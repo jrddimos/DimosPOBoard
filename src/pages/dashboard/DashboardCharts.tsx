@@ -302,11 +302,12 @@ export function PortfolioTendanceChart({ produits }: { produits: Produit[] }) {
 // durée du trimestre. "Réalisé" (plein, vert) = US restantes réellement, à partir
 // des dates de passage à "Fait" issues du journal d'activité — s'arrête à
 // aujourd'hui, ne continue pas au-delà.
-export function ProduitBurndownChart({ quarterStart, quarterEnd, objectif, doneDates, trimLabel }: {
+export function ProduitBurndownChart({ quarterStart, quarterEnd, objectif, doneDates, trimLabel, unitLabel = 'US' }: {
   quarterStart: Date | null; quarterEnd: Date | null; objectif: number; doneDates: Date[]; trimLabel?: string | null
+  unitLabel?: string
 }) {
   if (!quarterStart || !quarterEnd || objectif === 0) {
-    return <p className="text-xs text-subtle italic">Pas de période active avec des US planifiées pour ce périmètre.</p>
+    return <p className="text-xs text-subtle italic">Pas de période active avec des {unitLabel} planifiées pour ce périmètre.</p>
   }
   const weeks = computeBurndownWeeks(quarterStart, quarterEnd, objectif, doneDates)
   if (weeks.length === 0) {
@@ -318,9 +319,9 @@ export function ProduitBurndownChart({ quarterStart, quarterEnd, objectif, doneD
   ]
   return (
     <div>
-      <TrendLineChart categories={weeks.map(w => w.label)} series={series} valueFormatter={v => `${v} US restantes`} />
+      <TrendLineChart categories={weeks.map(w => w.label)} series={series} valueFormatter={v => `${v} ${unitLabel} restants`} />
       <p className="text-[11px] text-slate-400 mt-2">
-        {trimLabel ? `${trimLabel} — ` : ''}{objectif} US à écouler sur la période, reste à faire par semaine.
+        {trimLabel ? `${trimLabel} — ` : ''}{objectif} {unitLabel} à écouler sur la période, reste à faire par semaine.
       </p>
     </div>
   )

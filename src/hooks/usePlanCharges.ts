@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { parseAssignees } from '@/lib/utils'
 
 function dateToISOWeekYear(dateStr: string): { semaine: number; annee: number } | null {
   const d = new Date(dateStr)
@@ -62,14 +63,27 @@ export function useUpsertPlanCharge() {
 // Plan de charges (attribué à tort à la semaine du sprint de destination, ou
 // pas du tout si l'US n'est toujours pas finie).
 // Clé : `${produit_id}|${semaine}|${assigne_a}`
+//
+// Attribution par personne : `assigne_a` peut porter plusieurs trigrammes
+// (US multi-assignée, parseAssignees). Si effort_realise_split est renseigné
+// (répartition saisie au popup de clôture, cf. SprintBoardPage), on l'utilise
+// telle quelle ; sinon on répartit effort_realise_j à parts égales entre les
+// assignés — transparent pour le cas mono-assigné (parseAssignees renvoie un
+// seul élément, donc 100% à cette personne, comme avant).
+// Une US qui A des sous-tâches n'est PAS exclue en bloc : son
+// effort_realise_j stocké est un TOTAL (part propre + somme des
+// sous-tâches, cf. confirmEffort/SprintBoardPage) — on retranche la somme
+// des sous-tâches (déjà comptée individuellement, ligne par ligne) pour
+// n'attribuer ici que sa part propre, sans quoi l'effort des sous-tâches
+// était compté deux fois (US agrégée + chacune de ses sous-tâches).
 export function useRealiseFromTasks(annee: number) {
   return useQuery({
     queryKey: ['realise-from-tasks', annee],
     queryFn: async () => {
-      const [{ data: taches, error: errT }, { data: iterations, error: errI }, { data: sprints, error: errS }] = await Promise.all([
+      const [{ data: taches, error: errT }, { data: iterations, error: errI }, { data: sprints, error: errS }, { data: allTaches, error: errA }] = await Promise.all([
         supabase
           .from('taches')
-          .select('produit_id, sprint_debut, assigne_a, effort_realise_j, type_tache')
+          .select('id_tache, parent_id, produit_id, sprint_debut, assigne_a, effort_realise_j, effort_realise_split, type_tache')
           .eq('statut', 'Fait')
           .not('effort_realise_j', 'is', null)
           .gt('effort_realise_j', 0),
@@ -82,10 +96,28 @@ export function useRealiseFromTasks(annee: number) {
         supabase
           .from('sprints')
           .select('produit_id, numero, closed_at, started_at'),
+        // Juste pour savoir qui a des enfants (indépendamment de leur statut)
+        // — un enfant pas encore Fait n'a pas d'effort_realise_j à retrancher
+        // mais empêche quand même la clôture agrégée côté UI, donc si le
+        // parent est ici c'est que tous ses enfants scopés au sprint le sont.
+        supabase
+          .from('taches')
+          .select('parent_id')
+          .not('parent_id', 'is', null),
       ])
       if (errT) throw errT
       if (errI) throw errI
       if (errS) throw errS
+      if (errA) throw errA
+
+      const parentsWithChildren = new Set((allTaches ?? []).map(t => t.parent_id).filter((id): id is string => !!id))
+
+      // Somme des enfants Fait (déjà dans `taches`) par parent — sert à
+      // isoler la part propre d'un parent qui a des enfants.
+      const childrenRealSum = new Map<string, number>()
+      for (const t of (taches ?? [])) {
+        if (t.parent_id) childrenRealSum.set(t.parent_id, (childrenRealSum.get(t.parent_id) ?? 0) + (t.effort_realise_j ?? 0))
+      }
 
       // Sprint map : `${produit_id}|${numero}` → { semaine, annee }
       const sprintMap = new Map<string, { semaine: number; annee: number }>()
@@ -105,10 +137,27 @@ export function useRealiseFromTasks(annee: number) {
       const m = new Map<string, number>()
       for (const t of (taches ?? [])) {
         if (!t.produit_id || t.type_tache === 'Conteneur' || !t.sprint_debut) continue
+        let ownReal = t.effort_realise_j ?? 0
+        if (parentsWithChildren.has(t.id_tache)) {
+          ownReal = Math.max(0, ownReal - (childrenRealSum.get(t.id_tache) ?? 0))
+          if (ownReal <= 0) continue
+        }
         const wk = sprintMap.get(`${t.produit_id}|${t.sprint_debut}`)
         if (!wk) continue
-        const k = `${t.produit_id}|${wk.semaine}|${t.assigne_a ?? ''}`
-        m.set(k, (m.get(k) ?? 0) + (t.effort_realise_j ?? 0))
+        const split = t.effort_realise_split as Record<string, number> | null
+        if (split && Object.keys(split).length) {
+          for (const [tri, jours] of Object.entries(split)) {
+            const k = `${t.produit_id}|${wk.semaine}|${tri}`
+            m.set(k, (m.get(k) ?? 0) + jours)
+          }
+        } else {
+          const assignees = parseAssignees(t.assigne_a)
+          const share = assignees.length ? ownReal / assignees.length : ownReal
+          for (const tri of assignees.length ? assignees : ['']) {
+            const k = `${t.produit_id}|${wk.semaine}|${tri}`
+            m.set(k, (m.get(k) ?? 0) + share)
+          }
+        }
       }
       for (const it of (iterations ?? [])) {
         if (!it.produit_id || !it.sprint) continue

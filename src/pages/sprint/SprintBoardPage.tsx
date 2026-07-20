@@ -9,7 +9,7 @@ import { useUtilisateurs } from '@/hooks/useEquipes'
 import { useToast } from '@/hooks/useToast'
 import { useEpics, epicFullName } from '@/hooks/useEpics'
 import { useJalons } from '@/hooks/useJalons'
-import { sprintInRange, serializeCriteres, parseCriteres, buildTacheIndex, isUS, existingSprintNumeros } from '@/lib/utils'
+import { sprintInRange, serializeCriteres, parseCriteres, buildTacheIndex, isUS, isSousTache, existingSprintNumeros, parseAssignees, serializeAssignees } from '@/lib/utils'
 import type { CritereItem } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { confirm } from '@/components/ui/ConfirmModal'
@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
 import { StatusPicker } from '@/components/ui/StatusPicker'
-import { AssignPicker } from '@/components/ui/AssignPicker'
+import { AssignPicker, AssignPickerMulti } from '@/components/ui/AssignPicker'
 import { ToggleGroup } from '@/components/ui/ToggleGroup'
 import { FilterPopover, FilterField } from '@/components/ui/FilterPopover'
 import { useAuth } from '@/contexts/AuthContext'
@@ -88,7 +88,10 @@ function KanbanCard({
   const epicBg    = epicMatch?.bg_couleur
 
   const effortJ     = subs.length > 0 ? subs.reduce((a, s) => a + (s.effort_j ?? 0), 0) : (t.effort_j ?? 0)
-  const effortRealJ = subs.length > 0 ? subs.reduce((a, s) => a + (s.effort_realise_j ?? 0), 0) : (t.effort_realise_j ?? null)
+  // t.effort_realise_j porte déjà le total (propre + sous-tâches, cf.
+  // confirmEffort) une fois l'US clôturée — recompute en live depuis les
+  // subs seulement tant qu'elle ne l'est pas encore (valeur pas encore posée).
+  const effortRealJ = t.effort_realise_j ?? (subs.length > 0 ? subs.reduce((a, s) => a + (s.effort_realise_j ?? 0), 0) : null)
   const done        = subs.filter(s => s.statut === 'Fait').length
   const pct         = subs.length ? Math.round(done / subs.length * 100) : 0
   const pendingSubs = subs.filter(s => s.statut !== 'Fait').length
@@ -129,8 +132,8 @@ function KanbanCard({
       </div>
 
       <div className="mb-1.5">
-        <AssignPicker value={t.assigne_a ?? null} membres={membres}
-          onAssign={tri => onAssign(t.id_tache, tri)} disabled={isReadOnly} />
+        <AssignPickerMulti value={parseAssignees(t.assigne_a)} membres={membres}
+          onChange={list => onAssign(t.id_tache, serializeAssignees(list))} disabled={isReadOnly} />
       </div>
 
       <div className={cn('mb-2', blockedByTask && 'opacity-60')}>
@@ -267,8 +270,11 @@ export default function SprintBoardPage() {
   const [allSprint,    setAllSprint]    = useState('')
   const [panel,        setPanel]        = useState<Tache | null>(null)
   const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set())
-  const [effortModal,  setEffortModal]  = useState<{ tache: Tache; pendingStatut: Statut } | null>(null)
+  const [effortModal,  setEffortModal]  = useState<{ tache: Tache; pendingStatut: Statut; subsRealTotal: number } | null>(null)
   const [effortInput,  setEffortInput]  = useState('')
+  // Répartition par personne — seulement pour une US (jamais une sous-tâche)
+  // sans sous-tâche à elle et avec plusieurs assignés (cf. changeStatut).
+  const [splitInputs,  setSplitInputs]  = useState<Record<string, string>>({})
   const [modalCriteres, setModalCriteres] = useState<CritereItem[]>([])
   const [activeId,     setActiveId]     = useState<string | null>(null)
   const [sousTacheFor, setSousTacheFor] = useState<Tache | null>(null)
@@ -312,7 +318,7 @@ export default function SprintBoardPage() {
       if (!sprintInRange(t.sprint_debut, t.sprint_fin, sprint4Board)) return false
       if (filterEpic  && t.epic  !== filterEpic)  return false
       if (filterJalon && t.jalon !== filterJalon) return false
-      if (onlyMine && t.assigne_a !== profile?.trigramme) return false
+      if (onlyMine && !parseAssignees(t.assigne_a).includes(profile?.trigramme ?? '')) return false
       if (q && !t.id_tache.toLowerCase().includes(q) && !t.titre.toLowerCase().includes(q)) return false
       return true
     }).sort((a, b) => (a.ordre_kanban ?? Infinity) - (b.ordre_kanban ?? Infinity))
@@ -356,6 +362,27 @@ export default function SprintBoardPage() {
     toast(`${ready.length} exigence${ready.length > 1 ? 's' : ''} vérifiée${ready.length > 1 ? 's' : ''} ✓`)
   }
 
+  // Ouvre le popup de saisie d'effort (US sans sous-tâche, ou effort PROPRE
+  // d'une US qui en a — jamais pour l'agrégat des sous-tâches elles-mêmes,
+  // déjà tracké individuellement). `subsRealTotal` : somme déjà connue des
+  // sous-tâches, à additionner à ce qui sera saisi ici pour le total stocké
+  // sur l'US (cf. confirmEffort).
+  function openEffortModal(t: Tache, statut: Statut, subsRealTotal = 0) {
+    setEffortInput(String(t.effort_j ?? ''))
+    setModalCriteres(parseCriteres(t.criteres))
+    // Plusieurs assignés sur l'US : pré-remplit une répartition égale entre
+    // eux, à ajuster dans le popup (jamais pour une sous-tâche, toujours
+    // mono-assignée).
+    const assignees = parseAssignees(t.assigne_a)
+    if (!isSousTache(t, byId) && assignees.length > 1) {
+      const even = t.effort_j ? Math.round((t.effort_j / assignees.length) * 100) / 100 : 0
+      setSplitInputs(Object.fromEntries(assignees.map(a => [a, even ? String(even) : ''])))
+    } else {
+      setSplitInputs({})
+    }
+    setEffortModal({ tache: t, pendingStatut: statut, subsRealTotal })
+  }
+
   async function changeStatut(t: Tache, statut: Statut) {
     if (isReadOnly) { toast('Sprint clôturé ou en lecture seule', 'error'); return }
     if (statut === 'Fait') {
@@ -364,17 +391,25 @@ export default function SprintBoardPage() {
       if (pending.length > 0) { toast(`${pending.length} sous-tâche(s) non terminée(s) dans ce sprint`, 'error'); return }
       if (subs.length > 0) {
         const totalReal = subs.reduce((acc, s) => acc + (s.effort_realise_j ?? 0), 0)
-        await updateTache.mutateAsync({ id_tache: t.id_tache, updates: { statut, effort_realise_j: totalReal } })
-        toast(`${t.id_tache} → Fait · ${totalReal}j réalisés`)
-        await proposeVerification(t)
+        // L'US n'a pas d'effort propre (pur regroupement de sous-tâches) :
+        // rien à demander, comportement inchangé — auto-clôture sur la somme.
+        if (!t.effort_j) {
+          await updateTache.mutateAsync({ id_tache: t.id_tache, updates: { statut, effort_realise_j: totalReal, effort_realise_split: null } })
+          toast(`${t.id_tache} → Fait · ${totalReal}j réalisés`)
+          await proposeVerification(t)
+          return
+        }
+        // L'US a SON PROPRE effort en plus de ses sous-tâches (déjà closes,
+        // sinon bloqué plus haut) : demande son réalisé propre — avec
+        // répartition si plusieurs assignés sur l'US elle-même — pour ne
+        // pas le perdre silencieusement comme avant.
+        openEffortModal(t, statut, totalReal)
         return
       }
       // Un seul popup pour tout : cocher les critères restants ET saisir le
       // temps réalisé, plutôt qu'une confirmation "critères non cochés,
       // continuer quand même ?" séparée puis une 2ᵉ popup pour l'effort.
-      setEffortInput(String(t.effort_j ?? ''))
-      setModalCriteres(parseCriteres(t.criteres))
-      setEffortModal({ tache: t, pendingStatut: statut })
+      openEffortModal(t, statut)
       return
     }
     await updateTache.mutateAsync({ id_tache: t.id_tache, updates: { statut } })
@@ -386,31 +421,61 @@ export default function SprintBoardPage() {
     if (sub.statut === 'Fait') {
       await updateTache.mutateAsync({ id_tache: sub.id_tache, updates: { statut: 'À faire' } })
     } else {
-      setEffortInput(String(sub.effort_j ?? ''))
-      setModalCriteres(parseCriteres(sub.criteres))
-      setEffortModal({ tache: sub, pendingStatut: 'Fait' })
+      openEffortModal(sub, 'Fait')
     }
   }
 
+  // Répartition demandée uniquement pour une US (jamais une sous-tâche) qui
+  // a plusieurs assignés — construit par openEffortModal avant d'ouvrir le
+  // popup, que l'US ait ou non des sous-tâches (dans ce cas c'est son effort
+  // PROPRE qui est réparti, pas l'agrégat des sous-tâches).
+  const needsEffortSplit = !!effortModal && !isSousTache(effortModal.tache, byId) && parseAssignees(effortModal.tache.assigne_a).length > 1
+  const effortSplitAssignees = effortModal ? parseAssignees(effortModal.tache.assigne_a) : []
+  const effortSplitTotal = effortSplitAssignees.reduce((s, tri) => s + (parseFloat(splitInputs[tri]) || 0), 0)
+  const effortModalSubsTotal = effortModal?.subsRealTotal ?? 0
+
   async function confirmEffort() {
     if (!effortModal) return
-    const val = parseFloat(effortInput)
     const done = effortModal.tache
+    let ownVal: number | null
+    let split: Record<string, number> | null = null
+    if (needsEffortSplit) {
+      split = {}
+      for (const tri of effortSplitAssignees) {
+        const n = parseFloat(splitInputs[tri])
+        if (!isNaN(n) && n > 0) split[tri] = n
+      }
+      ownVal = Object.keys(split).length ? effortSplitTotal : null
+    } else {
+      const parsed = parseFloat(effortInput)
+      ownVal = isNaN(parsed) ? null : parsed
+    }
+    // Total stocké sur la tâche = son propre réalisé + celui déjà connu de
+    // ses sous-tâches (0 si elle n'en a pas) — effort_realise_split ne porte
+    // que la répartition de la part PROPRE, les sous-tâches restant
+    // attribuées individuellement via leur propre ligne.
+    const total = (ownVal ?? 0) + effortModalSubsTotal
     await updateTache.mutateAsync({
       id_tache: done.id_tache,
-      updates: { statut: effortModal.pendingStatut, effort_realise_j: isNaN(val) ? null : val, criteres: serializeCriteres(modalCriteres) },
+      updates: { statut: effortModal.pendingStatut, effort_realise_j: total || null, effort_realise_split: split, criteres: serializeCriteres(modalCriteres) },
     })
-    toast(`${done.id_tache} → Fait · ${isNaN(val) ? '—' : val + 'j'} réalisés`)
+    toast(`${done.id_tache} → Fait · ${total}j réalisés`)
     setEffortModal(null)
+    setSplitInputs({})
     if (effortModal.pendingStatut === 'Fait') await proposeVerification(done)
   }
 
   async function skipEffort() {
     if (!effortModal) return
     const done = effortModal.tache
-    await updateTache.mutateAsync({ id_tache: done.id_tache, updates: { statut: effortModal.pendingStatut, criteres: serializeCriteres(modalCriteres) } })
+    // Ignore la part propre, mais garde ce qui est déjà connu des
+    // sous-tâches (0 si elle n'en a pas) plutôt que de l'effacer.
+    await updateTache.mutateAsync({ id_tache: done.id_tache, updates: {
+      statut: effortModal.pendingStatut, effort_realise_j: effortModalSubsTotal || null, effort_realise_split: null, criteres: serializeCriteres(modalCriteres),
+    } })
     toast(`${done.id_tache} → Fait`)
     setEffortModal(null)
+    setSplitInputs({})
     if (effortModal.pendingStatut === 'Fait') await proposeVerification(done)
   }
 
@@ -779,18 +844,39 @@ export default function SprintBoardPage() {
             {effortModal.tache.effort_j > 0 && (
               <p className="text-xs text-slate-400">Estimé : <span className="font-semibold text-navy">{effortModal.tache.effort_j}j</span></p>
             )}
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-navy">Jours réalisés <span className="text-rose-500">*</span></label>
-              <div className="flex items-center gap-2">
-                <input type="number" min="0" step="0.5" value={effortInput}
-                  onChange={e => setEffortInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && confirmEffort()}
-                  autoFocus className="ds-input text-sm font-semibold text-center flex-1" placeholder="Ex : 2.5" />
-                <span className="text-sm text-slate-400 font-medium">jours</span>
+            {effortModalSubsTotal > 0 && (
+              <p className="text-[11px] text-indigo-600 bg-indigo-50 rounded-lg px-2.5 py-1.5">
+                {effortModalSubsTotal}j déjà comptabilisés sur les sous-tâches — ce qui suit ne porte que sur l'effort propre de l'US.
+              </p>
+            )}
+            {needsEffortSplit ? (
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-navy">Répartition des jours réalisés{effortModalSubsTotal > 0 ? ' (propre)' : ''} <span className="text-rose-500">*</span></label>
+                {effortSplitAssignees.map(tri => (
+                  <div key={tri} className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-full w-14 text-center shrink-0">{tri}</span>
+                    <input type="number" min="0" step="0.1" value={splitInputs[tri] ?? ''}
+                      onChange={e => setSplitInputs(s => ({ ...s, [tri]: e.target.value }))}
+                      className="ds-input text-sm flex-1" placeholder="0" />
+                    <span className="text-xs text-slate-400 shrink-0">j</span>
+                  </div>
+                ))}
+                <p className="text-[11px] text-slate-400 text-right">Total : <span className="font-semibold text-navy">{effortSplitTotal}j</span></p>
               </div>
-            </div>
+            ) : (
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-navy">Jours réalisés{effortModalSubsTotal > 0 ? ' (propre)' : ''} <span className="text-rose-500">*</span></label>
+                <div className="flex items-center gap-2">
+                  <input type="number" min="0" step="0.1" value={effortInput}
+                    onChange={e => setEffortInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && confirmEffort()}
+                    autoFocus className="ds-input text-sm font-semibold text-center flex-1" placeholder="Ex : 2.5" />
+                  <span className="text-sm text-slate-400 font-medium">jours</span>
+                </div>
+              </div>
+            )}
             <div className="flex gap-2 pt-1">
-              <button onClick={confirmEffort} disabled={effortInput === ''} className="ds-btn-primary flex-1 disabled:opacity-40">Confirmer</button>
+              <button onClick={confirmEffort} disabled={needsEffortSplit ? effortSplitTotal <= 0 : effortInput === ''} className="ds-btn-primary flex-1 disabled:opacity-40">Confirmer</button>
               <button onClick={() => setEffortModal(null)} className="ds-btn">Annuler</button>
             </div>
             <button onClick={skipEffort}

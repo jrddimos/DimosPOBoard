@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { parseAssignees } from '@/lib/utils'
 import type { UserProfile } from '@/contexts/AuthContext'
 import type { Equipe } from '@/types'
 
@@ -104,18 +105,29 @@ export function useSyncEquipesTaches() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async () => {
-      const [{ data: equipes }, { data: utilisateurs }] = await Promise.all([
+      const [{ data: equipes }, { data: utilisateurs }, { data: taches }] = await Promise.all([
         supabase.from('equipes').select('id, nom').eq('actif', true),
         supabase.from('user_profiles').select('trigramme, equipe_id').not('trigramme', 'is', null),
+        // Une US peut porter plusieurs trigrammes séparés par virgule dans
+        // assigne_a : un simple .in('assigne_a', trigrammes) ne matcherait
+        // jamais ces lignes-là (comparaison exacte), d'où un filtrage côté
+        // client via parseAssignees puis un .in('id_tache', ids) ciblé.
+        supabase.from('taches').select('id_tache, assigne_a').not('assigne_a', 'is', null),
       ])
-      if (!equipes || !utilisateurs) return { updated: 0 }
+      if (!equipes || !utilisateurs || !taches) return { updated: 0 }
 
       for (const eq of equipes) {
-        const trigrammes = (utilisateurs as { trigramme: string | null; equipe_id: number | null }[])
-          .filter(u => u.equipe_id === eq.id && u.trigramme)
-          .map(u => u.trigramme as string)
-        if (!trigrammes.length) continue
-        await supabase.from('taches').update({ equipe: eq.nom }).in('assigne_a', trigrammes)
+        const trigrammes = new Set(
+          (utilisateurs as { trigramme: string | null; equipe_id: number | null }[])
+            .filter(u => u.equipe_id === eq.id && u.trigramme)
+            .map(u => u.trigramme as string)
+        )
+        if (!trigrammes.size) continue
+        const ids = (taches as { id_tache: string; assigne_a: string | null }[])
+          .filter(t => parseAssignees(t.assigne_a).some(tri => trigrammes.has(tri)))
+          .map(t => t.id_tache)
+        if (!ids.length) continue
+        await supabase.from('taches').update({ equipe: eq.nom }).in('id_tache', ids)
       }
       return { ok: true }
     },

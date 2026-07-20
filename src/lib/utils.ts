@@ -38,6 +38,27 @@ export function isSousTache(t: Tache, byId: Map<string, Tache>): boolean {
   return byId.get(t.parent_id)?.type_tache !== 'Conteneur'
 }
 
+// ── Assignés multiples (US uniquement — une sous-tâche garde toujours un
+// seul assigné) ──────────────────────────────────────────────────────
+// `assigne_a` reste une simple colonne texte : plusieurs trigrammes y sont
+// stockés séparés par des virgules ("ABC, DEF"). Une sous-tâche n'y stocke
+// jamais qu'un seul trigramme, donc parseAssignees reste transparent pour
+// elle (liste à un seul élément) — pas besoin de distinguer les deux cas
+// dans le code qui lit/compte l'effort.
+export function parseAssignees(s: string | null | undefined): string[] {
+  if (!s) return []
+  const seen = new Set<string>()
+  for (const part of s.split(/[,;]+/)) {
+    const tri = part.trim()
+    if (tri) seen.add(tri)
+  }
+  return [...seen]
+}
+
+export function serializeAssignees(list: string[]): string {
+  return list.join(', ')
+}
+
 // Effort effectif récursif : effort PROPRE de la tâche + somme de ses
 // sous-tâches. `effort_j` d'une US porte donc uniquement le travail direct
 // sur l'US (coordination, intégration…), jamais un total matérialisé —
@@ -129,7 +150,11 @@ export function formatDate(iso: string | null): string {
 }
 
 // ── Critères d'acceptation ────────────────────────────────────
-export interface CritereItem { id: string; text: string; checked: boolean }
+// checked_at : horodatage de la dernière coche (posé/effacé au toggle, cf.
+// CriteresEditor.tsx) — permet un burndown "par critères" (date de
+// complétion propre à chaque item, indépendante de celle de sa tâche
+// porteuse). Absent sur les items cochés avant l'ajout de ce champ.
+export interface CritereItem { id: string; text: string; checked: boolean; checked_at?: string | null }
 
 export function parseCriteres(raw: string | null | undefined): CritereItem[] {
   if (!raw) return []

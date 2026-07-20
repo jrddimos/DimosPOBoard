@@ -94,7 +94,7 @@ export function NewIterationModal({ taskTitre, numeroSuivant, initCriteres, init
             <div>
               <label className="ds-label mb-1 block">Effort (j)</label>
               <input type="number" value={effortJ} onChange={e => setEffortJ(e.target.value)}
-                className="ds-input w-full" min={0} step={0.5} placeholder="0" />
+                className="ds-input w-full" min={0} step={0.1} placeholder="0" />
             </div>
             <div>
               <label className="ds-label mb-1 block">Sprint</label>

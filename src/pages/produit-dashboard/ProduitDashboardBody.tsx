@@ -11,8 +11,8 @@ import { useFinanceConfig } from '@/hooks/useFinanceConfig'
 import { useFaitTransitions } from '@/hooks/useActivityLog'
 import { trimEtpCostEur } from '@/utils/produitMetrics'
 import { SPRINTS_LIST } from '@/constants'
-import { cn, buildTacheIndex, buildChildMap, effortEffectif, isUS, parseCriteres, parseLienDodCodes } from '@/lib/utils'
-import { AlertTriangle, Check, CheckCircle, ChevronDown, XCircle, CornerDownRight, ListPlus, Lock, Pencil, Plus, X } from 'lucide-react'
+import { cn, buildTacheIndex, buildChildMap, effortEffectif, isUS, parseCriteres, parseLienDodCodes, parseAssignees } from '@/lib/utils'
+import { AlertTriangle, Check, CheckCircle, ChevronDown, XCircle, CornerDownRight, ListPlus, Lock, Pencil, Plus, X, SlidersHorizontal } from 'lucide-react'
 import type { Produit, RisqueItem, ActionLop } from '@/hooks/useProduits'
 import { useEpicsByProduit, epicFullName } from '@/hooks/useEpics'
 import { useJalonsByProduit } from '@/hooks/useJalons'
@@ -322,11 +322,23 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const navigate = useNavigate()
 
   const [scopeView, setScopeView]             = useState<'global' | 'trim' | 'sprint'>('trim')
-  // Angle du panneau "Avancement" (global/trim uniquement — le sprint garde
-  // son propre sélecteur). 'exigences' n'a de sens qu'au global (une
-  // Exigence n'appartient à aucun trimestre en propre, seulement via les US
-  // qui la référencent) : repli silencieux sur 'us' si on quitte le global.
-  const [objectifMode, setObjectifMode]       = useState<'us' | 'criteres' | 'exigences'>('us')
+  // Angle des panneaux sensibles au grain US/Critères (Avancement — remonté
+  // au niveau page, à côté du sélecteur Global/Trimestre/Sprint, pour
+  // s'appliquer à toutes les vues concernées plutôt qu'être enterré dans un
+  // seul panneau). 'exigences' n'a de sens qu'au global (une Exigence
+  // n'appartient à aucun trimestre en propre, seulement via les US qui la
+  // référencent) : repli silencieux sur 'us' si on quitte le global.
+  // Persisté (préférence personnelle, indépendante du produit affiché).
+  const [objectifMode, setObjectifModeState]  = useState<'us' | 'criteres' | 'exigences'>(() => {
+    try { return (localStorage.getItem('dashboard-objectif-mode') as 'us' | 'criteres' | 'exigences' | null) ?? 'us' } catch { return 'us' }
+  })
+  function setObjectifMode(m: 'us' | 'criteres' | 'exigences') {
+    setObjectifModeState(m)
+    try { localStorage.setItem('dashboard-objectif-mode', m) } catch {}
+  }
+  // Mode édition de la grille bento — état levé ici pour afficher le bouton
+  // "Personnaliser" à côté du sélecteur de sprint plutôt que dans la grille.
+  const [dashGridEditing, setDashGridEditing] = useState(false)
   const [selectedSprintNum, setSelectedSprintNum] = useState<string | null>(null)
   // null = trimestre actif (auto) ; sinon n'importe quel trimestre du produit,
   // clôturé compris — même logique que selectedSprintNum pour les sprints.
@@ -463,6 +475,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   // tâches, y compris jamais planifiées — seul sprint_debut est fiable
   // (même bug corrigé dans src/lib/sprintEligibility.ts).
   const racinesSprint    = racines.filter(t => t.sprint_debut === effectiveSprint)
+  const critereStatsSprint = useMemo(() => critereStatsOf(racinesSprint), [racinesSprint])
   const totalUSSprint    = racinesSprint.length
   const faitUSSprint     = racinesSprint.filter(t => t.statut === 'Fait').length
   const enCoursSprint    = racinesSprint.filter(t => t.statut === 'En cours').length
@@ -522,7 +535,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   ]
 
   // ── Équipes & membres ────────────────────────────────────────
-  const assigneTrigrammes = [...new Set(racinesScoped.map(t => t.assigne_a).filter(Boolean))] as string[]
+  const assigneTrigrammes = [...new Set(racinesScoped.flatMap(t => parseAssignees(t.assigne_a)))]
   const equipesMembres    = membres.filter(m => m.trigramme && assigneTrigrammes.includes(m.trigramme))
   const equipesNoms       = [...new Set(racinesScoped.map(t => t.equipe).filter(Boolean))] as string[]
   const equipesActives    = equipes.filter(e => e.actif && equipesNoms.includes(e.nom))
@@ -601,9 +614,28 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const { data: faitTransitions = [] } = useFaitTransitions(produit.id, burndownSince ? burndownSince.toISOString() : null)
   const faitDoneMap = new Map<string, string>()
   faitTransitions.forEach(f => { if (!faitDoneMap.has(f.target)) faitDoneMap.set(f.target, f.created_at) })
-  const burndownDoneDates = burndownTasks
+  const burndownDoneDatesUS = burndownTasks
     .filter(t => t.statut === 'Fait')
     .map(t => { const iso = faitDoneMap.get(t.id_tache); return iso ? new Date(iso) : (burndownStart ?? new Date()) })
+
+  // Burndown "par critères" : un point par item de checklist coché, daté de
+  // sa propre coche (checked_at, cf. CriteresEditor) — pas de la date "Fait"
+  // de la tâche porteuse, un critère pouvant être coché bien avant que
+  // l'US entière ne le soit. Items cochés avant l'ajout de ce champ (pas de
+  // checked_at) : retombent sur la date "Fait" de leur tâche, sinon le
+  // début de la période affichée.
+  const burndownObjectifCriteres = burndownTasks.reduce((s, t) => s + parseCriteres(t.criteres).length, 0)
+  const burndownDoneDatesCriteres = burndownTasks.flatMap(t => {
+    const iso = faitDoneMap.get(t.id_tache)
+    const fallback = iso ? new Date(iso) : (burndownStart ?? new Date())
+    return parseCriteres(t.criteres).filter(c => c.checked).map(c => c.checked_at ? new Date(c.checked_at) : fallback)
+  })
+
+  // 'exigences' n'a pas (encore) de date de vérification par item : repli
+  // sur le mode US pour le burndown, comme ailleurs dans ce panneau.
+  const isCriteresBurndown = objectifMode === 'criteres'
+  const burndownObjectifFinal   = isCriteresBurndown ? burndownObjectifCriteres  : burndownObjectif
+  const burndownDoneDatesFinal  = isCriteresBurndown ? burndownDoneDatesCriteres : burndownDoneDatesUS
 
   const globalCursorPctEarly = firstTrimStartEarly && globalTargetDateEarly && globalTargetDateEarly > firstTrimStartEarly
     ? Math.min(100, Math.max(0, Math.round(
@@ -883,7 +915,20 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
           et Sprint sont des boutons scindés : le libellé active le scope, le
           chevron ouvre un sélecteur listant tout l'historique (clôturés et à
           venir compris) — chacun porte son propre menu, ancré sous lui. */}
-      <div className="flex justify-end mb-2">
+      <div className="flex justify-end items-center gap-2 mb-2">
+        {/* US / Critères (/ Exigences au global) — remonté ici plutôt
+            qu'enterré dans le panneau Avancement, pour s'appliquer à toutes
+            les vues (widgets) qui en tiennent compte. Persisté (cf.
+            setObjectifMode) : préférence retenue d'une session à l'autre. */}
+        <div className="flex gap-0.5 bg-card border border-border rounded-lg p-0.5 shrink-0">
+          {(['us', 'criteres', ...(scopeView === 'global' ? ['exigences' as const] : [])] as const).map(m => (
+            <button key={m} onClick={() => setObjectifMode(m)}
+              className={cn('px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide rounded-md transition-colors',
+                objectifMode === m ? 'bg-indigo-50 text-indigo-700' : 'text-slate-400 hover:text-slate-600')}>
+              {m === 'us' ? 'US' : m === 'criteres' ? 'Critères' : 'Exigences'}
+            </button>
+          ))}
+        </div>
         {/* Pas d'overflow-hidden ici : les menus déroulants Trim/Sprint sont
             des descendants (ancrés sous leur bouton) et seraient rognés.
             Le rendu reste arrondi car ToggleBtn n'a pas de fond qui déborde
@@ -967,6 +1012,17 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
             )}
           </div>
         </div>
+        {/* Bouton Personnaliser — remonté ici plutôt que dans la barre
+            interne de BentoGrid (cf. isEditing/onEditingChange/hideToggle),
+            à côté du sélecteur de sprint. Masqué une fois l'édition ouverte :
+            la barre d'outils complète (widgets, Défaut, Annuler, Terminer)
+            prend alors le relais dans BentoGrid lui-même. */}
+        {customizable && !dashGridEditing && (
+          <button onClick={() => setDashGridEditing(true)}
+            className="ds-btn ds-btn-sm flex items-center gap-1.5 shrink-0">
+            <SlidersHorizontal size={12} /> Personnaliser
+          </button>
+        )}
       </div>
 
       {/* Bandeau en-tête */}
@@ -1044,10 +1100,15 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
         </div>
       </div>
 
-      {/* Grille bento : les mêmes blocs qu'avant, désormais personnalisables */}
+      {/* Grille bento : les mêmes blocs qu'avant, désormais personnalisables —
+          bouton "Personnaliser" affiché plus haut (à côté du sélecteur de
+          sprint), pas ici : cf. dashGridEditing / hideToggle ci-dessous. */}
       <BentoGrid
         contexte="produit"
         editable={customizable}
+        isEditing={dashGridEditing}
+        onEditingChange={setDashGridEditing}
+        hideToggle
         defaultLayout={PRODUIT_LAYOUT}
         items={[
           { key: 'produit', label: 'Produit', minW: 2, minH: 2, defaultSize: { w: 2, h: 3 }, content: (
@@ -1147,18 +1208,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
           ) },
           { key: 'avancement', label: 'Avancement', minW: 4, minH: 3, defaultSize: { w: 7, h: 4 }, content: (
 <Section className="h-full"
-            title={scopeView === 'global' ? 'Avancement global' : scopeView === 'trim' ? `Objectifs — ${currentTrim?.trimestre || 'Trimestre en cours'}` : 'Sprint'}
-            action={scopeView !== 'sprint' ? (
-              <div className="flex gap-0.5 bg-card border border-border rounded-lg p-0.5 shrink-0">
-                {(['us', 'criteres', ...(scopeView === 'global' ? ['exigences' as const] : [])] as const).map(m => (
-                  <button key={m} onClick={() => setObjectifMode(m)}
-                    className={cn('px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide rounded-md transition-colors',
-                      objectifMode === m ? 'bg-indigo-50 text-indigo-700' : 'text-slate-400 hover:text-slate-600')}>
-                    {m === 'us' ? 'US' : m === 'criteres' ? 'Critères' : 'Exigences'}
-                  </button>
-                ))}
-              </div>
-            ) : undefined}>
+            title={scopeView === 'global' ? 'Avancement global' : scopeView === 'trim' ? `Objectifs — ${currentTrim?.trimestre || 'Trimestre en cours'}` : 'Sprint'}>
             {/* 'exigences' n'a de sens qu'au global (cf. objectifMode) : repli
                 silencieux sur 'us' si on est passé en scope Trimestre sans
                 changer manuellement le sélecteur. */}
@@ -1187,10 +1237,12 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
             ) : (
               totalUSSprint === 0
                 ? <p className="text-xs text-subtle/40 italic">Aucune tâche dans ce sprint</p>
-                : <AvancementStats total={totalUSSprint} fait={faitUSSprint} enCours={enCoursSprint} bloque={bloqueSprint}
-                    backlogPct={backlogPctSprint} effortFait={effortFaitSprint} effortTotal={effortTotalSprint}
-                    effortPct={effortPctSprint} mustHaveFait={mustHaveFaitSprint} mustHaveTotal={mustHaveSprint.length}
-                    mustHavePct={mustHavePctSprint} />
+                : mode === 'criteres'
+                  ? <CriteresStats total={critereStatsSprint.total} fait={critereStatsSprint.fait} />
+                  : <AvancementStats total={totalUSSprint} fait={faitUSSprint} enCours={enCoursSprint} bloque={bloqueSprint}
+                      backlogPct={backlogPctSprint} effortFait={effortFaitSprint} effortTotal={effortTotalSprint}
+                      effortPct={effortPctSprint} mustHaveFait={mustHaveFaitSprint} mustHaveTotal={mustHaveSprint.length}
+                      mustHavePct={mustHavePctSprint} />
             ) })()}
           </Section>
           ) },
@@ -1434,8 +1486,8 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
             <ChartWidget title={`Burndown — ${
               scopeView === 'global' ? 'Global' : scopeView === 'sprint' ? (effectiveSprint ?? 'Sprint') : (currentTrim?.trimestre ?? 'Trimestre en cours')
             }`}>
-              <LazyBurndownChart quarterStart={burndownStart} quarterEnd={burndownEnd} objectif={burndownObjectif}
-                doneDates={burndownDoneDates}
+              <LazyBurndownChart quarterStart={burndownStart} quarterEnd={burndownEnd} objectif={burndownObjectifFinal}
+                doneDates={burndownDoneDatesFinal} unitLabel={isCriteresBurndown ? 'critères' : 'US'}
                 trimLabel={scopeView === 'global' ? 'Global' : scopeView === 'sprint' ? effectiveSprint : (currentTrim?.trimestre ?? null)} />
             </ChartWidget>
           ) },

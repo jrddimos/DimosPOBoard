@@ -441,7 +441,7 @@ function SprintsTab() {
                   {demarree && (
                     <div className="flex items-center gap-1.5 pl-[72px]">
                       <span className="text-subtle">Jours passés sur ce sprint</span>
-                      <input type="number" min={0} step={0.5} placeholder="0"
+                      <input type="number" min={0} step={0.1} placeholder="0"
                         value={tempsPasse[t.id_tache] ?? ''}
                         onChange={e => setTempsPasse(p => ({ ...p, [t.id_tache]: e.target.value }))}
                         className="ds-input text-xs w-16 py-0.5" />
@@ -456,7 +456,9 @@ function SprintsTab() {
                           <input type="checkbox" checked={c.checked}
                             onChange={() => setCriteresClose(p => ({
                               ...p,
-                              [t.id_tache]: p[t.id_tache].map(i => i.id === c.id ? { ...i, checked: !i.checked } : i),
+                              [t.id_tache]: p[t.id_tache].map(i => i.id === c.id
+                                ? { ...i, checked: !i.checked, checked_at: !i.checked ? new Date().toISOString() : null }
+                                : i),
                             }))}
                             className="mt-0.5 accent-indigo-500 shrink-0" />
                           <span className={cn('leading-snug', c.checked ? 'text-navy line-through decoration-subtle/50' : 'text-subtle group-hover:text-navy')}>

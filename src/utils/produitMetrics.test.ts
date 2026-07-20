@@ -23,7 +23,7 @@ function mkTache(overrides: Partial<Tache> = {}): Tache {
     id: 1, id_tache: 'US-001', produit_id: 1, epic: 'EPIC 1 — Test', titre: 'Tâche test',
     type_fonction: null, description: null, criteres: null, lien_dod: null, commentaire: null,
     jalon: null, sprint_debut: null, sprint_fin: null, sprint: null, iteration: 1,
-    moscow: null, priorite: null, statut: 'À faire', effort_j: 1, effort_realise_j: null,
+    moscow: null, priorite: null, statut: 'À faire', effort_j: 1, effort_realise_j: null, effort_realise_split: null,
     equipe: null, metier: null, assigne_a: null, type_tache: null, parent_id: null, famille_id: null,
     ordre_kanban: null,
     ordre_backlog: null,
