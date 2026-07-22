@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Layout } from '@/components/layout/Layout'
 import { Spinner } from '@/components/ui/Spinner'
@@ -7,20 +7,22 @@ import { confirm } from '@/components/ui/ConfirmModal'
 import { useProduits } from '@/hooks/useProduits'
 import { useUtilisateurs } from '@/hooks/useEquipes'
 import { useToast } from '@/hooks/useToast'
+import { useAuth } from '@/contexts/AuthContext'
 import {
   useReunionById, useReunionTypes, useUpdateReunionGenerique, useDeleteReunion,
-  type SectionKey, type SectionsData, type ActionItem, type DecisionItem, type RisqueItem,
+  type SectionKey, type SectionsData, type ActionItem, type DecisionItem, type RisqueItem, type ObjectifItem,
 } from '@/hooks/useReunions'
 import { cn } from '@/lib/utils'
 import {
-  ArrowLeft, Save, Printer, Trash2, Plus, X, Check,
-  Target, AlertTriangle, ListChecks, Gavel, StickyNote, Lock, Unlock, UserPlus,
+  ArrowLeft, Printer, Trash2, Plus, X, Check,
+  Target, AlertTriangle, ListChecks, Gavel, StickyNote, Lock, Unlock, UserPlus, Flag,
 } from 'lucide-react'
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
 
 // Registre des sections : chaque type de réunion assemble ces briques
 const SECTION_DEFS: Record<Exclude<SectionKey, 'revue_produits'>, { label: string; icon: React.ReactNode; placeholder?: string }> = {
+  objectifs: { label: 'Objectifs de la réunion', icon: <Flag size={14} /> },
   notes:     { label: 'Notes',                icon: <StickyNote size={14} />,    placeholder: 'Points abordés, contexte, décisions informelles… @trg pour mentionner' },
   jalons:    { label: 'Jalons & avancement',  icon: <Target size={14} />,        placeholder: 'Avancement par jalon, dates clés, prochaines étapes…' },
   risques:   { label: 'Risques & blocages',   icon: <AlertTriangle size={14} /> },
@@ -49,6 +51,7 @@ export default function ReunionDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const toast = useToast()
+  const { isAdmin } = useAuth()
   const reunionId = Number(id) || null
 
   const { data: reunion, isLoading } = useReunionById(reunionId)
@@ -69,7 +72,11 @@ export default function ReunionDetailPage() {
   const [privee, setPrivee]       = useState(false)
   const [participants, setParticipants] = useState<string[]>([])
   const [addingPart, setAddingPart] = useState(false)
-  const [dirty, setDirty]         = useState(false)
+  const [terminee, setTerminee]   = useState(false)
+  // Déverrouillage admin d'une réunion terminée — un simple état d'affichage
+  // (pas persisté) : ne modifie jamais `terminee` en base, juste la
+  // possibilité d'éditer pendant cette visite de page.
+  const [adminUnlocked, setAdminUnlocked] = useState(false)
 
   useEffect(() => {
     if (!reunion) return
@@ -78,23 +85,56 @@ export default function ReunionDetailPage() {
     setData(reunion.sections_data ?? {})
     setPrivee(reunion.privee ?? false)
     setParticipants(reunion.participants ?? [])
-    setDirty(false)
+    setTerminee(reunion.terminee ?? false)
   }, [reunion?.id, reunion?.created_at])  // eslint-disable-line react-hooks/exhaustive-deps
 
-  function patch(p: Partial<SectionsData>) { setData(d => ({ ...d, ...p })); setDirty(true) }
+  // Lecture seule pour tout le monde une fois la réunion terminée, sauf pour
+  // un admin qui a explicitement déverrouillé (cadenas dans la topbar).
+  const isLocked = terminee && !(isAdmin && adminUnlocked)
 
-  async function save() {
+  function patch(p: Partial<SectionsData>) { setData(d => ({ ...d, ...p })) }
+
+  async function save(overrides?: Partial<{ terminee: boolean }>) {
     if (!reunionId) return
     await update.mutateAsync({ id: reunionId, updates: {
       titre: titre.trim() || null, animateur: animateur.trim() || null,
       sections_data: data, privee, participants,
+      terminee: overrides?.terminee ?? terminee,
     } })
-    setDirty(false)
-    toast('Réunion sauvegardée')
+  }
+
+  // Autosave débouncé (~800ms après la dernière saisie) — plus de bouton
+  // "Sauvegarder" : chaque champ se persiste tout seul, tant que la réunion
+  // affichée est chargée (dataReady) et modifiable (isLocked bloque de toute
+  // façon les champs eux-mêmes, cf. <fieldset disabled> plus bas — cette
+  // garde est une sécurité en plus).
+  const dataReady = !isLoading && !!reunion
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!dataReady || isLocked) return
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
+    autosaveTimer.current = setTimeout(() => { save() }, 800)
+    return () => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataReady, isLocked, titre, animateur, data, privee, participants, terminee])
+
+  // "Terminer la réunion" : flush immédiat (sans attendre le debounce),
+  // marque la réunion comme terminée (verrouillée), puis retour à la liste.
+  // `date_reunion` n'est jamais touchée par save() — la date d'origine est
+  // donc automatiquement conservée, y compris après un futur déverrouillage.
+  async function handleFinish() {
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
+    setTerminee(true)
+    await save({ terminee: true })
+    toast('Réunion terminée')
+    navigate('/reunions')
   }
 
   async function supprimer() {
     if (!reunionId) return
+    // Sécurité en plus du bouton masqué : une réunion terminée ne se
+    // supprime que par un admin.
+    if (terminee && !isAdmin) return
     const ok = await confirm({ title: 'Supprimer cette réunion ?', message: 'Le compte-rendu et son contenu seront définitivement supprimés.', confirmLabel: 'Supprimer', variant: 'danger' })
     if (!ok) return
     await remove.mutateAsync(reunionId)
@@ -112,6 +152,7 @@ export default function ReunionDetailPage() {
   const actions   = data.actions   ?? []
   const decisions = data.decisions ?? []
   const risques   = data.risques   ?? []
+  const objectifs = data.objectifs ?? []
 
   return (
     <Layout>
@@ -126,22 +167,42 @@ export default function ReunionDetailPage() {
             {type.nom}
           </span>
         )}
-        <input value={titre} onChange={e => { setTitre(e.target.value); setDirty(true) }}
-          className="flex-1 min-w-[140px] bg-transparent text-sm font-bold text-navy outline-none placeholder:text-subtle/40"
-          placeholder="Titre de la réunion…" />
+        <fieldset disabled={isLocked} className="contents">
+          <input value={titre} onChange={e => setTitre(e.target.value)}
+            className="flex-1 min-w-[140px] bg-transparent text-sm font-bold text-navy outline-none placeholder:text-subtle/40 disabled:opacity-60"
+            placeholder="Titre de la réunion…" />
+        </fieldset>
         <div className="flex items-center gap-2 ml-auto shrink-0">
-          <input value={animateur} onChange={e => { setAnimateur(e.target.value); setDirty(true) }}
-            className="ds-input text-xs w-32 hidden md:block" placeholder="Animateur…" />
+          <fieldset disabled={isLocked} className="contents">
+            <input value={animateur} onChange={e => setAnimateur(e.target.value)}
+              className="ds-input text-xs w-32 hidden md:block disabled:opacity-60" placeholder="Animateur…" />
+          </fieldset>
           <button onClick={() => window.print()} className="ds-btn ds-btn-sm flex items-center gap-1.5">
             <Printer size={13} /> PDF
           </button>
-          <button onClick={supprimer} className="ds-btn ds-btn-sm text-rose-500 hover:bg-rose-50" title="Supprimer la réunion">
-            <Trash2 size={13} />
-          </button>
-          <button onClick={save} disabled={update.isPending}
-            className={cn('ds-btn-primary ds-btn-sm flex items-center gap-1.5', dirty && 'ring-2 ring-indigo-300')}>
-            <Save size={13} /> {update.isPending ? 'Sauvegarde…' : 'Sauvegarder'}
-          </button>
+          {(!terminee || isAdmin) && (
+            <button onClick={supprimer} className="ds-btn ds-btn-sm text-rose-500 hover:bg-rose-50" title="Supprimer la réunion">
+              <Trash2 size={13} />
+            </button>
+          )}
+          {!terminee ? (
+            <button onClick={handleFinish} disabled={update.isPending}
+              className="ds-btn-primary ds-btn-sm flex items-center gap-1.5">
+              <Check size={13} /> {update.isPending ? 'Sauvegarde…' : 'Terminer la réunion'}
+            </button>
+          ) : isAdmin ? (
+            <button onClick={() => setAdminUnlocked(v => !v)}
+              className={cn('ds-btn-sm flex items-center gap-1.5 rounded-lg border font-semibold transition-colors px-2.5 py-1.5',
+                adminUnlocked ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-card text-subtle border-border hover:text-navy')}
+              title={adminUnlocked ? 'Reverrouiller la réunion' : 'Déverrouiller pour modifier (admin)'}>
+              {adminUnlocked ? <Unlock size={13} /> : <Lock size={13} />}
+              {adminUnlocked ? 'Déverrouillée' : 'Terminée'}
+            </button>
+          ) : (
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-subtle bg-bg border border-border rounded-lg px-2.5 py-1.5">
+              <Lock size={13} /> Terminée
+            </span>
+          )}
         </div>
       </div>
 
@@ -155,6 +216,11 @@ export default function ReunionDetailPage() {
         </p>
       </div>
 
+      {/* Méta + sections : verrouillées en lecture seule une fois la réunion
+          terminée (sauf admin déverrouillé, cf. isLocked) — fieldset natif
+          plutôt qu'un disabled par champ (bloque effectivement tous les
+          inputs/selects/textareas/boutons imbriqués). */}
+      <fieldset disabled={isLocked} className={cn('border-0 p-0 m-0 min-w-0', isLocked && 'opacity-70')}>
       {/* Méta */}
       <div className="flex items-center gap-2.5 flex-wrap mb-5 print:hidden">
         <span className="text-xs text-subtle">
@@ -170,7 +236,7 @@ export default function ReunionDetailPage() {
         <div className="ds-sep" />
 
         {/* Visibilité */}
-        <button onClick={() => { setPrivee(v => !v); setDirty(true) }}
+        <button onClick={() => setPrivee(v => !v)}
           title={privee ? 'Réunion privée — visible par le créateur, les participants et les admins' : 'Réunion visible selon le produit lié (ou par tous si transverse)'}
           className={cn('flex items-center gap-1.5 text-xs font-semibold rounded-full px-2.5 py-1 border transition-all',
             privee ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-card text-subtle border-border hover:text-navy')}>
@@ -183,7 +249,7 @@ export default function ReunionDetailPage() {
           {participants.map(t => (
             <span key={t} className="flex items-center gap-1 text-xs font-semibold text-navy bg-card border border-border rounded-full px-2 py-0.5 group/part">
               {t}
-              <button onClick={() => { setParticipants(prev => prev.filter(x => x !== t)); setDirty(true) }}
+              <button onClick={() => setParticipants(prev => prev.filter(x => x !== t))}
                 className="text-subtle hover:text-rose-600"><X size={10} /></button>
             </span>
           ))}
@@ -192,7 +258,7 @@ export default function ReunionDetailPage() {
               onBlur={() => setAddingPart(false)}
               onChange={e => {
                 const t = e.target.value
-                if (t && !participants.includes(t)) { setParticipants(prev => [...prev, t]); setDirty(true) }
+                if (t && !participants.includes(t)) setParticipants(prev => [...prev, t])
                 setAddingPart(false)
               }}>
               <option value="">— Membre</option>
@@ -216,6 +282,29 @@ export default function ReunionDetailPage() {
       <div className="flex flex-col gap-4 max-w-4xl 3xl:max-w-6xl">
         {sections.map(key => {
           const def = SECTION_DEFS[key]
+
+          if (key === 'objectifs') {
+            return (
+              <SectionCard key={key} title={`${def.label} (${objectifs.filter(o => !o.checked).length} restants)`} icon={def.icon}>
+                <div className="flex flex-col gap-1.5">
+                  {objectifs.map(o => (
+                    <div key={o.id} className="flex items-center gap-2.5 group/obj">
+                      <button onClick={() => patch({ objectifs: objectifs.map(x => x.id === o.id ? { ...x, checked: !x.checked } : x) })}
+                        className={cn('w-4 h-4 rounded border shrink-0 flex items-center justify-center transition-colors',
+                          o.checked ? 'bg-emerald-50 border-emerald-300' : 'border-border hover:border-emerald-400')}>
+                        {o.checked && <Check size={10} className="text-emerald-600" />}
+                      </button>
+                      <span className={cn('flex-1 text-sm', o.checked ? 'line-through text-subtle/50' : 'text-navy')}>{o.texte}</span>
+                      <button onClick={() => patch({ objectifs: objectifs.filter(x => x.id !== o.id) })}
+                        className="max-md:opacity-100 opacity-0 group-hover/obj:opacity-100 text-subtle hover:text-rose-600 transition-all print:hidden"><X size={12} /></button>
+                    </div>
+                  ))}
+                  <AddLine placeholder="Nouvel objectif… (Entrée pour ajouter)"
+                    onAdd={t => patch({ objectifs: [...objectifs, { id: uid(), texte: t, checked: false } satisfies ObjectifItem] })} />
+                </div>
+              </SectionCard>
+            )
+          }
 
           if (key === 'notes' || key === 'jalons') {
             return (
@@ -304,6 +393,7 @@ export default function ReunionDetailPage() {
           )
         })}
       </div>
+      </fieldset>
     </Layout>
   )
 }

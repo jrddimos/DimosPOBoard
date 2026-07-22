@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { animate } from 'framer-motion'
 import { usePlanCharges } from '@/hooks/usePlanCharges'
 import { usePeriodesFermeture } from '@/hooks/usePeriodesFermeture'
-import { useAbsences } from '@/hooks/useAbsences'
+import { useAbsencesCapacite } from '@/hooks/useAbsences'
 import {
   useScorecardInitiatives, useScorecardIncrements,
   useCreateScorecardInitiative, useUpdateScorecardInitiative, useDeleteScorecardInitiative,
@@ -14,7 +14,7 @@ import { Modal } from '@/components/ui/Modal'
 import { getJoursFeries, joursOuvresSemaine } from '@/utils/joursFeries'
 import { getWeeksForYear } from '@/pages/plancharges/utils'
 import { getISOWeek } from '@/lib/utils'
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip, LineChart as RLineChart, Line, XAxis, YAxis, CartesianGrid, Legend } from 'recharts'
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip, LineChart as RLineChart, Line, XAxis, YAxis, CartesianGrid, Legend, ReferenceDot } from 'recharts'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { cn, effortEffectif, formatSprintLabel } from '@/lib/utils'
 import { scopedMetrics, getQuarterStart, getQuarterEnd } from '@/utils/produitMetrics'
@@ -25,7 +25,7 @@ import type { UserProfile } from '@/contexts/AuthContext'
 import {
   Grid3x3, TrendingUp, CalendarClock, Euro, ShieldAlert, User, PieChart as PieChartIcon, Package,
   BarChart3, Rows3, LineChart, Map as MapIcon, Users, Check, AlertTriangle, AlertOctagon, Info,
-  Plus, Trash2, Rocket, ChevronDown, ChevronRight, Pencil, Maximize2,
+  Plus, Trash2, Rocket, ChevronDown, ChevronRight, Pencil, Maximize2, Target, Gauge,
   type LucideIcon,
 } from 'lucide-react'
 import { SPRINTS_LIST } from '@/constants'
@@ -621,7 +621,7 @@ function ChargeEquipeWidget({ ctx }: { ctx: WidgetCtx }) {
   const cur  = getISOWeek(new Date()).semaine
   const { data: plan = [] }       = usePlanCharges(year)
   const { data: fermetures = [] } = usePeriodesFermeture(year)
-  const { data: absences = [] }   = useAbsences(year)
+  const { data: absences = [] }   = useAbsencesCapacite(year)
 
   const rows = useMemo(() => {
     const membres = ctx.membres.filter(m => m.actif && m.trigramme)
@@ -712,7 +712,7 @@ function initiativeWeekRange(init: ScorecardInitiative): number[] {
 // — connectNulls=false sur la ligne réalisé, cf. InitiativeSparkline, pour
 // ne pas relier au-delà de la dernière semaine réellement renseignée.
 // Même sens que actualPct/idealPct plus bas (% délivré vs % du temps
-// écoulé) : on démarre en haut à gauche (0) et on progresse vers le bas à
+// écoulé) : on démarre en bas à gauche (0) et on progresse vers le haut à
 // droite (objectif atteint à la deadline).
 function initiativeWeeks(init: ScorecardInitiative, incs: ScorecardIncrement[]) {
   const byWeek = new Map(incs.map(i => [i.semaine, i.valeur]))
@@ -727,49 +727,118 @@ function initiativeWeeks(init: ScorecardInitiative, incs: ScorecardIncrement[]) 
   })
 }
 
-// Courbe de progression compacte (sparkline) : pointillé gris = trajectoire
-// idéale (monte vers l'objectif), plein = cumul réellement livré.
-// layout="vertical" + semaine en catégorie sur l'axe Y (au lieu de l'axe X
-// numérique par défaut) : les semaines s'empilent de haut en bas dans
-// l'ordre chronologique. Axe X (valeur) standard, de 0 à l'objectif — la
-// ligne part donc en haut à gauche et progresse vers le bas à droite.
-function InitiativeSparkline({ weeks }: { weeks: { semaine: number; objectif: number; realise: number | null }[] }) {
-  if (weeks.length < 2) return null
-  const height = Math.max(140, weeks.length * 20)
+type WeekPoint = { semaine: number; objectif: number; realise: number | null }
+
+// Point de projection : si le cumul livré continue à la vélocité moyenne
+// observée jusqu'ici (dernier cumul connu / nombre de semaines écoulées
+// depuis le départ), où atterrit-on à la deadline ? `null` tant qu'aucune
+// semaine n'a de cumul saisi (rien à projeter).
+function projectAtCurrentVelocity(weeks: WeekPoint[]): { semaineDeadline: number; objectifFinal: number; projected: number | null } {
+  const semaineDepart   = weeks[0].semaine
+  const semaineDeadline = weeks[weeks.length - 1].semaine
+  const objectifFinal   = weeks[weeks.length - 1].objectif
+  const lastKnown = [...weeks].reverse().find(w => w.realise != null)
+  if (!lastKnown) return { semaineDeadline, objectifFinal, projected: null }
+  const elapsed  = Math.max(1, lastKnown.semaine - semaineDepart)
+  const velocity = (lastKnown.realise as number) / elapsed
+  const projected = Math.round(velocity * Math.max(1, semaineDeadline - semaineDepart))
+  return { semaineDeadline, objectifFinal, projected }
+}
+
+// Icône (lucide, un <svg> imbriqué dans le <svg> du graphe) + valeur affichée
+// en permanence à côté — utilisée en shape de ReferenceDot pour marquer
+// l'objectif final et sa projection. Un <title> seul (info-bulle au survol)
+// obligeait à viser très précisément l'icône, en particulier quand les deux
+// repères sont proches l'un de l'autre ; la valeur est donc TOUJOURS visible,
+// positionnée au-dessus (side="top") ou en dessous (side="bottom") de
+// l'icône pour que les deux étiquettes ne se chevauchent pas.
+function DotIcon({ cx, cy, icon: Icon, color, size, value, side }: {
+  cx?: number; cy?: number; icon: LucideIcon; color: string; size: number; value: number; side: 'top' | 'bottom'
+}) {
+  if (cx == null || cy == null) return null
+  const labelY = side === 'top' ? cy - size / 2 - 5 : cy + size / 2 + (size >= 16 ? 16 : 12)
   return (
-    <ResponsiveContainer width="100%" height={height}>
-      <RLineChart data={weeks} layout="vertical" margin={{ top: 4, right: 10, bottom: 0, left: 4 }}>
-        <XAxis type="number" tick={{ fontSize: 9, fill: '#94A3B8' }} axisLine={false} tickLine={false} allowDecimals={false} />
-        <YAxis type="category" dataKey="semaine" tickFormatter={w => `S${w}`} width={28}
-          tick={{ fontSize: 9, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
+    <g>
+      <g transform={`translate(${cx - size / 2}, ${cy - size / 2})`}>
+        <Icon width={size} height={size} color={color} strokeWidth={2.5} />
+      </g>
+      <text x={cx} y={labelY} textAnchor="middle" fontSize={size >= 16 ? 12 : 10} fontWeight={700} fill={color}>
+        {value}
+      </text>
+    </g>
+  )
+}
+
+// Courbe de progression compacte (sparkline) : pointillé gris = trajectoire
+// idéale (monte vers l'objectif), plein = cumul réellement livré. Semaine en
+// abscisse, croissante de gauche à droite (ordre chronologique) — valeur en
+// ordonnée (inversée : 0 en haut). Cible = objectif final ; jauge = ce que
+// donnerait la vélocité actuelle projetée jusqu'à la deadline.
+function InitiativeSparkline({ weeks }: { weeks: WeekPoint[] }) {
+  if (weeks.length < 2) return null
+  const { semaineDeadline, objectifFinal, projected } = projectAtCurrentVelocity(weeks)
+  return (
+    <ResponsiveContainer width="100%" height={540}>
+      <RLineChart data={weeks} margin={{ top: 24, right: 14, bottom: 20, left: 0 }}>
+        <XAxis type="category" dataKey="semaine" tickFormatter={w => `S${w}`}
+          tick={{ fontSize: 9, fill: '#94A3B8' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+        <YAxis type="number" reversed width={24} tick={{ fontSize: 9, fill: '#94A3B8' }} axisLine={false} tickLine={false} allowDecimals={false} />
         <Line type="monotone" dataKey="objectif" stroke="#CBD5E1" strokeWidth={1.5} strokeDasharray="2 2" dot={false} connectNulls isAnimationActive={false} />
         <Line type="monotone" dataKey="realise" stroke="#6366F1" strokeWidth={2} dot={{ r: 2.5, fill: '#6366F1' }} connectNulls={false} isAnimationActive={false} />
+        <ReferenceDot x={semaineDeadline} y={objectifFinal} r={0} ifOverflow="extendDomain"
+          shape={props => <DotIcon {...props} icon={Target} color="#4A4CC8" size={12} value={objectifFinal} side="top" />} />
+        {projected != null && (
+          <ReferenceDot x={semaineDeadline} y={projected} r={0} ifOverflow="extendDomain"
+            shape={props => <DotIcon {...props} icon={Gauge} color="#F59E0B" size={12} value={projected} side="bottom" />} />
+        )}
       </RLineChart>
     </ResponsiveContainer>
   )
 }
 
-// Version agrandie (modal, cf. ScorecardWidget) : mêmes séries et même
-// orientation verticale que InitiativeSparkline, avec axes plus lisibles,
-// tooltip au survol et légende.
-function InitiativeProgressDetail({ weeks }: { weeks: { semaine: number; objectif: number; realise: number | null }[] }) {
-  const height = Math.max(400, weeks.length * 32)
+// Version agrandie (modal, cf. ScorecardWidget) : mêmes séries, même
+// orientation et mêmes repères (cible/projection) que InitiativeSparkline,
+// avec axes plus lisibles, tooltip au survol et légende.
+function InitiativeProgressDetail({ weeks }: { weeks: WeekPoint[] }) {
+  const { semaineDeadline, objectifFinal, projected } = projectAtCurrentVelocity(weeks)
   return (
-    <ResponsiveContainer width="100%" height={height}>
-      <RLineChart data={weeks} layout="vertical" margin={{ top: 8, right: 24, bottom: 4, left: 4 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-        <XAxis type="number" tick={{ fontSize: 12, fill: '#64748B' }} axisLine={false} tickLine={false} allowDecimals={false} />
-        <YAxis type="category" dataKey="semaine" tickFormatter={w => `S${w}`} width={40}
-          tick={{ fontSize: 12, fill: '#64748B' }} axisLine={false} tickLine={false} />
-        <RTooltip labelFormatter={w => `Semaine ${w}`}
-          formatter={(v: unknown, name: unknown) => [v as number, name === 'objectif' ? 'Trajectoire idéale' : 'Cumul livré']} />
-        <Legend formatter={(v: string) => v === 'objectif' ? 'Trajectoire idéale' : 'Cumul livré'} wrapperStyle={{ fontSize: 12 }} />
-        <Line type="monotone" dataKey="objectif" name="objectif" stroke="#CBD5E1" strokeWidth={2} strokeDasharray="4 4" dot={false} connectNulls isAnimationActive={false} />
-        <Line type="monotone" dataKey="realise" name="realise" stroke="#6366F1" strokeWidth={3} dot={{ r: 4, fill: '#6366F1' }} connectNulls={false} isAnimationActive={false} />
-      </RLineChart>
-    </ResponsiveContainer>
+    // Hauteur bornée par la résolution de l'écran (60% de la hauteur visible,
+    // entre 320 et 640px) plutôt qu'une valeur fixe : sur les petits écrans,
+    // un graphe trop haut forçait un scroll dans la modale (déjà limitée à
+    // 90vh) en plus de son propre scroll interne.
+    <div style={{ height: 'clamp(320px, 60vh, 640px)' }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <RLineChart data={weeks} margin={{ top: 30, right: 28, bottom: 24, left: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+          <XAxis type="category" dataKey="semaine" tickFormatter={w => `S${w}`}
+            tick={{ fontSize: 12, fill: '#64748B' }} axisLine={false} tickLine={false} />
+          <YAxis type="number" reversed tick={{ fontSize: 12, fill: '#64748B' }} axisLine={false} tickLine={false} allowDecimals={false} />
+          <RTooltip labelFormatter={w => `Semaine ${w}`}
+            formatter={(v: unknown, name: unknown) => [v as number, name === 'objectif' ? 'Trajectoire idéale' : 'Cumul livré']} />
+          <Legend formatter={(v: string) => v === 'objectif' ? 'Trajectoire idéale' : 'Cumul livré'} wrapperStyle={{ fontSize: 12 }} />
+          <Line type="monotone" dataKey="objectif" name="objectif" stroke="#CBD5E1" strokeWidth={2} strokeDasharray="4 4" dot={false} connectNulls isAnimationActive={false} />
+          <Line type="monotone" dataKey="realise" name="realise" stroke="#6366F1" strokeWidth={3} dot={{ r: 4, fill: '#6366F1' }} connectNulls={false} isAnimationActive={false} />
+          <ReferenceDot x={semaineDeadline} y={objectifFinal} r={0} ifOverflow="extendDomain"
+            shape={props => <DotIcon {...props} icon={Target} color="#4A4CC8" size={18} value={objectifFinal} side="top" />} />
+          {projected != null && (
+            <ReferenceDot x={semaineDeadline} y={projected} r={0} ifOverflow="extendDomain"
+              shape={props => <DotIcon {...props} icon={Gauge} color="#F59E0B" size={18} value={projected} side="bottom" />} />
+          )}
+        </RLineChart>
+      </ResponsiveContainer>
+    </div>
   )
 }
+
+// Taille de carte par initiative — alternative légère à un panel de grille
+// par initiative (qui demanderait de synchroniser la grille à chaque
+// création/suppression d'initiative) : ici on fait varier le col-span à
+// l'intérieur du seul panel Scorecard, cf. grid-cols-1 md:grid-cols-2
+// xl:grid-cols-3 plus bas.
+type CardSize = 'sm' | 'md' | 'lg'
+const CARD_SIZE_CYCLE: Record<CardSize, CardSize> = { sm: 'md', md: 'lg', lg: 'sm' }
+const CARD_SIZE_LABEL: Record<CardSize, string> = { sm: 'S', md: 'M', lg: 'L' }
+const CARD_SIZE_CLASS: Record<CardSize, string> = { sm: '', md: 'md:col-span-2', lg: 'md:col-span-2 xl:col-span-3' }
 
 // ── Scorecard portefeuille : incréments livrés par initiative transverse
 // (hors produits D3X — remplace le suivi tenu à la main dans Excel).
@@ -801,6 +870,17 @@ function ScorecardWidget() {
   const [cellDrafts, setCellDrafts] = useState<Record<string, string>>({})
   // Graphique agrandi dans une modale au clic sur la sparkline.
   const [zoomedId, setZoomedId] = useState<number | null>(null)
+  // Largeur de carte par initiative (S/M/L, cf. col-span) — préférence
+  // d'affichage locale au navigateur, pas une donnée d'équipe : pas besoin
+  // de colonne DB ni de sync, cf. localStorage('cockpit-tab') déjà utilisé
+  // pour l'onglet actif du cockpit.
+  const [cardSizes, setCardSizes] = useState<Record<number, CardSize>>(() => {
+    try { return JSON.parse(localStorage.getItem('scorecard-card-sizes') ?? '{}') } catch { return {} }
+  })
+  useEffect(() => { localStorage.setItem('scorecard-card-sizes', JSON.stringify(cardSizes)) }, [cardSizes])
+  function cycleCardSize(id: number) {
+    setCardSizes(prev => ({ ...prev, [id]: CARD_SIZE_CYCLE[prev[id] ?? 'sm'] }))
+  }
 
   function incsFor(id: number) {
     return increments.filter(i => i.initiative_id === id).sort((a, b) => a.semaine - b.semaine)
@@ -886,6 +966,97 @@ function ScorecardWidget() {
     await applyField(initId, semaine, 'statut', value === '' ? null : value, row)
   }
 
+  // Grille de saisie hebdo (cumul livré + objectif qualitatif/statut) —
+  // partagée entre la carte d'initiative repliable et la modale zoom, qui
+  // veut pouvoir saisir sans revenir à la carte. Fonction simple (pas un
+  // composant séparé) : elle ne fait que lire/appeler les closures ci-dessus,
+  // aucun hook à isoler dans un fiber dédié.
+  function renderWeeklyTables(init: ScorecardInitiative, incs: ScorecardIncrement[]) {
+    const byWeek = new Map(incs.map(i => [i.semaine, i] as const))
+    return (
+      <div className="flex flex-col gap-2">
+        {/* Cumul livré — une colonne par semaine, façon tableur */}
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="border-collapse text-[11px] w-full">
+            <thead>
+              <tr>
+                <th className="border-b border-r border-border px-1.5 py-1 text-left font-semibold text-subtle bg-bg whitespace-nowrap">Cumul livré</th>
+                {initiativeWeekRange(init).map(w => (
+                  <th key={w} className={cn('border-b border-r border-border last:border-r-0 px-0.5 py-1 font-semibold whitespace-nowrap',
+                    w === curWeek ? 'bg-indigo-50 text-indigo-700' : 'bg-bg text-subtle')}>
+                    S{w}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="border-r border-border px-1.5 py-1 text-subtle whitespace-nowrap">valeur</td>
+                {initiativeWeekRange(init).map(w => {
+                  const row = byWeek.get(w)
+                  const key = cellKey('valeur', init.id, w)
+                  const value = cellDrafts[key] ?? (row?.valeur != null ? String(row.valeur) : '')
+                  return (
+                    <td key={w} className="border-r border-border last:border-r-0 p-0">
+                      <input type="number" value={value} title={`Cumul livré — semaine ${w}`}
+                        onChange={e => setCellDrafts(p => ({ ...p, [key]: e.target.value }))}
+                        onBlur={() => commitCell(init.id, w, 'valeur', row)}
+                        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                        className="w-11 text-center py-1 text-[11px] bg-transparent outline-none focus:bg-indigo-50" />
+                    </td>
+                  )
+                })}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        {/* Objectif hebdo qualitatif + statut atteint/non atteint —
+            une ligne par semaine, plus lisible qu'en colonnes pour
+            du texte libre. */}
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="border-collapse text-[11px] w-full">
+            <thead>
+              <tr>
+                <th className="border-b border-r border-border px-1.5 py-1 text-left font-semibold text-subtle bg-bg w-12">N° S</th>
+                <th className="border-b border-r border-border px-1.5 py-1 text-left font-semibold text-subtle bg-bg">Objectif</th>
+                <th className="border-b border-border px-1.5 py-1 text-left font-semibold text-subtle bg-bg w-16">OK/KO</th>
+              </tr>
+            </thead>
+            <tbody>
+              {initiativeWeekRange(init).map(w => {
+                const row = byWeek.get(w)
+                const texteKey = cellKey('objectif_texte', init.id, w)
+                const texteValue = cellDrafts[texteKey] ?? (row?.objectif_texte ?? '')
+                return (
+                  <tr key={w} className={w === curWeek ? 'bg-indigo-50/40' : undefined}>
+                    <td className={cn('border-r border-t border-border px-1.5 py-0.5 font-semibold whitespace-nowrap', w === curWeek ? 'text-indigo-700' : 'text-subtle')}>S{w}</td>
+                    <td className="border-r border-t border-border p-0">
+                      <input type="text" value={texteValue} placeholder="—" title={`Objectif — semaine ${w}`}
+                        onChange={e => setCellDrafts(p => ({ ...p, [texteKey]: e.target.value }))}
+                        onBlur={() => commitCell(init.id, w, 'objectif_texte', row)}
+                        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                        className="w-full px-1.5 py-0.5 text-[11px] bg-transparent outline-none focus:bg-indigo-50" />
+                    </td>
+                    <td className="border-t border-border p-0.5">
+                      <select value={row?.statut ?? ''} title={`Statut — semaine ${w}`}
+                        onChange={e => setStatut(init.id, w, e.target.value as '' | ScorecardStatut, row)}
+                        className={cn('w-full text-[11px] font-semibold rounded-md py-0.5 outline-none border-0 bg-transparent',
+                          row?.statut === 'OK' ? 'text-emerald-600' : row?.statut === 'KO' ? 'text-rose-600' : 'text-subtle/50')}>
+                        <option value="">—</option>
+                        <option value="OK">OK</option>
+                        <option value="KO">KO</option>
+                      </select>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
+
   if (isLoading) return <EmptyHint>Chargement…</EmptyHint>
 
   const zoomedInit = initiatives.find(i => i.id === zoomedId) ?? null
@@ -906,10 +1077,10 @@ function ScorecardWidget() {
         const actualPct = init.objectif_increments > 0 ? actual / init.objectif_increments * 100 : 0
         const ahead  = actualPct >= idealPct
         const behind = actualPct < idealPct - 5
-        const byWeek = new Map(incs.map(i => [i.semaine, i] as const))
         const isExpanded = expanded.has(init.id)
+        const cardSize = cardSizes[init.id] ?? 'sm'
         return (
-          <div key={init.id} className="border border-border rounded-xl p-2.5">
+          <div key={init.id} className={cn('border border-border rounded-xl p-2.5', CARD_SIZE_CLASS[cardSize])}>
             {editingId === init.id ? (
               <div className="flex flex-col gap-1.5">
                 <input autoFocus value={editForm.nom} placeholder="Nom de l'initiative"
@@ -935,6 +1106,10 @@ function ScorecardWidget() {
               <>
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <span className="text-xs font-bold text-navy truncate flex-1">{init.nom}</span>
+                  <button onClick={() => cycleCardSize(init.id)} title="Taille de la carte (S/M/L)"
+                    className="shrink-0 w-4 h-4 flex items-center justify-center rounded text-[9px] font-bold text-subtle/50 hover:text-indigo-600 hover:bg-indigo-50 transition-colors">
+                    {CARD_SIZE_LABEL[cardSize]}
+                  </button>
                   <button onClick={() => startEdit(init)}
                     className="shrink-0 p-0.5 rounded text-subtle/50 hover:text-indigo-600 hover:bg-indigo-50 transition-colors">
                     <Pencil size={11} />
@@ -970,85 +1145,8 @@ function ScorecardWidget() {
                   Saisir le détail hebdo
                 </button>
                 {isExpanded && (
-                  <div className="mt-1.5 flex flex-col gap-2">
-                    {/* Cumul livré — une colonne par semaine, façon tableur */}
-                    <div className="overflow-x-auto rounded-lg border border-border">
-                      <table className="border-collapse text-[11px] w-full">
-                        <thead>
-                          <tr>
-                            <th className="border-b border-r border-border px-1.5 py-1 text-left font-semibold text-subtle bg-bg whitespace-nowrap">Cumul livré</th>
-                            {initiativeWeekRange(init).map(w => (
-                              <th key={w} className={cn('border-b border-r border-border last:border-r-0 px-0.5 py-1 font-semibold whitespace-nowrap',
-                                w === curWeek ? 'bg-indigo-50 text-indigo-700' : 'bg-bg text-subtle')}>
-                                S{w}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            <td className="border-r border-border px-1.5 py-1 text-subtle whitespace-nowrap">valeur</td>
-                            {initiativeWeekRange(init).map(w => {
-                              const row = byWeek.get(w)
-                              const key = cellKey('valeur', init.id, w)
-                              const value = cellDrafts[key] ?? (row?.valeur != null ? String(row.valeur) : '')
-                              return (
-                                <td key={w} className="border-r border-border last:border-r-0 p-0">
-                                  <input type="number" value={value} title={`Cumul livré — semaine ${w}`}
-                                    onChange={e => setCellDrafts(p => ({ ...p, [key]: e.target.value }))}
-                                    onBlur={() => commitCell(init.id, w, 'valeur', row)}
-                                    onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                                    className="w-11 text-center py-1 text-[11px] bg-transparent outline-none focus:bg-indigo-50" />
-                                </td>
-                              )
-                            })}
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                    {/* Objectif hebdo qualitatif + statut atteint/non atteint —
-                        une ligne par semaine, plus lisible qu'en colonnes pour
-                        du texte libre. */}
-                    <div className="overflow-x-auto rounded-lg border border-border">
-                      <table className="border-collapse text-[11px] w-full">
-                        <thead>
-                          <tr>
-                            <th className="border-b border-r border-border px-1.5 py-1 text-left font-semibold text-subtle bg-bg w-12">N° S</th>
-                            <th className="border-b border-r border-border px-1.5 py-1 text-left font-semibold text-subtle bg-bg">Objectif</th>
-                            <th className="border-b border-border px-1.5 py-1 text-left font-semibold text-subtle bg-bg w-16">OK/KO</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {initiativeWeekRange(init).map(w => {
-                            const row = byWeek.get(w)
-                            const texteKey = cellKey('objectif_texte', init.id, w)
-                            const texteValue = cellDrafts[texteKey] ?? (row?.objectif_texte ?? '')
-                            return (
-                              <tr key={w} className={w === curWeek ? 'bg-indigo-50/40' : undefined}>
-                                <td className={cn('border-r border-t border-border px-1.5 py-0.5 font-semibold whitespace-nowrap', w === curWeek ? 'text-indigo-700' : 'text-subtle')}>S{w}</td>
-                                <td className="border-r border-t border-border p-0">
-                                  <input type="text" value={texteValue} placeholder="—" title={`Objectif — semaine ${w}`}
-                                    onChange={e => setCellDrafts(p => ({ ...p, [texteKey]: e.target.value }))}
-                                    onBlur={() => commitCell(init.id, w, 'objectif_texte', row)}
-                                    onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                                    className="w-full px-1.5 py-0.5 text-[11px] bg-transparent outline-none focus:bg-indigo-50" />
-                                </td>
-                                <td className="border-t border-border p-0.5">
-                                  <select value={row?.statut ?? ''} title={`Statut — semaine ${w}`}
-                                    onChange={e => setStatut(init.id, w, e.target.value as '' | ScorecardStatut, row)}
-                                    className={cn('w-full text-[11px] font-semibold rounded-md py-0.5 outline-none border-0 bg-transparent',
-                                      row?.statut === 'OK' ? 'text-emerald-600' : row?.statut === 'KO' ? 'text-rose-600' : 'text-subtle/50')}>
-                                    <option value="">—</option>
-                                    <option value="OK">OK</option>
-                                    <option value="KO">KO</option>
-                                  </select>
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+                  <div className="mt-1.5">
+                    {renderWeeklyTables(init, incs)}
                   </div>
                 )}
               </>
@@ -1094,6 +1192,12 @@ function ScorecardWidget() {
             </span>
           </div>
           <InitiativeProgressDetail weeks={initiativeWeeks(zoomedInit, incsFor(zoomedInit.id))} />
+          <button onClick={() => toggleExpanded(zoomedInit.id)}
+            className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700 mt-4 mb-1.5">
+            {expanded.has(zoomedInit.id) ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            Saisir le détail hebdo
+          </button>
+          {expanded.has(zoomedInit.id) && renderWeeklyTables(zoomedInit, incsFor(zoomedInit.id))}
         </Modal>
       )}
     </div>
@@ -1115,7 +1219,7 @@ export const WIDGETS: WidgetDef[] = [
   { key: 'chart_statuts',    label: 'Graphe statuts',     description: 'Répartition des statuts par produit',          icon: <Rows3 size={13} />,         defaultSize: { w: 6, h: 6 }, minW: 4, minH: 4, render: ctx => <PortfolioStatutsChart produits={ctx.produits} allTaches={ctx.allTaches} /> },
   { key: 'chart_tendance',   label: 'Tendance trimestrielle', description: 'Avancement et budgets par trimestre',      icon: <LineChart size={13} />,     defaultSize: { w: 12, h: 6 }, minW: 6, minH: 4, render: ctx => <PortfolioTendanceChart produits={ctx.produits} /> },
   { key: 'charge',      label: 'Charge équipe',        description: 'Allocation vs capacité sur 4 semaines',         icon: <Users size={13} />,         defaultSize: { w: 4, h: 5 }, minW: 3, minH: 3, render: ctx => <ChargeEquipeWidget ctx={ctx} /> },
-  { key: 'scorecard',   label: 'Scorecard incréments', description: 'Incréments livrés par initiative vs objectif',  icon: <Rocket size={13} />,        defaultSize: { w: 12, h: 12 }, minW: 6, minH: 6, render: ScorecardWidget },
+  { key: 'scorecard',   label: 'ROCKS',                description: 'Incréments livrés par initiative vs objectif',  icon: <Rocket size={13} />,        defaultSize: { w: 12, h: 12 }, minW: 6, minH: 6, render: ScorecardWidget },
 ]
 
 export const WIDGET_BY_KEY = new Map(WIDGETS.map(w => [w.key, w]))

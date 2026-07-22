@@ -745,7 +745,8 @@ export default function SprintBoardPage() {
             s'affiche mais reste grisé/non cliquable. */}
         {panelId && (
           <TacheDetailPanel tacheId={panelId} onClose={() => setPanelId(null)}
-            editableFields={SPRINT_BOARD_EDITABLE_FIELDS} centered />
+            editableFields={SPRINT_BOARD_EDITABLE_FIELDS} centered
+            onRequestStatusChange={changeStatut} />
         )}
       </div>
 

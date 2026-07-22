@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { createElement, useEffect, useMemo, useRef, useState } from 'react'
 import { GridLayout, useContainerWidth, type Layout, type LayoutItem } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import { motion } from 'framer-motion'
@@ -264,8 +264,17 @@ export default function CockpitView(props: CockpitViewProps) {
   const activeBuiltin = BUILTIN_TABS.find(b => b.id === activeTab) ?? null
   const baseLayout: ViewLayoutItem[] = activeView ? activeView.layout : (activeBuiltin ?? BUILTIN_TABS[0]).layout
 
-  const [editing, setEditing] = useState(false)
-  const [layout, setLayout]   = useState<ViewLayoutItem[]>(baseLayout)
+  const [editing, setEditing]       = useState(false)
+  // Layout local à l'édition en cours (drag/resize/ajout de widget) — tant
+  // qu'on n'édite pas, l'affichage suit directement baseLayout (recalculé à
+  // chaque rendu depuis activeTab) : aucun état à resynchroniser au clic sur
+  // un onglet, donc pas de rendu transitoire avec l'ancien jeu de widgets.
+  // Un tel décalage a provoqué un crash ("Rendered more hooks than during
+  // the previous render") quand le layout resynchronisait un rendu trop
+  // tard : le nouveau composant de widget (ex. ScorecardWidget, avec ses
+  // propres hooks) héritait alors du fiber de l'ancien.
+  const [editLayout, setEditLayout] = useState<ViewLayoutItem[] | null>(null)
+  const layout = editing && editLayout ? editLayout : baseLayout
   const [naming, setNaming]   = useState(false)
   const [newName, setNewName] = useState('')
   // Renommage inline d'une vue perso (double-clic ou icône crayon sur son
@@ -287,8 +296,15 @@ export default function CockpitView(props: CockpitViewProps) {
     }
   }
 
-  // Resynchronise quand on change d'onglet ou que la vue arrive de la DB
-  useEffect(() => { setLayout(baseLayout); setEditing(false) }, [activeTab, activeView?.id])  // eslint-disable-line react-hooks/exhaustive-deps
+  // Changer d'onglet sort du mode édition et jette le brouillon local — pas
+  // un useEffect sur activeTab : ça entrerait en conflit avec startEditing/
+  // createNewView, qui changent aussi activeTab mais veulent au contraire
+  // ENTRER en édition dans la foulée.
+  function switchTab(id: string) {
+    setActiveTab(id)
+    setEditing(false)
+    setEditLayout(null)
+  }
 
   const monMembre = membres.find(m => m.user_id === user?.id)
   const ctx: WidgetCtx = useMemo(() => ({
@@ -317,20 +333,21 @@ export default function CockpitView(props: CockpitViewProps) {
   function addWidget(key: string) {
     const def = WIDGET_BY_KEY.get(key); if (!def) return
     const maxY = layout.reduce((m, l) => Math.max(m, l.y + l.h), 0)
-    setLayout(prev => [...prev, { i: key, x: 0, y: maxY, w: def.defaultSize.w, h: def.defaultSize.h }])
+    setEditLayout([...layout, { i: key, x: 0, y: maxY, w: def.defaultSize.w, h: def.defaultSize.h }])
   }
 
   function removeWidget(key: string) {
-    setLayout(prev => prev.filter(l => l.i !== key))
+    setEditLayout(layout.filter(l => l.i !== key))
   }
 
   async function startEditing() {
-    if (activeView) { setEditing(true); return }
+    if (activeView) { setEditLayout(activeView.layout); setEditing(true); return }
     // Les onglets par défaut (Standard, FL3) ne sont pas modifiables
     // directement : on crée une copie perso, graine sur la disposition active.
     if (!user) return
     const v = await createView.mutateAsync({ user_id: user.id, nom: 'Ma vue', layout: (activeBuiltin ?? BUILTIN_TABS[0]).layout, contexte: 'portefeuille' as const })
     setActiveTab(String(v.id))
+    setEditLayout(v.layout)
     setEditing(true)
     toast('Vue "Ma vue" créée — personnalise-la puis sauvegarde')
   }
@@ -339,6 +356,7 @@ export default function CockpitView(props: CockpitViewProps) {
     if (!activeView) return
     await updateView.mutateAsync({ id: activeView.id, updates: { layout } })
     setEditing(false)
+    setEditLayout(null)
     toast('Vue sauvegardée')
   }
 
@@ -347,6 +365,7 @@ export default function CockpitView(props: CockpitViewProps) {
     const v = await createView.mutateAsync({ user_id: user.id, nom: newName.trim(), layout: (activeBuiltin ?? BUILTIN_TABS[0]).layout, contexte: 'portefeuille' as const })
     setNaming(false); setNewName('')
     setActiveTab(String(v.id))
+    setEditLayout(v.layout)
     setEditing(true)
   }
 
@@ -355,7 +374,7 @@ export default function CockpitView(props: CockpitViewProps) {
     const ok = await confirm({ title: `Supprimer la vue "${activeView.nom}" ?`, message: 'Sa disposition sera perdue.', confirmLabel: 'Supprimer', variant: 'danger' })
     if (!ok) return
     await deleteView.mutateAsync({ id: activeView.id, user_id: user.id })
-    setActiveTab('std')
+    switchTab('std')
   }
 
   const rglLayout: Layout = layout.map(l => {
@@ -370,7 +389,7 @@ export default function CockpitView(props: CockpitViewProps) {
           onglets cockpit) d'avant, qui dupliquaient la hiérarchie visuelle. */}
       <div className="flex items-center gap-1.5 mb-4 flex-wrap">
         {BUILTIN_TABS.map(b => (
-          <button key={b.id} onClick={() => setActiveTab(b.id)}
+          <button key={b.id} onClick={() => switchTab(b.id)}
             className={cn('text-xs font-semibold px-3 py-1.5 rounded-lg transition-all',
               activeTab === b.id ? 'bg-brand text-white' : 'bg-card border border-border text-subtle hover:text-navy')}>
             {b.label}
@@ -383,7 +402,7 @@ export default function CockpitView(props: CockpitViewProps) {
               onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setRenamingId(null) }}
               className="ds-input !py-1 !px-2 text-xs w-32" />
           ) : (
-            <button key={v.id} onClick={() => setActiveTab(String(v.id))} onDoubleClick={() => startRename(v)}
+            <button key={v.id} onClick={() => switchTab(String(v.id))} onDoubleClick={() => startRename(v)}
               title="Double-clic pour renommer"
               className={cn('group flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all',
                 activeTab === String(v.id) ? 'bg-indigo-500 text-white' : 'bg-card border border-border text-subtle hover:text-navy')}>
@@ -436,7 +455,7 @@ export default function CockpitView(props: CockpitViewProps) {
                 <button onClick={removeView} title="Supprimer cette vue"
                   className="ds-btn ds-btn-sm text-rose-500 hover:bg-rose-50"><Trash2 size={12} /></button>
               )}
-              <button onClick={() => { setLayout(baseLayout); setEditing(false) }} className="ds-btn ds-btn-sm">Annuler</button>
+              <button onClick={() => { setEditLayout(null); setEditing(false) }} className="ds-btn ds-btn-sm">Annuler</button>
               <button onClick={saveEditing} disabled={updateView.isPending}
                 className="ds-btn-primary ds-btn-sm flex items-center gap-1.5"><Check size={12} /> Terminer</button>
             </>
@@ -487,7 +506,7 @@ export default function CockpitView(props: CockpitViewProps) {
             gridConfig={{ cols: 12, rowHeight: 56, margin: [12, 12], containerPadding: [0, 0] }}
             dragConfig={{ enabled: editing, handle: '.widget-drag' }}
             resizeConfig={{ enabled: editing }}
-            onLayoutChange={l => setLayout(sanitize(l))}
+            onLayoutChange={l => setEditLayout(sanitize(l))}
           >
             {layout.map(item => {
               const def = WIDGET_BY_KEY.get(item.i)
@@ -515,7 +534,16 @@ export default function CockpitView(props: CockpitViewProps) {
                       )}
                     </div>
                     <div className="flex-1 min-h-0 overflow-y-auto px-3.5 pb-3">
-                      {def.render(ctx)}
+                      {/* createElement, pas def.render(ctx) : plusieurs widgets (ex.
+                          ScorecardWidget) utilisent leurs propres hooks. Appelés comme
+                          une fonction JS ordinaire, ces hooks étaient attribués au fiber
+                          de CockpitView lui-même — un changement du jeu de widgets
+                          affichés (ex. Standard → FL3) faisait alors varier le nombre de
+                          hooks de CockpitView d'un rendu à l'autre et provoquait un
+                          crash React ("Rendered more hooks than during the previous
+                          render"). createElement fait de chaque widget un vrai élément
+                          React, avec son propre fiber isolé. */}
+                      {createElement(def.render, ctx)}
                     </div>
                   </div>
                 </div>

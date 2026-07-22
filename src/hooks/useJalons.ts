@@ -46,28 +46,78 @@ export function useJalonsByProduit(produitId: number | null) {
   })
 }
 
+// Le numéro ("I1", "I2"…) n'est plus saisi à la main : toujours le rang
+// suivant, à la suite des Jalons existants — même principe que les Epics
+// (cf. useCreateEpic) — cf. useReorderJalons pour le seul autre moyen de le
+// faire changer (glisser-déposer).
 export function useCreateJalon() {
   const qc = useQueryClient()
   const { produitActif } = useProduit()
   return useMutation({
-    mutationFn: async ({ code, nom, description, couleur }: { code: string; nom: string; description: string; couleur: string }) => {
+    mutationFn: async ({ nom, description, couleur }: { nom: string; description: string; couleur: string }) => {
       if (!produitActif) throw new Error('Aucun produit sélectionné')
-      const { error } = await supabase.from('jalons').insert({ produit_id: produitActif.id, code, nom, description, couleur })
+      const { data: existing, error: fetchError } = await supabase.from('jalons').select('id').eq('produit_id', produitActif.id)
+      if (fetchError) throw fetchError
+      const rang = (existing ?? []).length + 1
+      const code = `I${rang}`
+      const { error } = await supabase.from('jalons').insert({ produit_id: produitActif.id, code, nom, description, couleur, ordre: rang * 10 })
       if (error) throw error
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jalons', produitActif?.id] }),
   })
 }
 
+// Nom/description/couleur seulement : `code`/`ordre` ne sont plus
+// modifiables ici (auto-générés à la création, recalculés en bloc par
+// useReorderJalons) — évite qu'un futur appel désynchronise le numéro
+// affiché de la position, même principe que useUpdateEpic.
 export function useUpdateJalon() {
   const qc = useQueryClient()
   const { produitActif } = useProduit()
   return useMutation({
-    mutationFn: async ({ id, updates }: { id: number; updates: Partial<Pick<Jalon, 'code' | 'nom' | 'description' | 'couleur' | 'ordre'>> }) => {
+    mutationFn: async ({ id, updates }: { id: number; updates: Partial<Pick<Jalon, 'nom' | 'description' | 'couleur'>> }) => {
       const { error } = await supabase.from('jalons').update(updates).eq('id', id)
       if (error) throw error
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jalons', produitActif?.id] }),
+  })
+}
+
+// Glisser-déposer dans Setup > Jalons : recalcule `ordre` ET `code`
+// ("I1", "I2"…) pour CHAQUE Jalon selon sa nouvelle position — pas
+// seulement celui déplacé, puisqu'en décaler un décale tous les suivants.
+// Cascade le changement sur `taches.jalon` (stocké tel quel, contrairement
+// à Epic) pour chaque Jalon dont le code change réellement, scopé au
+// produit — même principe que useReorderEpics.
+export function useReorderJalons() {
+  const qc = useQueryClient()
+  const { produitActif } = useProduit()
+  return useMutation({
+    mutationFn: async (orderedIds: number[]) => {
+      if (!produitActif) throw new Error('Aucun produit sélectionné')
+      const { data: current, error: fetchError } = await supabase.from('jalons').select('*').eq('produit_id', produitActif.id)
+      if (fetchError) throw fetchError
+      const byId = new Map((current ?? []).map(j => [j.id, j as Jalon]))
+
+      for (let i = 0; i < orderedIds.length; i++) {
+        const jalon = byId.get(orderedIds[i])
+        if (!jalon) continue
+        const newCode  = `I${i + 1}`
+        const newOrdre = (i + 1) * 10
+        if (jalon.code === newCode && jalon.ordre === newOrdre) continue
+
+        const oldCode = jalon.code
+        const { error } = await supabase.from('jalons').update({ code: newCode, ordre: newOrdre }).eq('id', jalon.id)
+        if (error) throw error
+        if (oldCode !== newCode) {
+          await supabase.from('taches').update({ jalon: newCode }).eq('jalon', oldCode).eq('produit_id', produitActif.id)
+        }
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['jalons', produitActif?.id] })
+      qc.invalidateQueries({ queryKey: ['taches'] })
+    },
   })
 }
 

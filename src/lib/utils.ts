@@ -221,6 +221,21 @@ export function downloadCSV(data: Record<string, unknown>[], filename: string, h
   URL.revokeObjectURL(url)
 }
 
+// Export RGPD ("mes donn\u00E9es") \u2014 m\u00EAme m\u00E9canique que downloadCSV mais pour un
+// objet JSON arbitraire (structure imbriqu\u00E9e par table, pas une grille).
+export function downloadJSON(data: unknown, filename: string) {
+  const json = JSON.stringify(data, null, 2)
+  const blob = new Blob([json], { type: 'application/json;charset=utf-8;' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href = url
+  a.download = `${filename}_${new Date().toISOString().slice(0, 10)}.json`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
 // ── Semaine ISO (partagé Réunion PO / hub Réunions) ───────────────
 export function getISOWeek(date: Date): { semaine: number; annee: number } {
   const d = new Date(date)

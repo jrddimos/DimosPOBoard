@@ -6,6 +6,7 @@ import { useProduit } from '@/contexts/ProduitContext'
 import { useProduits, useUploadDiscussionBg, useUpdateDiscussionBgOpacity } from '@/hooks/useProduits'
 import type { ActionLop } from '@/hooks/useProduits'
 import { useUploadAvatar, useUpdateProfile } from '@/hooks/useUserManagement'
+import { useExportMyData } from '@/hooks/useExportMyData'
 import { useQuickNotes, useCreateQuickNote, useToggleQuickNote, useDeleteQuickNote, useMigrateLegacyQuickNotes } from '@/hooks/useQuickNotes'
 import { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead, useDeleteNotification } from '@/hooks/useNotifications'
 import { useSuggestions, useCreateSuggestion, useUpdateSuggestion, useUpdateSuggestionStatut } from '@/hooks/useSuggestions'
@@ -26,7 +27,7 @@ import {
   Package, CalendarClock, BarChart3, Camera, TrendingUp,
   StickyNote, Plus, Check, ArrowRight, ChevronRight, ChevronLeft, Sun, Moon, Layers, Bell, Search, Square, Timer,
   SlidersHorizontal, MessageCircle, Send, Lightbulb, ThumbsUp, ThumbsDown, Archive, Milestone,
-  Pencil, ArrowUpDown,
+  Pencil, ArrowUpDown, Download,
 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
@@ -988,6 +989,7 @@ function ProfileFooter({ t, onThemeChange, collapsed }: { t: SidebarTheme; onThe
   const { user, profile, isAdmin, refreshProfile } = useAuth()
   const uploadAvatar  = useUploadAvatar()
   const updateProfile = useUpdateProfile()
+  const { exportMyData, isPending: exportPending } = useExportMyData()
   const fileRef       = useRef<HTMLInputElement>(null)
   const panelRef      = useRef<HTMLDivElement>(null)
   const [open,           setOpen]           = useState(false)
@@ -1097,6 +1099,14 @@ function ProfileFooter({ t, onThemeChange, collapsed }: { t: SidebarTheme; onThe
               </button>
             ))}
           </div>
+
+          {/* RGPD — droit à la portabilité : export JSON de toutes mes
+              données personnelles (cf. useExportMyData). */}
+          <button onClick={() => user && exportMyData(user.id, profile?.trigramme ?? null)} disabled={exportPending}
+            className={cn('w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-colors mt-4 disabled:opacity-50', t.notesBtn)}>
+            <Download size={12} />
+            {exportPending ? 'Export en cours…' : 'Exporter mes données'}
+          </button>
 
           <input ref={fileRef} type="file" accept="image/*" className="hidden"
             onChange={async e => {

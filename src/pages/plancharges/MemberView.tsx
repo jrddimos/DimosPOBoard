@@ -2,8 +2,9 @@ import React, { useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { labelsFermes } from '@/utils/joursFeries'
 import { useAbsences, useCreateAbsence, useDeleteAbsence } from '@/hooks/useAbsences'
+import { useAuth } from '@/contexts/AuthContext'
 import { usePlanCharges, useUpsertPlanCharge } from '@/hooks/usePlanCharges'
-import { CalendarOff, ChevronDown, Package, Plus, X } from 'lucide-react'
+import { CalendarOff, ChevronDown, Package, Plus, X, Lock } from 'lucide-react'
 import type { Produit } from '@/hooks/useProduits'
 import type { UserProfile } from '@/contexts/AuthContext'
 import { getISOWeek } from '@/lib/utils'
@@ -540,6 +541,11 @@ export function MemberView({ annee, curYear, mode, quarters,
 // ── Modale de gestion des absences d'un membre ────────────────────
 function AbsencesModal({ member, annee, onClose }: { member: UserProfile; annee: number; onClose: () => void }) {
   const tri = member.trigramme ?? ''
+  const { isAdmin, roles, profile } = useAuth()
+  // Le motif d'absence est confidentiel côté RLS (migration 0070) : admin,
+  // PO d'au moins un produit, ou la personne elle-même. Recalculé ici juste
+  // pour adapter l'affichage — la vraie protection est côté base.
+  const canManage = isAdmin || roles.some(r => r.role === 'po') || (!!profile?.trigramme && profile.trigramme === tri)
   const { data: absences = [] } = useAbsences(annee)
   const createAbs = useCreateAbsence()
   const deleteAbs = useDeleteAbsence()
@@ -588,47 +594,63 @@ function AbsencesModal({ member, annee, onClose }: { member: UserProfile; annee:
           <button onClick={onClose} className="text-subtle hover:text-navy p-1"><X size={14} /></button>
         </div>
 
-        <div className="flex flex-col gap-1.5 mb-4 max-h-52 overflow-y-auto">
-          {mine.length === 0 && (
-            <p className="text-xs text-subtle/50 italic py-3 text-center">Aucune absence enregistrée en {annee}</p>
-          )}
-          {mine.map(a => (
-            <div key={a.id} className="flex items-center gap-2.5 px-3 py-2 rounded-xl border border-border bg-bg/40 group/abs">
-              <CalendarOff size={12} className="text-amber-500 shrink-0" />
-              <span className="text-xs font-semibold text-navy flex-1 truncate">{a.label}</span>
-              <span className="text-xs text-subtle tabular-nums shrink-0">
-                {fmtD(a.date_debut)}{a.date_fin !== a.date_debut && ` → ${fmtD(a.date_fin)}`}
-              </span>
-              <button onClick={() => deleteAbs.mutate({ id: a.id, annee })}
-                className="max-md:opacity-100 opacity-0 group-hover/abs:opacity-100 text-subtle hover:text-rose-600 transition-all shrink-0">
-                <X size={12} />
-              </button>
+        {canManage ? (
+          <>
+            <div className="flex flex-col gap-1.5 mb-4 max-h-52 overflow-y-auto">
+              {mine.length === 0 && (
+                <p className="text-xs text-subtle/50 italic py-3 text-center">Aucune absence enregistrée en {annee}</p>
+              )}
+              {mine.map(a => (
+                <div key={a.id} className="flex items-center gap-2.5 px-3 py-2 rounded-xl border border-border bg-bg/40 group/abs">
+                  <CalendarOff size={12} className="text-amber-500 shrink-0" />
+                  <span className="text-xs font-semibold text-navy flex-1 truncate">{a.label}</span>
+                  <span className="text-xs text-subtle tabular-nums shrink-0">
+                    {fmtD(a.date_debut)}{a.date_fin !== a.date_debut && ` → ${fmtD(a.date_fin)}`}
+                  </span>
+                  <button onClick={() => deleteAbs.mutate({ id: a.id, annee })}
+                    className="max-md:opacity-100 opacity-0 group-hover/abs:opacity-100 text-subtle hover:text-rose-600 transition-all shrink-0">
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
 
-        <div className="border-t border-border pt-3">
-          <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-end">
-            <div>
-              <span className="ds-label mb-1 block">Motif</span>
-              <input value={label} onChange={e => setLabel(e.target.value)} className="ds-input text-xs" placeholder="Congés" />
+            <div className="border-t border-border pt-3">
+              <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-end">
+                <div>
+                  <span className="ds-label mb-1 block">Motif</span>
+                  <input value={label} onChange={e => setLabel(e.target.value)} className="ds-input text-xs" placeholder="Congés" />
+                </div>
+                <div>
+                  <span className="ds-label mb-1 block">Du</span>
+                  <input type="date" value={debut} onChange={e => setDebut(e.target.value)} className="ds-input text-xs" />
+                </div>
+                <div>
+                  <span className="ds-label mb-1 block">Au</span>
+                  <input type="date" value={fin} onChange={e => setFin(e.target.value)} min={debut || undefined} className="ds-input text-xs" />
+                </div>
+              </div>
+              <button onClick={add} disabled={!debut || createAbs.isPending}
+                className="ds-btn-primary w-full mt-2.5 flex items-center justify-center gap-1.5">
+                <Plus size={13} /> Ajouter l'absence
+              </button>
+              <p className="text-[11px] text-subtle/50 mt-2 text-center">Un seul jour ? Laisse « Au » vide. Week-ends, fériés et fermetures ne sont pas décomptés.</p>
+              <p className="text-[11px] text-subtle/50 mt-1 text-center">La saisie existante sur les semaines concernées est effacée — à resaisir avec la capacité restante.</p>
             </div>
-            <div>
-              <span className="ds-label mb-1 block">Du</span>
-              <input type="date" value={debut} onChange={e => setDebut(e.target.value)} className="ds-input text-xs" />
-            </div>
-            <div>
-              <span className="ds-label mb-1 block">Au</span>
-              <input type="date" value={fin} onChange={e => setFin(e.target.value)} min={debut || undefined} className="ds-input text-xs" />
-            </div>
+          </>
+        ) : (
+          // Motif confidentiel (RGPD, cf. migration 0070) : ni admin, ni PO,
+          // ni la personne elle-même — on ne prétend pas qu'il n'y a aucune
+          // absence, on explique que c'est masqué (la liste renvoyée par le
+          // RLS est de toute façon vide pour ce viewer, indistinguable d'un
+          // "aucune absence" réel sans ce message dédié).
+          <div className="flex flex-col items-center gap-2 py-8 text-center">
+            <Lock size={20} className="text-subtle/40" />
+            <p className="text-xs text-subtle max-w-[280px]">
+              Le motif des absences de {member.display_name} est confidentiel — visible uniquement par {member.display_name}, les PO et les admins.
+            </p>
           </div>
-          <button onClick={add} disabled={!debut || createAbs.isPending}
-            className="ds-btn-primary w-full mt-2.5 flex items-center justify-center gap-1.5">
-            <Plus size={13} /> Ajouter l'absence
-          </button>
-          <p className="text-[11px] text-subtle/50 mt-2 text-center">Un seul jour ? Laisse « Au » vide. Week-ends, fériés et fermetures ne sont pas décomptés.</p>
-          <p className="text-[11px] text-subtle/50 mt-1 text-center">La saisie existante sur les semaines concernées est effacée — à resaisir avec la capacité restante.</p>
-        </div>
+        )}
       </div>
     </div>
   )

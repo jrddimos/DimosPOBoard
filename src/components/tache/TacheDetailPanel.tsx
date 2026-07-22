@@ -119,13 +119,20 @@ export const SPRINT_BOARD_EDITABLE_FIELDS = new Set([
 // `editableFields` (non fourni = tout éditable, comportement historique) et
 // `centered` (tiroir latéral par défaut) permettent de réutiliser ce même
 // panneau dans un contexte plus restreint (Sprint Board).
-export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete, editableFields, centered }: {
+export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete, editableFields, centered, onRequestStatusChange }: {
   tacheId: string
   onClose: () => void
   onDuplicate?: (t: Tache) => void
   onDelete?: (t: Tache) => Promise<boolean>
   editableFields?: Set<string>
   centered?: boolean
+  // Délègue le changement de statut à l'appelant (Sprint Board) plutôt que
+  // de sauvegarder directement — permet de réutiliser le même popup
+  // effort réalisé/critères que le drag-and-drop et le StatusPicker de la
+  // carte Kanban, au lieu du simple contrôle "critères non validés" du
+  // panneau, qui n'ouvrait jamais ce popup ni ne bloquait les sous-tâches
+  // non terminées.
+  onRequestStatusChange?: (t: Tache, statut: Statut) => void
 }) {
   const locked = (k: string) => !!editableFields && !editableFields.has(k)
   const { produitActif } = useProduit()
@@ -300,6 +307,10 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete, edit
               <StatusPicker
                 value={(String(editForm.statut??'À faire')) as Statut}
                 onChange={async s=>{
+                  // Délégué (Sprint Board) : même popup effort réalisé/
+                  // critères/sous-tâches que le drag-and-drop — pas de
+                  // double contrôle critères ici, déjà géré par ce popup.
+                  if(onRequestStatusChange){onRequestStatusChange(panelTask,s);return}
                   if(s==='Fait' && hasPendingCriteres(String(editForm.criteres??''))){
                     const ok=await confirm({title:'Critères non validés',message:'Certains critères d\'acceptation ne sont pas cochés. Clôturer la tâche quand même ?',confirmLabel:'Clôturer',variant:'danger'})
                     if(!ok)return

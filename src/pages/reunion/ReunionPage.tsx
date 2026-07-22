@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Layout } from '@/components/layout/Layout'
 import { useProduits, useUpdateProduit, trimAvancement } from '@/hooks/useProduits'
@@ -15,7 +15,7 @@ import { MentionField } from '@/components/ui/MentionField'
 import { cn, getISOWeek, formatSprintLabel } from '@/lib/utils'
 import {
   ChevronLeft, ChevronRight, Play, Pause, SkipBack, SkipForward,
-  Plus, X, Check, Save, Printer, ChevronDown, ChevronUp, AlertTriangle,
+  Plus, X, Check, Printer, ChevronDown, ChevronUp, AlertTriangle,
   Target, Maximize2, Minimize2, CalendarClock,
 } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
@@ -482,6 +482,7 @@ export default function ReunionPage() {
   const { data: membres = [] } = useUtilisateurs()
   const { profile } = useAuth()
   const toast = useToast()
+  const navigate = useNavigate()
   const sauvegarder  = useSauvegarderReunion()
   const updateProduit = useUpdateProduit()
   const [urlParams] = useSearchParams()
@@ -494,9 +495,14 @@ export default function ReunionPage() {
   const [semaine, setSemaine] = useState(hasUrlWeek ? urlSemaine : initWeek.semaine)
   const [annee,   setAnnee]   = useState(hasUrlWeek ? urlAnnee : initWeek.annee)
 
-  const { data: reunion }  = useReunionSemaine(semaine, annee)
-  const { data: dbRevues } = useRevuesByReunion(reunion?.id ?? null)
-  const { data: dbSujets } = useSujetsByReunion(reunion?.id ?? null)
+  const { data: reunion, isLoading: loadingReunion }   = useReunionSemaine(semaine, annee)
+  const { data: dbRevues, isLoading: loadingRevues }   = useRevuesByReunion(reunion?.id ?? null)
+  const { data: dbSujets, isLoading: loadingSujets }   = useSujetsByReunion(reunion?.id ?? null)
+  // Semaine affichée entièrement chargée (pas en train de changer de semaine) —
+  // condition requise avant d'autosauver : sinon, juste après navigateWeek(),
+  // l'état local vidé (revues={}, sujets=[]) serait sauvegardé par-dessus le
+  // vrai contenu de la nouvelle semaine, le temps que son chargement arrive.
+  const dataReady = !loadingReunion && !loadingRevues && !loadingSujets
 
   const activeProducts = produits.filter(p => p.actif && !p.is_template)
 
@@ -617,7 +623,7 @@ export default function ReunionPage() {
     setPhaseNotes(prev => prev.map((n, i) => i === idx ? val : n))
   }
 
-  async function handleSave() {
+  async function persistReunion() {
     await sauvegarder.mutateAsync({
       semaine, annee,
       animateur: animateur || null,
@@ -636,7 +642,29 @@ export default function ReunionPage() {
         titre: s.titre,
       })),
     })
-    toast('Réunion sauvegardée')
+  }
+
+  // Autosave débouncé (~800ms après la dernière saisie) — plus de bouton
+  // "Sauvegarder" : chaque champ (animateur, notes, revues, sujets) se
+  // persiste tout seul, tant que la semaine affichée est chargée (dataReady).
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!dataReady) return
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
+    autosaveTimer.current = setTimeout(() => { persistReunion() }, 800)
+    return () => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataReady, animateur, notesSeance, phaseNotes, revues, sujets])
+
+  // "Terminer la réunion" : flush immédiat (sans attendre le debounce) puis
+  // retour à la liste — l'autosave a déjà tout persisté entre-temps, ce
+  // bouton garantit juste qu'il ne manque pas la dernière frappe.
+  async function handleFinish() {
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
+    await persistReunion()
+    setIsRunning(false)
+    toast('Réunion terminée')
+    navigate('/reunions')
   }
 
   const isCurrentWeek  = semaine === initWeek.semaine && annee === initWeek.annee
@@ -682,9 +710,9 @@ export default function ReunionPage() {
           <button onClick={() => window.print()} className="ds-btn ds-btn-sm flex items-center gap-1.5">
             <Printer size={13} /> PDF
           </button>
-          <button onClick={handleSave} disabled={sauvegarder.isPending}
+          <button onClick={handleFinish} disabled={sauvegarder.isPending}
             className="ds-btn-primary ds-btn-sm flex items-center gap-1.5 disabled:opacity-50">
-            <Save size={13} /> {sauvegarder.isPending ? 'Sauvegarde…' : 'Sauvegarder'}
+            <Check size={13} /> {sauvegarder.isPending ? 'Sauvegarde…' : 'Terminer la réunion'}
           </button>
         </div>
       </div>

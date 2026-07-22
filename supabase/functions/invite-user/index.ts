@@ -72,6 +72,25 @@ Deno.serve(async (req) => {
           status: 400, headers: { ...CORS, 'Content-Type': 'application/json' },
         })
       }
+      // RGPD — le trigramme est stocké en texte libre (sans FK) sur
+      // plusieurs tables (taches.assigne_a, reunions.animateur/
+      // participants, absences…) : il faut le lire et nettoyer ces traces
+      // AVANT de supprimer l'utilisateur, sinon le cascade sur
+      // user_profiles fait perdre le mapping trigramme↔identité et ces
+      // traces restent orphelines pour toujours (cf. migration 0068).
+      const { data: profileToDelete } = await supabaseAdmin
+        .from('user_profiles')
+        .select('trigramme')
+        .eq('user_id', user_id)
+        .single()
+      if (profileToDelete?.trigramme) {
+        const { error: anonErr } = await supabaseAdmin.rpc('anonymize_user_traces', { p_trigramme: profileToDelete.trigramme })
+        if (anonErr) {
+          return new Response(JSON.stringify({ error: anonErr.message }), {
+            status: 400, headers: { ...CORS, 'Content-Type': 'application/json' },
+          })
+        }
+      }
       const { error: delErr } = await supabaseAdmin.auth.admin.deleteUser(user_id)
       if (delErr) {
         return new Response(JSON.stringify({ error: delErr.message }), {

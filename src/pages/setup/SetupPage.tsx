@@ -24,7 +24,7 @@ import { useEpics, useCreateEpic, useUpdateEpic, useDeleteEpic, useReorderEpics,
 import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { useJalons, useCreateJalon, useUpdateJalon, useDeleteJalon, type Jalon } from '@/hooks/useJalons'
+import { useJalons, useCreateJalon, useUpdateJalon, useDeleteJalon, useReorderJalons, type Jalon } from '@/hooks/useJalons'
 import { useDod } from '@/hooks/useDod'
 import {
   Pencil, Trash2, Plus, ChevronDown, ChevronRight, Check, X,
@@ -943,36 +943,41 @@ function JalonsTab() {
   const createJalon = useCreateJalon()
   const updateJalon = useUpdateJalon()
   const deleteJalon = useDeleteJalon()
+  const reorderJalons = useReorderJalons()
   const toast = useToast()
-  const [newCode, setNewCode] = useState('')
   const [newNom, setNewNom] = useState('')
   const [newDescription, setNewDescription] = useState('')
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
   const counts: Record<string, number> = {}
   taches.forEach(t => { if (t.jalon) counts[t.jalon] = (counts[t.jalon] ?? 0) + 1 })
 
-  // Numéro unique + nom + description : les trois obligatoires pour créer
-  // un Jalon - Incrément majeur (avant : le code seul suffisait).
+  // Le numéro n'est plus saisi : toujours le suivant dans l'ordre, à la
+  // suite des Jalons existants (cf. useCreateJalon) — seul le
+  // glisser-déposer (onDragEnd ci-dessous) peut ensuite le faire changer.
+  // Nom + description restent obligatoires.
   async function add() {
-    const c = newCode.trim().toUpperCase(), nom = newNom.trim(), description = newDescription.trim()
-    if (!c || !nom || !description) return
-    if (jalonsList.some(j => j.code.toLowerCase() === c.toLowerCase())) { toast('Ce numéro de Jalon existe déjà', 'error'); return }
-    await createJalon.mutateAsync({ code: c, nom, description, couleur: BRAND_COLORS[jalonsList.length % BRAND_COLORS.length] })
-    toast(`Jalon - Incrément majeur "${c} — ${nom}" ajouté`)
-    setNewCode(''); setNewNom(''); setNewDescription('')
+    const nom = newNom.trim(), description = newDescription.trim()
+    if (!nom || !description) return
+    const couleur = BRAND_COLORS[jalonsList.length % BRAND_COLORS.length]
+    await createJalon.mutateAsync({ nom, description, couleur })
+    toast(`Jalon - Incrément majeur "${nom}" ajouté`)
+    setNewNom(''); setNewDescription('')
   }
 
-  // Change juste le numéro (code) — c'est lui qui est stocké tel quel sur
-  // taches.jalon, donc le changement cascade sur toutes les tâches liées.
-  async function changeCode(jalon: Jalon, rawCode: string) {
-    const next = rawCode.trim().toUpperCase()
-    if (!next || next === jalon.code) return
-    if (jalonsList.some(j => j.id !== jalon.id && j.code.toLowerCase() === next.toLowerCase())) { toast('Ce numéro de Jalon existe déjà', 'error'); return }
-    const ok = await confirm({ title: 'Changer le numéro de Jalon ?', message: `"${jalon.code}" → "${next}" dans toutes les tâches.`, confirmLabel: 'Changer' }); if (!ok) return
-    await updateJalon.mutateAsync({ id: jalon.id, updates: { code: next } })
-    await supabase.from('taches').update({ jalon: next }).eq('jalon', jalon.code)
-    qc.invalidateQueries({ queryKey: ['taches'] })
-    toast('Numéro de Jalon changé')
+  function onDragEnd(e: DragEndEvent) {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const oldIndex = jalonsList.findIndex(j => j.id === active.id)
+    const newIndex = jalonsList.findIndex(j => j.id === over.id)
+    if (oldIndex === -1 || newIndex === -1) return
+    reorderJalons.mutate(arrayMove(jalonsList, oldIndex, newIndex).map(j => j.id))
+  }
+
+  // Renumérote 1, 2, 3… sans rien déplacer — comble les trous laissés par
+  // d'anciens Jalons créés à la main avant l'auto-numérotation.
+  function combleTrous() {
+    reorderJalons.mutate(jalonsList.map(j => j.id))
   }
 
   async function renameNom(jalon: Jalon, rawNom: string) {
@@ -992,24 +997,29 @@ function JalonsTab() {
     await updateJalon.mutateAsync({ id: jalon.id, updates: { couleur } })
   }
 
+  // Bloqué tant que des US sont rattachées (cf. bouton masqué si nb > 0,
+  // ci-dessous) : pas de suppression "avec avertissement" comme les Epics,
+  // ici c'est impossible tant que le Jalon n'est pas vidé de ses US.
   async function del(jalon: Jalon) {
     const ok = await confirm({ title: 'Supprimer ce Jalon - Incrément majeur ?', message: `Les tâches perdront leur jalon - incrément majeur.`, confirmLabel: 'Supprimer', variant: 'danger' }); if (!ok) return
     await deleteJalon.mutateAsync(jalon.id)
     await supabase.from('taches').update({ jalon: null }).eq('jalon', jalon.code)
     qc.invalidateQueries({ queryKey: ['taches'] })
+    // Renumérote aussitôt les Jalons restants pour ne jamais laisser de trou
+    // (ex: I1, I3, I4 après suppression du I2) — même mutation que le
+    // glisser-déposer, avec l'ordre actuel moins le Jalon supprimé.
+    await reorderJalons.mutateAsync(jalonsList.filter(j => j.id !== jalon.id).map(j => j.id))
     toast('Jalon - Incrément majeur supprimé')
   }
 
-  const canAdd = newCode.trim() && newNom.trim() && newDescription.trim()
+  const canAdd = newNom.trim() && newDescription.trim()
 
   return (
     <div className="flex flex-col gap-4 max-w-2xl 3xl:max-w-4xl">
       <div className="ds-card flex flex-col gap-2">
-        <div className="flex items-end gap-2">
-          <div className="flex-none"><div className="ds-label mb-1">Numéro</div>
-            <input value={newCode} onChange={e => setNewCode(e.target.value.toUpperCase())} className="ds-input w-20" maxLength={5} placeholder="I7" /></div>
-          <div className="flex-1"><div className="ds-label mb-1">Nom</div>
-            <input value={newNom} onChange={e => setNewNom(e.target.value)} className="ds-input" placeholder="Nom du Jalon" /></div>
+        <div>
+          <div className="ds-label mb-1">Nom</div>
+          <input value={newNom} onChange={e => setNewNom(e.target.value)} className="ds-input" placeholder="Nom du Jalon" />
         </div>
         <div>
           <div className="ds-label mb-1">Description</div>
@@ -1019,38 +1029,66 @@ function JalonsTab() {
         <button onClick={add} disabled={createJalon.isPending || !canAdd}
           className="ds-btn-primary self-start flex items-center gap-1"><Plus size={13} /> Ajouter</button>
       </div>
-      <p className="text-xs text-subtle -mt-2">Numéro, nom et description sont obligatoires. Cliquez sur un champ pour le modifier, sur le carré pour changer sa couleur. Supprimer vide le champ Jalon - Incrément majeur des tâches concernées.</p>
+      <div className="flex items-center justify-between -mt-2">
+        <p className="text-xs text-subtle">Numéro automatique (glisser-déposer pour réordonner). Nom et description obligatoires — cliquez pour les modifier, sur le carré pour changer la couleur. Un Jalon avec des US rattachées ne peut pas être supprimé.</p>
+        <button onClick={combleTrous} disabled={reorderJalons.isPending} title="Renumérote 1, 2, 3… sans rien déplacer — comble les trous laissés par d'anciens Jalons"
+          className="ds-btn ds-btn-sm flex items-center gap-1 shrink-0"><RotateCcw size={11} /> Combler les trous</button>
+      </div>
       {jalonsList.length === 0 ? (
         <p className="text-xs text-subtle italic">Aucun Jalon défini pour ce produit.</p>
       ) : (
-        <div className="flex flex-col gap-1.5">
-          {jalonsList.map(jalon => {
-            const nb = counts[jalon.code] ?? 0
-            return (
-              <div key={jalon.id} className="flex items-start gap-3 p-2.5 bg-card rounded-xl border border-border group">
-                <label className="w-6 h-6 rounded-md shrink-0 cursor-pointer ring-1 ring-border/60 relative overflow-hidden mt-0.5" style={{ background: jalon.couleur ?? '#6366F1' }} title="Changer la couleur">
-                  <input type="color" value={jalon.couleur ?? '#6366F1'} onChange={e => changeColor(jalon, e.target.value)}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                </label>
-                <div className="flex-1 min-w-0 flex flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <InlineEdit value={jalon.code} onSave={v => changeCode(jalon, v)} placeholder={jalon.code} inputClassName="w-16 font-mono" />
-                    <InlineEdit value={jalon.nom} onSave={v => renameNom(jalon, v)} placeholder="Nom manquant" />
-                    <span className="text-xs text-subtle shrink-0 ml-auto">{nb} US</span>
-                  </div>
-                  <InlineEditTextarea value={jalon.description} onSave={v => saveDescription(jalon, v)}
-                    placeholder="Description…" missingHint="Description manquante — cliquez pour la compléter" />
-                </div>
-                {nb === 0 && (
-                  <button onClick={() => del(jalon)}
-                    className="p-1.5 rounded-lg max-md:opacity-100 opacity-0 group-hover:opacity-100 hover:bg-rose-50 text-subtle hover:text-rose-600 transition-all shrink-0">
-                    <Trash2 size={12} />
-                  </button>
-                )}
-              </div>
-            )
-          })}
+        <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+          <SortableContext items={jalonsList.map(j => j.id)} strategy={verticalListSortingStrategy}>
+            <div className="flex flex-col gap-1.5">
+              {jalonsList.map(jalon => (
+                <JalonRow key={jalon.id} jalon={jalon} nb={counts[jalon.code] ?? 0}
+                  onChangeColor={changeColor} onRenameNom={renameNom} onSaveDescription={saveDescription} onDelete={del} />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+      )}
+    </div>
+  )
+}
+
+function JalonRow({ jalon, nb, onChangeColor, onRenameNom, onSaveDescription, onDelete }: {
+  jalon: Jalon
+  nb: number
+  onChangeColor: (jalon: Jalon, couleur: string) => void
+  onRenameNom: (jalon: Jalon, rawNom: string) => void
+  onSaveDescription: (jalon: Jalon, description: string) => void
+  onDelete: (jalon: Jalon) => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: jalon.id })
+  const style = { transform: CSS.Transform.toString(transform), transition, zIndex: isDragging ? 10 : undefined }
+  return (
+    <div ref={setNodeRef} style={style}
+      className={cn('flex items-start gap-3 p-2.5 bg-card rounded-xl border border-border group', isDragging && 'opacity-60')}>
+      <button {...attributes} {...listeners}
+        className="shrink-0 text-subtle/40 hover:text-subtle cursor-grab active:cursor-grabbing touch-none mt-0.5" tabIndex={-1}>
+        <GripVertical size={14} />
+      </button>
+      <label className="w-6 h-6 rounded-md shrink-0 cursor-pointer ring-1 ring-border/60 relative overflow-hidden mt-0.5" style={{ background: jalon.couleur ?? '#6366F1' }} title="Changer la couleur">
+        <input type="color" value={jalon.couleur ?? '#6366F1'} onChange={e => onChangeColor(jalon, e.target.value)}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+      </label>
+      <span className="shrink-0 font-mono text-xs font-semibold text-subtle bg-bg px-2 py-1 rounded-lg mt-0.5" title="Numéro automatique — glisser-déposer pour réordonner">
+        {jalon.code}
+      </span>
+      <div className="flex-1 min-w-0 flex flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <InlineEdit value={jalon.nom} onSave={v => onRenameNom(jalon, v)} placeholder="Nom manquant" />
+          <span className="text-xs text-subtle shrink-0 ml-auto">{nb} US</span>
         </div>
+        <InlineEditTextarea value={jalon.description} onSave={v => onSaveDescription(jalon, v)}
+          placeholder="Description…" missingHint="Description manquante — cliquez pour la compléter" />
+      </div>
+      {nb === 0 && (
+        <button onClick={() => onDelete(jalon)}
+          className="p-1.5 rounded-lg max-md:opacity-100 opacity-0 group-hover:opacity-100 hover:bg-rose-50 text-subtle hover:text-rose-600 transition-all shrink-0">
+          <Trash2 size={12} />
+        </button>
       )}
     </div>
   )

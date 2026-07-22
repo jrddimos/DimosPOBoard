@@ -6,7 +6,7 @@ import type { Produit } from '@/hooks/useProduits'
 import { usePlanCharges, useUpsertPlanCharge, useRealiseFromTasks } from '@/hooks/usePlanCharges'
 import { useAllProfiles, useAllRoles } from '@/hooks/useUserManagement'
 import { usePeriodesFermeture } from '@/hooks/usePeriodesFermeture'
-import { useAbsences } from '@/hooks/useAbsences'
+import { useAbsencesCapacite } from '@/hooks/useAbsences'
 import { getISOWeek } from '@/lib/utils'
 import { usePendingProfiles } from '@/hooks/useUserManagement'
 import { getJoursFeries, joursOuvresSemaine } from '@/utils/joursFeries'
@@ -114,7 +114,7 @@ export default function PlanChargesPage() {
   }
 
   // ── Absences individuelles : jours d'absence ouvrés par (trigramme, semaine) ──
-  const { data: absences = [] } = useAbsences(annee)
+  const { data: absences = [] } = useAbsencesCapacite(annee)
   const absWkMap = useMemo(() => {
     const m = new Map<string, number>()
     absences.forEach(a => {

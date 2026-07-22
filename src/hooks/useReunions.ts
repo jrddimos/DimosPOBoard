@@ -147,7 +147,7 @@ export function useSauvegarderReunion() {
 // Réunions multi-types (migration 0020)
 // ════════════════════════════════════════════════════════════════
 
-export type SectionKey = 'revue_produits' | 'notes' | 'jalons' | 'actions' | 'decisions' | 'risques'
+export type SectionKey = 'revue_produits' | 'notes' | 'jalons' | 'actions' | 'decisions' | 'risques' | 'objectifs'
 
 export interface ReunionType {
   id: number
@@ -162,6 +162,7 @@ export interface ReunionType {
 export interface ActionItem { id: string; titre: string; assigne: string; done: boolean }
 export interface RisqueItem { id: string; texte: string; niveau: 'vert' | 'orange' | 'rouge' }
 export interface DecisionItem { id: string; texte: string }
+export interface ObjectifItem { id: string; texte: string; checked: boolean }
 
 export interface SectionsData {
   notes?: string
@@ -169,6 +170,7 @@ export interface SectionsData {
   actions?: ActionItem[]
   decisions?: DecisionItem[]
   risques?: RisqueItem[]
+  objectifs?: ObjectifItem[]
 }
 
 export interface ReunionGenerique extends Reunion {
@@ -179,6 +181,10 @@ export interface ReunionGenerique extends Reunion {
   participants: string[]
   sections_data: SectionsData
   privee: boolean
+  // Verrouille le contenu en lecture seule pour tout le monde sauf un admin
+  // (qui peut déverrouiller temporairement côté front, cf. ReunionDetailPage)
+  // — ne touche jamais date_reunion, qui reste celle d'origine.
+  terminee: boolean
   created_by: string | null
 }
 
@@ -242,7 +248,7 @@ export function useCreateReunion() {
 export function useUpdateReunionGenerique() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, updates }: { id: number; updates: Partial<Pick<ReunionGenerique, 'titre' | 'animateur' | 'date_reunion' | 'produit_id' | 'participants' | 'sections_data' | 'privee'>> }) => {
+    mutationFn: async ({ id, updates }: { id: number; updates: Partial<Pick<ReunionGenerique, 'titre' | 'animateur' | 'date_reunion' | 'produit_id' | 'participants' | 'sections_data' | 'privee' | 'terminee'>> }) => {
       const { data, error } = await supabase
         .from('reunions').update(updates).eq('id', id).select().single()
       if (error) throw error

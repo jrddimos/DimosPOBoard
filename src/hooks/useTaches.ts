@@ -103,10 +103,10 @@ export function useCreateTache() {
       }
       throw new Error('Impossible de générer un identifiant de tâche unique après plusieurs tentatives')
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       qc.invalidateQueries({ queryKey: ['taches', produitActif?.id ?? null] })
       if (data && produitActif) {
-        logActivity({ produit_id: produitActif.id, action: 'create', target: data.id_tache, title: data.titre })
+        await logActivity({ produit_id: produitActif.id, action: 'create', target: data.id_tache, title: data.titre })
       }
     },
   })
@@ -129,12 +129,16 @@ export function useUpdateTache() {
       const { error } = await query
       if (error) throw error
       if (!produitId) return
+      // Attendu (pas fire-and-forget) : onSuccess invalide juste après les
+      // requêtes burndown (activite-fait/-all) — sans await, la ligne
+      // d'audit pouvait ne pas encore être insérée au moment du refetch,
+      // et le burndown restait affiché sans le tout dernier passage à Fait.
       if (updates.statut && current?.statut !== updates.statut) {
-        logActivity({ produit_id: produitId, action: 'status', target: id_tache, title: current?.titre ?? '', field: 'statut', old_value: current?.statut, new_value: updates.statut })
+        await logActivity({ produit_id: produitId, action: 'status', target: id_tache, title: current?.titre ?? '', field: 'statut', old_value: current?.statut, new_value: updates.statut })
       } else {
         const fields = Object.keys(updates).filter(k => k !== 'statut')
         if (fields.length > 0) {
-          logActivity({ produit_id: produitId, action: 'update', target: id_tache, title: current?.titre ?? '', field: fields.join(', ') })
+          await logActivity({ produit_id: produitId, action: 'update', target: id_tache, title: current?.titre ?? '', field: fields.join(', ') })
         }
       }
 
@@ -172,9 +176,17 @@ export function useUpdateTache() {
         }
       }
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: ['taches', produitActif?.id ?? null] })
       qc.invalidateQueries({ queryKey: ['tache_iterations'] })
+      // Le burndown (useFaitTransitions/useAllFaitTransitions) lit `activite`
+      // mais n'était jamais invalidé après un changement de statut — la
+      // ligne d'audit existait déjà en base (logActivity ci-dessus), mais le
+      // graphe n'affichait le passage à "Fait" qu'au prochain refetch naturel
+      // (staleTime 60s + refocus), jamais tout de suite.
+      if (variables.updates.statut) {
+        qc.invalidateQueries({ predicate: q => q.queryKey[0] === 'activite-fait' || q.queryKey[0] === 'activite-fait-all' })
+      }
     },
   })
 }
@@ -213,7 +225,7 @@ export function useDeleteTache() {
       if (produitId) query = query.eq('produit_id', produitId)
       const { error } = await query
       if (error) throw error
-      if (produitId) logActivity({ produit_id: produitId, action: 'delete', target: id_tache, title: current?.titre ?? '' })
+      if (produitId) await logActivity({ produit_id: produitId, action: 'delete', target: id_tache, title: current?.titre ?? '' })
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['taches', produitActif?.id ?? null] }),
   })

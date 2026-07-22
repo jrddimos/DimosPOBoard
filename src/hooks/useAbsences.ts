@@ -24,6 +24,26 @@ export function useAbsences(annee: number) {
   })
 }
 
+// Calcul de capacité (Plan de charges, widget "Charge équipe") — dates +
+// trigramme seulement, jamais `label` (motif potentiellement sensible,
+// cf. migration 0070) : lit la vue `absences_capacite`, visible de tous,
+// plutôt que la table `absences` (désormais restreinte à admin/PO/soi-même).
+export type AbsenceCapacite = Pick<Absence, 'id' | 'trigramme' | 'annee' | 'date_debut' | 'date_fin'>
+
+export function useAbsencesCapacite(annee: number) {
+  return useQuery({
+    queryKey: ['absences_capacite', annee],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('absences_capacite').select('*')
+        .eq('annee', annee).order('date_debut')
+      if (error) throw error
+      return (data ?? []) as AbsenceCapacite[]
+    },
+    staleTime: 60_000,
+  })
+}
+
 export function useCreateAbsence() {
   const qc = useQueryClient()
   return useMutation({

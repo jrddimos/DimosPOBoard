@@ -10,7 +10,7 @@ import {
   type ReunionType, type ReunionGenerique,
 } from '@/hooks/useReunions'
 import { cn, getISOWeek } from '@/lib/utils'
-import { CalendarClock, Plus, X, ChevronRight, Lock } from 'lucide-react'
+import { CalendarClock, Plus, X, ChevronRight, ChevronDown, Lock, Package } from 'lucide-react'
 
 function fmtDate(iso: string | null) {
   if (!iso) return '—'
@@ -164,15 +164,18 @@ export default function ReunionsHubPage() {
   const [showNew, setShowNew]       = useState(false)
 
   const typeById = useMemo(() => new Map(types.map(t => [t.id, t])), [types])
-  const produitById = useMemo(() => new Map(produits.map(p => [p.id, p])), [produits])
 
   const filtered = useMemo(() =>
     reunions.filter(r => filterType === null || r.type_id === filterType),
     [reunions, filterType])
 
   const todayIso = new Date().toISOString().slice(0, 10)
-  const aVenir  = filtered.filter(r => (r.date_reunion ?? '') >= todayIso)
-  const passees = filtered.filter(r => (r.date_reunion ?? '') < todayIso)
+  function splitByDate(list: ReunionGenerique[]) {
+    return {
+      aVenir:  list.filter(r => (r.date_reunion ?? '') >= todayIso),
+      passees: list.filter(r => (r.date_reunion ?? '') < todayIso),
+    }
+  }
 
   function open(r: ReunionGenerique) {
     const t = r.type_id ? typeById.get(r.type_id) : null
@@ -185,7 +188,6 @@ export default function ReunionsHubPage() {
 
   function Row({ r }: { r: ReunionGenerique }) {
     const t = r.type_id ? typeById.get(r.type_id) : null
-    const produit = r.produit_id ? produitById.get(r.produit_id) : null
     const label = r.titre || (t?.builtin === 'po' && r.semaine ? `Hebdo — Semaine ${r.semaine} / ${r.annee}` : t?.nom || 'Réunion')
     const isToday = r.date_reunion === todayIso
     return (
@@ -200,12 +202,6 @@ export default function ReunionsHubPage() {
           {r.privee && <Lock size={11} className="text-amber-500 shrink-0" />}
           <span className="truncate">{label}</span>
         </span>
-        {produit && (
-          <span className="flex items-center gap-1.5 text-xs text-subtle shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full" style={{ background: produit.couleur ?? '#4A4CC8' }} />
-            {produit.nom}
-          </span>
-        )}
         {r.animateur && <span className="text-xs text-subtle shrink-0 hidden sm:inline">{r.animateur}</span>}
         <span className={cn('text-xs shrink-0 tabular-nums', isToday ? 'font-bold text-indigo-600' : 'text-subtle')}>
           {isToday ? "Aujourd'hui" : fmtDate(r.date_reunion)}
@@ -213,6 +209,36 @@ export default function ReunionsHubPage() {
         <ChevronRight size={14} className="text-subtle/40 group-hover:text-navy shrink-0 transition-colors" />
       </button>
     )
+  }
+
+  // ── Arborescence par produit ─────────────────────────────────────
+  // "Transverse" (produit_id null) + un nœud par produit actif ayant au
+  // moins une réunion (après filtre type) — pas de nœud vide, ça encombrerait
+  // l'arbre pour rien. Chaque nœud garde le repli À venir/Passées existant.
+  const groups = useMemo(() => {
+    const byProduit = new Map<number | null, ReunionGenerique[]>()
+    for (const r of filtered) {
+      const key = r.produit_id ?? null
+      if (!byProduit.has(key)) byProduit.set(key, [])
+      byProduit.get(key)!.push(r)
+    }
+    const ordered: { key: string; label: string; couleur: string | null; reunions: ReunionGenerique[] }[] = []
+    const transverse = byProduit.get(null) ?? []
+    if (transverse.length > 0) ordered.push({ key: 'transverse', label: 'Transverse', couleur: null, reunions: transverse })
+    for (const p of [...produits].sort((a, b) => a.nom.localeCompare(b.nom))) {
+      const list = byProduit.get(p.id)
+      if (list && list.length > 0) ordered.push({ key: String(p.id), label: p.nom, couleur: p.couleur ?? null, reunions: list })
+    }
+    return ordered
+  }, [filtered, produits])
+
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  function toggleGroup(key: string) {
+    setCollapsed(prev => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
   }
 
   if (loadTypes || loadReu) return <Layout><Spinner /></Layout>
@@ -237,31 +263,47 @@ export default function ReunionsHubPage() {
         </button>
       </div>
 
-      <div className="flex flex-col gap-5 max-w-4xl 3xl:max-w-6xl">
-        <div>
-          <div className="text-xs font-bold text-navy uppercase tracking-wider mb-2 px-1">
-            À venir {aVenir.length > 0 && <span className="text-subtle font-medium">({aVenir.length})</span>}
+      <div className="flex flex-col gap-3 max-w-4xl 3xl:max-w-6xl">
+        {groups.length === 0 ? (
+          <div className="bg-card border border-border rounded-2xl flex flex-col items-center py-10 text-subtle/40 gap-2">
+            <CalendarClock size={28} />
+            <p className="text-xs italic">Aucune réunion</p>
           </div>
-          <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
-            {aVenir.length === 0 ? (
-              <div className="flex flex-col items-center py-10 text-subtle/40 gap-2">
-                <CalendarClock size={28} />
-                <p className="text-xs italic">Aucune réunion planifiée</p>
-              </div>
-            ) : [...aVenir].sort((a, b) => (a.date_reunion ?? '').localeCompare(b.date_reunion ?? '')).map(r => <Row key={r.id} r={r} />)}
-          </div>
-        </div>
-
-        <div>
-          <div className="text-xs font-bold text-navy uppercase tracking-wider mb-2 px-1">
-            Passées {passees.length > 0 && <span className="text-subtle font-medium">({passees.length})</span>}
-          </div>
-          <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
-            {passees.length === 0 ? (
-              <div className="py-8 text-center text-xs text-subtle/40 italic">Aucune réunion passée</div>
-            ) : passees.map(r => <Row key={r.id} r={r} />)}
-          </div>
-        </div>
+        ) : groups.map(g => {
+          const isCollapsed = collapsed.has(g.key)
+          const { aVenir, passees } = splitByDate(g.reunions)
+          return (
+            <div key={g.key} className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
+              <button onClick={() => toggleGroup(g.key)}
+                className="w-full flex items-center gap-2.5 px-4 py-3 hover:bg-bg/40 transition-colors text-left">
+                {isCollapsed ? <ChevronRight size={13} className="text-subtle shrink-0" /> : <ChevronDown size={13} className="text-subtle shrink-0" />}
+                {g.couleur ? (
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: g.couleur }} />
+                ) : (
+                  <Package size={12} className="text-subtle shrink-0" />
+                )}
+                <span className="text-sm font-bold text-navy">{g.label}</span>
+                <span className="text-xs text-subtle font-medium">({g.reunions.length})</span>
+              </button>
+              {!isCollapsed && (
+                <div className="border-t border-border/60">
+                  {aVenir.length > 0 && (
+                    <div>
+                      <div className="text-[11px] font-bold text-subtle uppercase tracking-wider px-4 pt-2.5 pb-1">À venir</div>
+                      {[...aVenir].sort((a, b) => (a.date_reunion ?? '').localeCompare(b.date_reunion ?? '')).map(r => <Row key={r.id} r={r} />)}
+                    </div>
+                  )}
+                  {passees.length > 0 && (
+                    <div>
+                      <div className="text-[11px] font-bold text-subtle uppercase tracking-wider px-4 pt-2.5 pb-1">Passées</div>
+                      {passees.map(r => <Row key={r.id} r={r} />)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
 
       {showNew && <NewReunionModal types={types} onClose={() => setShowNew(false)} />}

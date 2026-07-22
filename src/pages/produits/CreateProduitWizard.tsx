@@ -171,19 +171,18 @@ function StepJalons() {
   const { data: jalons = [] } = useJalons()
   const createJalon = useCreateJalon()
   const deleteJalon  = useDeleteJalon()
-  const toast = useToast()
-  const [code, setCode] = useState('')
   const [nom, setNom] = useState('')
   const [description, setDescription] = useState('')
 
-  // Numéro + nom + description obligatoires, comme dans Setup > Jalons.
+  // Numéro auto-généré et séquentiel (I1, I2, I3…) — plus de saisie libre ;
+  // réordonnable ensuite par glisser-déposer dans Setup > Jalons. Nom et
+  // description restent obligatoires.
   async function add() {
-    const c = code.trim().toUpperCase(), n = nom.trim(), d = description.trim()
-    if (!c || !n || !d) return
-    if (jalons.some(j => j.code.toLowerCase() === c.toLowerCase())) { toast('Ce jalon existe déjà', 'error'); return }
+    const n = nom.trim(), d = description.trim()
+    if (!n || !d) return
     const couleur = BRAND_COLORS[jalons.length % BRAND_COLORS.length]
-    await createJalon.mutateAsync({ code: c, nom: n, description: d, couleur })
-    setCode(''); setNom(''); setDescription('')
+    await createJalon.mutateAsync({ nom: n, description: d, couleur })
+    setNom(''); setDescription('')
   }
 
   return (
@@ -192,16 +191,12 @@ function StepJalons() {
       <Repeater items={jalons} onDelete={id => deleteJalon.mutate(id)} deleting={deleteJalon.isPending}
         renderItem={j => <span className="text-sm text-navy"><span className="font-mono font-bold text-brand mr-1.5">{j.code}</span>{j.nom}</span>}>
         <div className="flex flex-col gap-2">
-          <div className="flex items-end gap-2">
-            <div className="w-24"><label className="ds-label mb-1 block">Numéro</label>
-              <input value={code} onChange={ev => setCode(ev.target.value.toUpperCase())} className="ds-input" maxLength={5} placeholder="I1" /></div>
-            <div className="flex-1"><label className="ds-label mb-1 block">Nom</label>
-              <input value={nom} onChange={ev => setNom(ev.target.value)} className="ds-input" placeholder="Proto A" /></div>
-          </div>
+          <div><label className="ds-label mb-1 block">Nom</label>
+            <input value={nom} onChange={ev => setNom(ev.target.value)} className="ds-input" placeholder="Proto A" /></div>
           <div><label className="ds-label mb-1 block">Description</label>
             <textarea value={description} onChange={ev => setDescription(ev.target.value)} rows={2}
               className="ds-textarea text-sm w-full" placeholder="Ce que ce Jalon représente…" /></div>
-          <button onClick={add} disabled={createJalon.isPending || !code.trim() || !nom.trim() || !description.trim()}
+          <button onClick={add} disabled={createJalon.isPending || !nom.trim() || !description.trim()}
             className="ds-btn-primary ds-btn-sm self-start flex items-center gap-1"><Plus size={13} /> Ajouter</button>
         </div>
       </Repeater>
