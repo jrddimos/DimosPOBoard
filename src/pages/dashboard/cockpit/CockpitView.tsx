@@ -34,6 +34,20 @@ const STANDARD_LAYOUT: ViewLayoutItem[] = [
   { i: 'roadmap',     x: 0, y: 14, w: 12, h: 6 },
 ]
 
+// FL3 — suivi d'incréments livrés par initiative transverse (scorecard,
+// cf. widgets.tsx + migration 0061), remplace le classeur Excel dédié.
+const FL3_LAYOUT: ViewLayoutItem[] = [
+  { i: 'scorecard', x: 0, y: 0, w: 12, h: 16 },
+]
+
+// Onglets "par défaut" — communs à tous, non personnels (contrairement aux
+// vues de `views`) : la disposition de base sert de graine si l'utilisateur
+// clique Personnaliser dessus (cf. startEditing/createNewView).
+const BUILTIN_TABS: { id: string; label: string; layout: ViewLayoutItem[] }[] = [
+  { id: 'std', label: 'Standard', layout: STANDARD_LAYOUT },
+  { id: 'fl3', label: 'FL3',      layout: FL3_LAYOUT },
+]
+
 interface CockpitViewProps {
   produits: Produit[]
   metricsMap: Map<number, ProduitMetrics>
@@ -247,7 +261,8 @@ export default function CockpitView(props: CockpitViewProps) {
   useEffect(() => { localStorage.setItem('cockpit-tab', activeTab) }, [activeTab])
 
   const activeView = views.find(v => String(v.id) === activeTab) ?? null
-  const baseLayout: ViewLayoutItem[] = activeView ? activeView.layout : STANDARD_LAYOUT
+  const activeBuiltin = BUILTIN_TABS.find(b => b.id === activeTab) ?? null
+  const baseLayout: ViewLayoutItem[] = activeView ? activeView.layout : (activeBuiltin ?? BUILTIN_TABS[0]).layout
 
   const [editing, setEditing] = useState(false)
   const [layout, setLayout]   = useState<ViewLayoutItem[]>(baseLayout)
@@ -311,9 +326,10 @@ export default function CockpitView(props: CockpitViewProps) {
 
   async function startEditing() {
     if (activeView) { setEditing(true); return }
-    // La vue Standard n'est pas modifiable : on crée une copie perso
+    // Les onglets par défaut (Standard, FL3) ne sont pas modifiables
+    // directement : on crée une copie perso, graine sur la disposition active.
     if (!user) return
-    const v = await createView.mutateAsync({ user_id: user.id, nom: 'Ma vue', layout: STANDARD_LAYOUT, contexte: 'portefeuille' as const })
+    const v = await createView.mutateAsync({ user_id: user.id, nom: 'Ma vue', layout: (activeBuiltin ?? BUILTIN_TABS[0]).layout, contexte: 'portefeuille' as const })
     setActiveTab(String(v.id))
     setEditing(true)
     toast('Vue "Ma vue" créée — personnalise-la puis sauvegarde')
@@ -328,7 +344,7 @@ export default function CockpitView(props: CockpitViewProps) {
 
   async function createNewView() {
     if (!user || !newName.trim()) return
-    const v = await createView.mutateAsync({ user_id: user.id, nom: newName.trim(), layout: STANDARD_LAYOUT, contexte: 'portefeuille' as const })
+    const v = await createView.mutateAsync({ user_id: user.id, nom: newName.trim(), layout: (activeBuiltin ?? BUILTIN_TABS[0]).layout, contexte: 'portefeuille' as const })
     setNaming(false); setNewName('')
     setActiveTab(String(v.id))
     setEditing(true)
@@ -353,11 +369,13 @@ export default function CockpitView(props: CockpitViewProps) {
           à droite — remplace les deux barres d'outils séparées (topbar page +
           onglets cockpit) d'avant, qui dupliquaient la hiérarchie visuelle. */}
       <div className="flex items-center gap-1.5 mb-4 flex-wrap">
-        <button onClick={() => setActiveTab('std')}
-          className={cn('text-xs font-semibold px-3 py-1.5 rounded-lg transition-all',
-            activeTab === 'std' ? 'bg-brand text-white' : 'bg-card border border-border text-subtle hover:text-navy')}>
-          Standard
-        </button>
+        {BUILTIN_TABS.map(b => (
+          <button key={b.id} onClick={() => setActiveTab(b.id)}
+            className={cn('text-xs font-semibold px-3 py-1.5 rounded-lg transition-all',
+              activeTab === b.id ? 'bg-brand text-white' : 'bg-card border border-border text-subtle hover:text-navy')}>
+            {b.label}
+          </button>
+        ))}
         {views.map(v => (
           renamingId === v.id ? (
             <input key={v.id} autoFocus value={renameValue} onChange={e => setRenameValue(e.target.value)}
@@ -457,7 +475,13 @@ export default function CockpitView(props: CockpitViewProps) {
       {/* Grille bento */}
       <div ref={containerRef as React.RefObject<HTMLDivElement>}>
         {mounted && (
+          // key=activeTab : force un remount complet à chaque changement
+          // d'onglet. Sans ça, la grille pouvait garder son état interne de
+          // l'onglet précédent (des jeux de widgets très différents, ex.
+          // Standard → FL3) et n'affichait la bonne disposition qu'après un
+          // rechargement de page.
           <GridLayout
+            key={activeTab}
             width={width}
             layout={rglLayout}
             gridConfig={{ cols: 12, rowHeight: 56, margin: [12, 12], containerPadding: [0, 0] }}

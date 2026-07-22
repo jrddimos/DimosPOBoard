@@ -11,7 +11,7 @@ import { useFinanceConfig } from '@/hooks/useFinanceConfig'
 import { useFaitTransitions } from '@/hooks/useActivityLog'
 import { trimEtpCostEur } from '@/utils/produitMetrics'
 import { SPRINTS_LIST } from '@/constants'
-import { cn, buildTacheIndex, buildChildMap, effortEffectif, isUS, parseCriteres, parseLienDodCodes, parseAssignees } from '@/lib/utils'
+import { cn, buildTacheIndex, buildChildMap, effortEffectif, isUS, parseCriteres, parseLienDodCodes, parseAssignees, formatSprintLabel } from '@/lib/utils'
 import { AlertTriangle, Check, CheckCircle, ChevronDown, XCircle, CornerDownRight, ListPlus, Lock, Pencil, Plus, X, SlidersHorizontal } from 'lucide-react'
 import type { Produit, RisqueItem, ActionLop } from '@/hooks/useProduits'
 import { useEpicsByProduit, epicFullName } from '@/hooks/useEpics'
@@ -979,7 +979,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
               className={sortedSprints.length > 1 ? undefined : 'rounded-r-lg'}>
               <span className="inline-flex items-center gap-1">
                 {effectiveSprintObj?.statut === 'cloture' && <Lock size={8} className="shrink-0" />}
-                {effectiveSprint ?? 'Sprint'}
+                {effectiveSprint ? formatSprintLabel(effectiveSprint) : 'Sprint'}
               </span>
             </ToggleBtn>
             {sortedSprints.length > 1 && (
@@ -1001,7 +1001,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
                       onClick={() => { setSelectedSprintNum(isAuto ? null : s.numero); setSprintMenuOpen(false) }}
                       className={cn('w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-left transition-colors',
                         isSelected ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-navy hover:bg-bg')}>
-                      <span className="flex-1 truncate">{s.numero}</span>
+                      <span className="flex-1 truncate">{formatSprintLabel(s.numero)}</span>
                       {s.statut === 'cloture' && <Lock size={9} className="text-subtle shrink-0" />}
                       {isAuto && <span className="text-[9px] font-bold uppercase text-emerald-600 shrink-0">en cours</span>}
                       {s.statut === 'pause' && <span className="text-[9px] font-semibold uppercase text-amber-600 shrink-0">pause</span>}
@@ -1293,7 +1293,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
                               </div>
                             </td>
                             <td className="px-3 py-2 text-subtle">{t.epic || '—'}</td>
-                            <td className="px-3 py-2 text-subtle">{t.sprint || '—'}</td>
+                            <td className="px-3 py-2 text-subtle">{t.sprint ? formatSprintLabel(t.sprint) : '—'}</td>
                             <td className="px-3 py-2 text-subtle">{t.equipe || '—'}</td>
                             <td className="px-3 py-2 text-subtle">{t.assigne_a || '—'}</td>
                           </tr>
@@ -1311,7 +1311,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
               const effortPctSp   = effortTotalSprint > 0 ? Math.round(effortFaitSprint / effortTotalSprint * 100) : 0
               const delta         = effortPctSp - backlogPctSprint
               return (
-                <Section title={`Effort — ${effectiveSprint ?? '?'}`} noPad className="h-full">
+                <Section title={`Effort — ${effectiveSprint ? formatSprintLabel(effectiveSprint) : '?'}`} noPad className="h-full">
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b border-border">
@@ -1484,11 +1484,11 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
           ) },
           { key: 'chart_burndown', label: 'Burndown', minW: 4, minH: 3, defaultSize: { w: 12, h: 5 }, content: (
             <ChartWidget title={`Burndown — ${
-              scopeView === 'global' ? 'Global' : scopeView === 'sprint' ? (effectiveSprint ?? 'Sprint') : (currentTrim?.trimestre ?? 'Trimestre en cours')
+              scopeView === 'global' ? 'Global' : scopeView === 'sprint' ? (effectiveSprint ? formatSprintLabel(effectiveSprint) : 'Sprint') : (currentTrim?.trimestre ?? 'Trimestre en cours')
             }`}>
               <LazyBurndownChart quarterStart={burndownStart} quarterEnd={burndownEnd} objectif={burndownObjectifFinal}
                 doneDates={burndownDoneDatesFinal} unitLabel={isCriteresBurndown ? 'critères' : 'US'}
-                trimLabel={scopeView === 'global' ? 'Global' : scopeView === 'sprint' ? effectiveSprint : (currentTrim?.trimestre ?? null)} />
+                trimLabel={scopeView === 'global' ? 'Global' : scopeView === 'sprint' ? (effectiveSprint ? formatSprintLabel(effectiveSprint) : null) : (currentTrim?.trimestre ?? null)} />
             </ChartWidget>
           ) },
           { key: 'lop', label: 'LOP', minW: 5, minH: 3, defaultSize: { w: 12, h: 4 }, content: (

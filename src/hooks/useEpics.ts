@@ -17,6 +17,15 @@ export function epicFullName(e: Pick<Epic, 'code' | 'nom'>): string {
   return `${e.code} — ${e.nom}`
 }
 
+// `ordre` pilote le tri (et donc la numérotation "1.1, 2.3…" des US, cf.
+// computeTacheNumbers) — dérivé du numéro affiché dans le code ("EPIC 14"
+// → 14) pour qu'il reste toujours cohérent avec ce que l'utilisateur voit
+// et choisit, plutôt qu'un simple ordre de création déconnecté du numéro.
+export function epicOrdreFromCode(code: string): number {
+  const digits = code.match(/\d+/)
+  return digits ? Number(digits[0]) : 0
+}
+
 export function useEpics() {
   const { produitActif } = useProduit()
   const produitId = produitActif?.id ?? null
@@ -48,33 +57,81 @@ export function useEpicsByProduit(produitId: number | null) {
   })
 }
 
+// Le numéro ("EPIC N") n'est plus saisi à la main : toujours le rang
+// suivant, à la suite des Epics existants — cf. useReorderEpics pour le
+// seul autre moyen de le faire changer (glisser-déposer).
 export function useCreateEpic() {
   const qc = useQueryClient()
   const { produitActif } = useProduit()
   return useMutation({
-    mutationFn: async ({ code, nom, couleur, bg_couleur }: { code: string; nom: string; couleur: string; bg_couleur: string }) => {
+    mutationFn: async ({ nom, couleur, bg_couleur }: { nom: string; couleur: string; bg_couleur: string }) => {
       if (!produitActif) throw new Error('Aucun produit sélectionné')
-      // Toujours à la suite des Epics existants : sans `ordre` explicite, la
-      // valeur par défaut (NULL) passerait EN PREMIER dans la liste (tri
-      // ascendant = NULLS FIRST par défaut côté Postgres), pas à la fin.
-      const { data: existing } = await supabase.from('epics').select('ordre').eq('produit_id', produitActif.id)
-      const maxOrdre = (existing ?? []).reduce((m, e) => Math.max(m, e.ordre ?? 0), 0)
-      const { error } = await supabase.from('epics').insert({ produit_id: produitActif.id, code, nom, couleur, bg_couleur, ordre: maxOrdre + 1 })
+      const { data: existing, error: fetchError } = await supabase.from('epics').select('id').eq('produit_id', produitActif.id)
+      if (fetchError) throw fetchError
+      const rang = (existing ?? []).length + 1
+      const code = `EPIC ${rang}`
+      // .select().single() : les appelants (duplication d'Epic, conversion
+      // d'un groupe de post-it…) ont besoin du code réellement attribué
+      // pour construire le libellé complet de leurs propres tâches.
+      const { data, error } = await supabase.from('epics').insert({ produit_id: produitActif.id, code, nom, couleur, bg_couleur, ordre: rang * 10 }).select().single()
+      if (error) throw error
+      return data as Epic
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['epics', produitActif?.id] }),
+  })
+}
+
+// Nom/couleur seulement : `code`/`ordre` ne sont plus modifiables ici
+// (auto-générés à la création, recalculés en bloc par useReorderEpics) —
+// évite qu'un futur appel désynchronise le numéro affiché de la position.
+export function useUpdateEpic() {
+  const qc = useQueryClient()
+  const { produitActif } = useProduit()
+  return useMutation({
+    mutationFn: async ({ id, updates }: { id: number; updates: Partial<Pick<Epic, 'nom' | 'couleur' | 'bg_couleur'>> }) => {
+      const { error } = await supabase.from('epics').update(updates).eq('id', id)
       if (error) throw error
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['epics', produitActif?.id] }),
   })
 }
 
-export function useUpdateEpic() {
+// Glisser-déposer dans Setup > Epics : recalcule `ordre` ET `code`
+// ("EPIC 1", "EPIC 2"…) pour CHAQUE Epic selon sa nouvelle position — pas
+// seulement celui déplacé, puisqu'en décaler un décale tous les suivants.
+// Cascade le renommage sur `taches.epic` pour chaque Epic dont le libellé
+// change réellement, scopé au produit (jamais les tâches d'un autre
+// produit, même libellé par coïncidence).
+export function useReorderEpics() {
   const qc = useQueryClient()
   const { produitActif } = useProduit()
   return useMutation({
-    mutationFn: async ({ id, updates }: { id: number; updates: Partial<Pick<Epic, 'code' | 'nom' | 'couleur' | 'bg_couleur' | 'ordre'>> }) => {
-      const { error } = await supabase.from('epics').update(updates).eq('id', id)
-      if (error) throw error
+    mutationFn: async (orderedIds: number[]) => {
+      if (!produitActif) throw new Error('Aucun produit sélectionné')
+      const { data: current, error: fetchError } = await supabase.from('epics').select('*').eq('produit_id', produitActif.id)
+      if (fetchError) throw fetchError
+      const byId = new Map((current ?? []).map(e => [e.id, e as Epic]))
+
+      for (let i = 0; i < orderedIds.length; i++) {
+        const epic = byId.get(orderedIds[i])
+        if (!epic) continue
+        const newCode  = `EPIC ${i + 1}`
+        const newOrdre = (i + 1) * 10
+        if (epic.code === newCode && epic.ordre === newOrdre) continue
+
+        const oldLabel = epicFullName(epic)
+        const newLabel = epicFullName({ code: newCode, nom: epic.nom })
+        const { error } = await supabase.from('epics').update({ code: newCode, ordre: newOrdre }).eq('id', epic.id)
+        if (error) throw error
+        if (oldLabel !== newLabel) {
+          await supabase.from('taches').update({ epic: newLabel }).eq('epic', oldLabel).eq('produit_id', produitActif.id)
+        }
+      }
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['epics', produitActif?.id] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['epics', produitActif?.id] })
+      qc.invalidateQueries({ queryKey: ['taches'] })
+    },
   })
 }
 

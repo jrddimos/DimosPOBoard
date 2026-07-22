@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider, MutationCache, QueryCache } from '@ta
 import { handleSupabaseError } from '@/lib/errorHandler'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { ProduitProvider, useProduit } from '@/contexts/ProduitContext'
+import { useTachesRealtime } from '@/hooks/useTachesRealtime'
 import { Spinner }     from '@/components/ui/Spinner'
 import LoginPage       from '@/pages/auth/LoginPage'
 import SetPasswordPage from '@/pages/auth/SetPasswordPage'
@@ -52,6 +53,10 @@ const queryClient = new QueryClient({
 function AppRoutes() {
   const { user, profile, isLoading } = useAuth()
   const { produitActif } = useProduit()
+  // Synchro live des tâches entre utilisateurs (cf. useTachesRealtime) — pas
+  // besoin de refresh pour voir les modifications faites par quelqu'un
+  // d'autre, même pendant qu'un panneau de détail reste ouvert.
+  useTachesRealtime()
 
   if (isLoading) return (
     <div className="min-h-screen flex items-center justify-center bg-bg">

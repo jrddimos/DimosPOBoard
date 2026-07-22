@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { cn } from '@/lib/utils'
+import { cn, formatSprintLabel } from '@/lib/utils'
 import { useSprintActif } from '@/hooks/useSprints'
 import { useAuth } from '@/contexts/AuthContext'
 import { useProduit } from '@/contexts/ProduitContext'
@@ -1327,7 +1327,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   </span>
                   {sprintActif && (
                     <span className={cn('text-[11px] font-bold shrink-0', t.sprintBadge)}>
-                      {sprintActif.numero}
+                      {formatSprintLabel(sprintActif.numero)}
                     </span>
                   )}
                   <button onClick={() => setShowDiscussion(true)} title="Discussion produit"

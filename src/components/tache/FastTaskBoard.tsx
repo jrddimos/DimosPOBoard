@@ -447,11 +447,10 @@ function BoardInner({ canWrite }: { canWrite: boolean }) {
     const groupPostits = postits.filter(p => p.group_id === convertTarget.groupId)
     const idsTache = groupPostits.map(p => p.id_tache)
     if (choice.type === 'epic') {
-      const nums = epicsList.map(e => parseInt(e.code.replace(/\D/g, ''), 10)).filter(n => !isNaN(n))
-      const nextNum = nums.length ? Math.max(...nums) + 1 : 1
-      const newCode = `EPIC ${nextNum}`
-      await createEpic.mutateAsync({ code: newCode, nom: convertTarget.nom, couleur: '#4A4CC8', bg_couleur: '#EEF2FF' })
-      const newEpicLabel = epicFullName({ code: newCode, nom: convertTarget.nom })
+      // Numéro auto-généré par useCreateEpic — on récupère l'Epic créé pour
+      // construire le libellé exact attribué à ses tâches.
+      const newEpic = await createEpic.mutateAsync({ nom: convertTarget.nom, couleur: '#4A4CC8', bg_couleur: '#EEF2FF' })
+      const newEpicLabel = epicFullName(newEpic)
       for (const id_tache of idsTache) await updateTache.mutateAsync({ id_tache, updates: { epic: newEpicLabel } })
       toast(`✅ Epic "${convertTarget.nom}" créé avec ${idsTache.length} tâche(s)`)
     } else {

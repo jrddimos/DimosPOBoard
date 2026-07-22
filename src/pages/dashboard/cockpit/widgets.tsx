@@ -3,12 +3,20 @@ import { animate } from 'framer-motion'
 import { usePlanCharges } from '@/hooks/usePlanCharges'
 import { usePeriodesFermeture } from '@/hooks/usePeriodesFermeture'
 import { useAbsences } from '@/hooks/useAbsences'
+import {
+  useScorecardInitiatives, useScorecardIncrements,
+  useCreateScorecardInitiative, useUpdateScorecardInitiative, useDeleteScorecardInitiative,
+  useUpsertScorecardIncrement, useDeleteScorecardIncrement,
+  type ScorecardInitiative, type ScorecardIncrement, type ScorecardStatut,
+} from '@/hooks/useScorecard'
+import { confirm } from '@/components/ui/ConfirmModal'
+import { Modal } from '@/components/ui/Modal'
 import { getJoursFeries, joursOuvresSemaine } from '@/utils/joursFeries'
 import { getWeeksForYear } from '@/pages/plancharges/utils'
 import { getISOWeek } from '@/lib/utils'
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip } from 'recharts'
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip, LineChart as RLineChart, Line, XAxis, YAxis, CartesianGrid, Legend } from 'recharts'
 import { Tooltip } from '@/components/ui/Tooltip'
-import { cn, effortEffectif } from '@/lib/utils'
+import { cn, effortEffectif, formatSprintLabel } from '@/lib/utils'
 import { scopedMetrics, getQuarterStart, getQuarterEnd } from '@/utils/produitMetrics'
 import type { MultiScope, ProduitMetrics, Rag } from '@/utils/produitMetrics'
 import type { Produit } from '@/hooks/useProduits'
@@ -17,6 +25,7 @@ import type { UserProfile } from '@/contexts/AuthContext'
 import {
   Grid3x3, TrendingUp, CalendarClock, Euro, ShieldAlert, User, PieChart as PieChartIcon, Package,
   BarChart3, Rows3, LineChart, Map as MapIcon, Users, Check, AlertTriangle, AlertOctagon, Info,
+  Plus, Trash2, Rocket, ChevronDown, ChevronRight, Pencil, Maximize2,
   type LucideIcon,
 } from 'lucide-react'
 import { SPRINTS_LIST } from '@/constants'
@@ -574,7 +583,7 @@ function RoadmapWidget(ctx: WidgetCtx) {
       {/* Axe des sprints */}
       <div className="relative h-4 ml-28 mr-1 text-[10px] text-subtle/70">
         {SPRINTS_LIST.slice(minIdx, maxIdx + 1).map((s, i) => (
-          <span key={s} className="absolute top-0" style={{ left: left(minIdx + i) }}>{s}</span>
+          <span key={s} className="absolute top-0" style={{ left: left(minIdx + i) }}>{formatSprintLabel(s)}</span>
         ))}
       </div>
       {rows.map(({ p, segs }) => (
@@ -586,7 +595,7 @@ function RoadmapWidget(ctx: WidgetCtx) {
             <div key={s.jalon} className="flex items-center">
               <span className="w-28 shrink-0 pr-2 text-[11px] text-subtle truncate" title={s.jalon}>{s.jalon.split(' — ')[0]}</span>
               <div className="relative flex-1 h-5">
-                <Tooltip content={`${s.jalon}\n${SPRINTS_LIST[s.from]} → ${SPRINTS_LIST[s.to]} · ${s.nb} US · ${s.pct}% fait`}>
+                <Tooltip content={`${s.jalon}\n${formatSprintLabel(SPRINTS_LIST[s.from])} → ${formatSprintLabel(SPRINTS_LIST[s.to])} · ${s.nb} US · ${s.pct}% fait`}>
                   <div className="absolute top-0.5 h-4 rounded-md overflow-hidden cursor-help border"
                     style={{ left: left(s.from), width: width(s), borderColor: (p.couleur ?? '#4A4CC8') + '55', background: (p.couleur ?? '#4A4CC8') + '22' }}>
                     <div className="h-full" style={{ width: `${s.pct}%`, background: (p.couleur ?? '#4A4CC8') + '99' }} />
@@ -691,6 +700,406 @@ function ChargeEquipeWidget({ ctx }: { ctx: WidgetCtx }) {
   )
 }
 
+// Liste des semaines de la fenêtre [semaine_depart, semaine_deadline].
+function initiativeWeekRange(init: ScorecardInitiative): number[] {
+  const span = Math.max(0, init.semaine_deadline - init.semaine_depart)
+  return Array.from({ length: span + 1 }, (_, i) => init.semaine_depart + i)
+}
+
+// Une entrée par semaine : `objectif` = trajectoire idéale, part de 0 à la
+// semaine de départ et monte linéairement à l'objectif total à la deadline ;
+// `realise` = cumul livré saisi cette semaine-là, null si pas encore saisie
+// — connectNulls=false sur la ligne réalisé, cf. InitiativeSparkline, pour
+// ne pas relier au-delà de la dernière semaine réellement renseignée.
+// Même sens que actualPct/idealPct plus bas (% délivré vs % du temps
+// écoulé) : on démarre en haut à gauche (0) et on progresse vers le bas à
+// droite (objectif atteint à la deadline).
+function initiativeWeeks(init: ScorecardInitiative, incs: ScorecardIncrement[]) {
+  const byWeek = new Map(incs.map(i => [i.semaine, i.valeur]))
+  const span = Math.max(1, init.semaine_deadline - init.semaine_depart)
+  return initiativeWeekRange(init).map(w => {
+    const cumul = byWeek.get(w)
+    return {
+      semaine: w,
+      objectif: Math.round(init.objectif_increments * (w - init.semaine_depart) / span),
+      realise: cumul == null ? null : cumul,
+    }
+  })
+}
+
+// Courbe de progression compacte (sparkline) : pointillé gris = trajectoire
+// idéale (monte vers l'objectif), plein = cumul réellement livré.
+// layout="vertical" + semaine en catégorie sur l'axe Y (au lieu de l'axe X
+// numérique par défaut) : les semaines s'empilent de haut en bas dans
+// l'ordre chronologique. Axe X (valeur) standard, de 0 à l'objectif — la
+// ligne part donc en haut à gauche et progresse vers le bas à droite.
+function InitiativeSparkline({ weeks }: { weeks: { semaine: number; objectif: number; realise: number | null }[] }) {
+  if (weeks.length < 2) return null
+  const height = Math.max(140, weeks.length * 20)
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <RLineChart data={weeks} layout="vertical" margin={{ top: 4, right: 10, bottom: 0, left: 4 }}>
+        <XAxis type="number" tick={{ fontSize: 9, fill: '#94A3B8' }} axisLine={false} tickLine={false} allowDecimals={false} />
+        <YAxis type="category" dataKey="semaine" tickFormatter={w => `S${w}`} width={28}
+          tick={{ fontSize: 9, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
+        <Line type="monotone" dataKey="objectif" stroke="#CBD5E1" strokeWidth={1.5} strokeDasharray="2 2" dot={false} connectNulls isAnimationActive={false} />
+        <Line type="monotone" dataKey="realise" stroke="#6366F1" strokeWidth={2} dot={{ r: 2.5, fill: '#6366F1' }} connectNulls={false} isAnimationActive={false} />
+      </RLineChart>
+    </ResponsiveContainer>
+  )
+}
+
+// Version agrandie (modal, cf. ScorecardWidget) : mêmes séries et même
+// orientation verticale que InitiativeSparkline, avec axes plus lisibles,
+// tooltip au survol et légende.
+function InitiativeProgressDetail({ weeks }: { weeks: { semaine: number; objectif: number; realise: number | null }[] }) {
+  const height = Math.max(400, weeks.length * 32)
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <RLineChart data={weeks} layout="vertical" margin={{ top: 8, right: 24, bottom: 4, left: 4 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+        <XAxis type="number" tick={{ fontSize: 12, fill: '#64748B' }} axisLine={false} tickLine={false} allowDecimals={false} />
+        <YAxis type="category" dataKey="semaine" tickFormatter={w => `S${w}`} width={40}
+          tick={{ fontSize: 12, fill: '#64748B' }} axisLine={false} tickLine={false} />
+        <RTooltip labelFormatter={w => `Semaine ${w}`}
+          formatter={(v: unknown, name: unknown) => [v as number, name === 'objectif' ? 'Trajectoire idéale' : 'Cumul livré']} />
+        <Legend formatter={(v: string) => v === 'objectif' ? 'Trajectoire idéale' : 'Cumul livré'} wrapperStyle={{ fontSize: 12 }} />
+        <Line type="monotone" dataKey="objectif" name="objectif" stroke="#CBD5E1" strokeWidth={2} strokeDasharray="4 4" dot={false} connectNulls isAnimationActive={false} />
+        <Line type="monotone" dataKey="realise" name="realise" stroke="#6366F1" strokeWidth={3} dot={{ r: 4, fill: '#6366F1' }} connectNulls={false} isAnimationActive={false} />
+      </RLineChart>
+    </ResponsiveContainer>
+  )
+}
+
+// ── Scorecard portefeuille : incréments livrés par initiative transverse
+// (hors produits D3X — remplace le suivi tenu à la main dans Excel).
+// `valeur` sur scorecard_increments est cumulative ; le repère (trait
+// vertical) marque la trajectoire idéale entre semaine de départ et
+// deadline, même langage visuel que le curseur temps d'AvancementWidget.
+function ScorecardWidget() {
+  const { data: initiatives = [], isLoading } = useScorecardInitiatives()
+  const { data: increments = [] } = useScorecardIncrements()
+  const createInitiative = useCreateScorecardInitiative()
+  const updateInitiative = useUpdateScorecardInitiative()
+  const deleteInitiative = useDeleteScorecardInitiative()
+  const upsertIncrement = useUpsertScorecardIncrement()
+  const deleteIncrement = useDeleteScorecardIncrement()
+
+  const curWeek = getISOWeek(new Date()).semaine
+  const [adding, setAdding] = useState(false)
+  const [form, setForm] = useState({ nom: '', semaine_depart: '', semaine_deadline: '', objectif_increments: '' })
+  // Édition des objectifs (semaines de départ/deadline, cible) d'une
+  // initiative existante — même forme que la création, un seul id ouvert
+  // à la fois. Modifier ces valeurs recalcule la trajectoire idéale de la
+  // courbe à l'affichage suivant (pas de recalcul rétroactif des cumuls).
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editForm, setEditForm] = useState({ nom: '', semaine_depart: '', semaine_deadline: '', objectif_increments: '' })
+  // Grille de saisie façon tableur, déployable par initiative — brouillon
+  // local par cellule (clé `initiativeId:semaine`) commité au blur, pour ne
+  // pas déclencher une requête à chaque frappe.
+  const [expanded, setExpanded] = useState<Set<number>>(new Set())
+  const [cellDrafts, setCellDrafts] = useState<Record<string, string>>({})
+  // Graphique agrandi dans une modale au clic sur la sparkline.
+  const [zoomedId, setZoomedId] = useState<number | null>(null)
+
+  function incsFor(id: number) {
+    return increments.filter(i => i.initiative_id === id).sort((a, b) => a.semaine - b.semaine)
+  }
+
+  function toggleExpanded(id: number) {
+    setExpanded(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  async function submitAdd() {
+    const nom = form.nom.trim()
+    const sd = Number(form.semaine_depart), sD = Number(form.semaine_deadline), obj = Number(form.objectif_increments)
+    if (!nom || !sd || !sD || !obj) return
+    await createInitiative.mutateAsync({ nom, semaine_depart: sd, semaine_deadline: sD, objectif_increments: obj, ordre: (initiatives.length + 1) * 10 })
+    setForm({ nom: '', semaine_depart: '', semaine_deadline: '', objectif_increments: '' })
+    setAdding(false)
+  }
+
+  async function removeInitiative(id: number, nom: string) {
+    const ok = await confirm({ title: `Supprimer "${nom}" ?`, message: 'Son historique d\'incréments sera perdu.', confirmLabel: 'Supprimer', variant: 'danger' })
+    if (ok) deleteInitiative.mutate(id)
+  }
+
+  function startEdit(init: ScorecardInitiative) {
+    setEditingId(init.id)
+    setEditForm({
+      nom: init.nom,
+      semaine_depart: String(init.semaine_depart),
+      semaine_deadline: String(init.semaine_deadline),
+      objectif_increments: String(init.objectif_increments),
+    })
+  }
+
+  async function submitEdit() {
+    if (editingId === null) return
+    const nom = editForm.nom.trim()
+    const sd = Number(editForm.semaine_depart), sD = Number(editForm.semaine_deadline), obj = Number(editForm.objectif_increments)
+    if (!nom || !sd || !sD || !obj) return
+    await updateInitiative.mutateAsync({ id: editingId, updates: { nom, semaine_depart: sd, semaine_deadline: sD, objectif_increments: obj } })
+    setEditingId(null)
+  }
+
+  type IncField = 'valeur' | 'objectif_texte' | 'statut'
+  const cellKey = (field: IncField, initId: number, semaine: number) => `${field}:${initId}:${semaine}`
+
+  // Une semaine peut porter valeur / objectif_texte / statut indépendamment
+  // — on ne touche que le champ modifié (upsert partiel, cf. useScorecard),
+  // et on ne supprime la ligne que si les 3 champs finissent tous vides.
+  async function applyField(initId: number, semaine: number, field: IncField, next: number | string | null, row: ScorecardIncrement | undefined) {
+    const resultValeur = field === 'valeur' ? (next as number | null) : (row?.valeur ?? null)
+    const resultTexte  = field === 'objectif_texte' ? (next as string | null) : (row?.objectif_texte ?? null)
+    const resultStatut = field === 'statut' ? (next as ScorecardStatut | null) : (row?.statut ?? null)
+    if (resultValeur == null && !resultTexte && !resultStatut) {
+      if (row) await deleteIncrement.mutateAsync(row.id)
+      return
+    }
+    const patch: { initiative_id: number; semaine: number; valeur?: number | null; objectif_texte?: string | null; statut?: ScorecardStatut | null } = { initiative_id: initId, semaine }
+    if (field === 'valeur') patch.valeur = resultValeur
+    if (field === 'objectif_texte') patch.objectif_texte = resultTexte
+    if (field === 'statut') patch.statut = resultStatut
+    await upsertIncrement.mutateAsync(patch)
+  }
+
+  async function commitCell(initId: number, semaine: number, field: 'valeur' | 'objectif_texte', row: ScorecardIncrement | undefined) {
+    const key = cellKey(field, initId, semaine)
+    const draft = cellDrafts[key]
+    if (draft === undefined) return
+    const trimmed = draft.trim()
+    if (field === 'valeur') {
+      if (trimmed !== '' && !Number.isFinite(Number(trimmed))) { setCellDrafts(prev => { const n = { ...prev }; delete n[key]; return n }); return }
+      await applyField(initId, semaine, 'valeur', trimmed === '' ? null : Number(trimmed), row)
+    } else {
+      await applyField(initId, semaine, 'objectif_texte', trimmed === '' ? null : trimmed, row)
+    }
+    setCellDrafts(prev => { const next = { ...prev }; delete next[key]; return next })
+  }
+
+  async function setStatut(initId: number, semaine: number, value: '' | ScorecardStatut, row: ScorecardIncrement | undefined) {
+    await applyField(initId, semaine, 'statut', value === '' ? null : value, row)
+  }
+
+  if (isLoading) return <EmptyHint>Chargement…</EmptyHint>
+
+  const zoomedInit = initiatives.find(i => i.id === zoomedId) ?? null
+
+  return (
+    <div className="flex flex-col gap-3">
+      {!initiatives.length && !adding && <EmptyHint>Aucune initiative — ajoute la première ci-dessous</EmptyHint>}
+      {/* 3 cartes maximum par ligne, chacune avec sa courbe de progression
+          verticale — au-delà, ça repasse à la ligne (grid), la page scrolle
+          si besoin. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start">
+      {initiatives.map(init => {
+        const incs = incsFor(init.id)
+        const withValeur = incs.filter(i => i.valeur != null)
+        const actual = withValeur[withValeur.length - 1]?.valeur ?? 0
+        const span = Math.max(1, init.semaine_deadline - init.semaine_depart)
+        const idealPct = Math.min(100, Math.max(0, (curWeek - init.semaine_depart) / span * 100))
+        const actualPct = init.objectif_increments > 0 ? actual / init.objectif_increments * 100 : 0
+        const ahead  = actualPct >= idealPct
+        const behind = actualPct < idealPct - 5
+        const byWeek = new Map(incs.map(i => [i.semaine, i] as const))
+        const isExpanded = expanded.has(init.id)
+        return (
+          <div key={init.id} className="border border-border rounded-xl p-2.5">
+            {editingId === init.id ? (
+              <div className="flex flex-col gap-1.5">
+                <input autoFocus value={editForm.nom} placeholder="Nom de l'initiative"
+                  onChange={e => setEditForm(f => ({ ...f, nom: e.target.value }))}
+                  className="ds-input !py-1 !px-2 text-xs" />
+                <div className="flex gap-1.5">
+                  <input type="number" placeholder="Sem. départ" value={editForm.semaine_depart}
+                    onChange={e => setEditForm(f => ({ ...f, semaine_depart: e.target.value }))}
+                    className="ds-input !py-1 !px-2 text-xs flex-1 min-w-0" />
+                  <input type="number" placeholder="Sem. deadline" value={editForm.semaine_deadline}
+                    onChange={e => setEditForm(f => ({ ...f, semaine_deadline: e.target.value }))}
+                    className="ds-input !py-1 !px-2 text-xs flex-1 min-w-0" />
+                  <input type="number" placeholder="Objectif" value={editForm.objectif_increments}
+                    onChange={e => setEditForm(f => ({ ...f, objectif_increments: e.target.value }))}
+                    className="ds-input !py-1 !px-2 text-xs flex-1 min-w-0" />
+                </div>
+                <div className="flex gap-1.5 justify-end">
+                  <button onClick={() => setEditingId(null)} className="ds-btn ds-btn-sm">Annuler</button>
+                  <button onClick={submitEdit} disabled={updateInitiative.isPending} className="ds-btn-primary ds-btn-sm">Enregistrer</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="text-xs font-bold text-navy truncate flex-1">{init.nom}</span>
+                  <button onClick={() => startEdit(init)}
+                    className="shrink-0 p-0.5 rounded text-subtle/50 hover:text-indigo-600 hover:bg-indigo-50 transition-colors">
+                    <Pencil size={11} />
+                  </button>
+                  <button onClick={() => removeInitiative(init.id, init.nom)}
+                    className="shrink-0 p-0.5 rounded text-subtle/50 hover:text-rose-600 hover:bg-rose-50 transition-colors">
+                    <Trash2 size={11} />
+                  </button>
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-subtle mb-1">
+                  <span>S{init.semaine_depart} → S{init.semaine_deadline}</span>
+                  <span className={cn('font-bold tabular-nums',
+                    ahead ? 'text-emerald-600' : behind ? 'text-rose-600' : 'text-amber-600')}>
+                    {actual} / {init.objectif_increments}
+                  </span>
+                </div>
+                <div className="relative h-2 rounded-full bg-bg overflow-visible mb-2">
+                  <div className={cn('h-2 rounded-full transition-all',
+                    ahead ? 'bg-emerald-400' : behind ? 'bg-rose-400' : 'bg-amber-400')}
+                    style={{ width: `${Math.min(100, actualPct)}%` }} />
+                  <Tooltip content={`Trajectoire idéale : semaine ${curWeek}`}>
+                    <span className="absolute -top-1 w-0.5 h-4 bg-navy rounded-full cursor-help" style={{ left: `${idealPct}%` }} />
+                  </Tooltip>
+                </div>
+                <div onClick={() => setZoomedId(init.id)} title="Agrandir le graphique"
+                  className="relative group cursor-zoom-in rounded-lg hover:bg-bg/60 transition-colors">
+                  <InitiativeSparkline weeks={initiativeWeeks(init, incs)} />
+                  <Maximize2 size={11} className="absolute top-1 right-1 text-subtle/40 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+                <button onClick={() => toggleExpanded(init.id)}
+                  className="flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 mt-1.5">
+                  {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                  Saisir le détail hebdo
+                </button>
+                {isExpanded && (
+                  <div className="mt-1.5 flex flex-col gap-2">
+                    {/* Cumul livré — une colonne par semaine, façon tableur */}
+                    <div className="overflow-x-auto rounded-lg border border-border">
+                      <table className="border-collapse text-[11px] w-full">
+                        <thead>
+                          <tr>
+                            <th className="border-b border-r border-border px-1.5 py-1 text-left font-semibold text-subtle bg-bg whitespace-nowrap">Cumul livré</th>
+                            {initiativeWeekRange(init).map(w => (
+                              <th key={w} className={cn('border-b border-r border-border last:border-r-0 px-0.5 py-1 font-semibold whitespace-nowrap',
+                                w === curWeek ? 'bg-indigo-50 text-indigo-700' : 'bg-bg text-subtle')}>
+                                S{w}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td className="border-r border-border px-1.5 py-1 text-subtle whitespace-nowrap">valeur</td>
+                            {initiativeWeekRange(init).map(w => {
+                              const row = byWeek.get(w)
+                              const key = cellKey('valeur', init.id, w)
+                              const value = cellDrafts[key] ?? (row?.valeur != null ? String(row.valeur) : '')
+                              return (
+                                <td key={w} className="border-r border-border last:border-r-0 p-0">
+                                  <input type="number" value={value} title={`Cumul livré — semaine ${w}`}
+                                    onChange={e => setCellDrafts(p => ({ ...p, [key]: e.target.value }))}
+                                    onBlur={() => commitCell(init.id, w, 'valeur', row)}
+                                    onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                                    className="w-11 text-center py-1 text-[11px] bg-transparent outline-none focus:bg-indigo-50" />
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    {/* Objectif hebdo qualitatif + statut atteint/non atteint —
+                        une ligne par semaine, plus lisible qu'en colonnes pour
+                        du texte libre. */}
+                    <div className="overflow-x-auto rounded-lg border border-border">
+                      <table className="border-collapse text-[11px] w-full">
+                        <thead>
+                          <tr>
+                            <th className="border-b border-r border-border px-1.5 py-1 text-left font-semibold text-subtle bg-bg w-12">N° S</th>
+                            <th className="border-b border-r border-border px-1.5 py-1 text-left font-semibold text-subtle bg-bg">Objectif</th>
+                            <th className="border-b border-border px-1.5 py-1 text-left font-semibold text-subtle bg-bg w-16">OK/KO</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {initiativeWeekRange(init).map(w => {
+                            const row = byWeek.get(w)
+                            const texteKey = cellKey('objectif_texte', init.id, w)
+                            const texteValue = cellDrafts[texteKey] ?? (row?.objectif_texte ?? '')
+                            return (
+                              <tr key={w} className={w === curWeek ? 'bg-indigo-50/40' : undefined}>
+                                <td className={cn('border-r border-t border-border px-1.5 py-0.5 font-semibold whitespace-nowrap', w === curWeek ? 'text-indigo-700' : 'text-subtle')}>S{w}</td>
+                                <td className="border-r border-t border-border p-0">
+                                  <input type="text" value={texteValue} placeholder="—" title={`Objectif — semaine ${w}`}
+                                    onChange={e => setCellDrafts(p => ({ ...p, [texteKey]: e.target.value }))}
+                                    onBlur={() => commitCell(init.id, w, 'objectif_texte', row)}
+                                    onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                                    className="w-full px-1.5 py-0.5 text-[11px] bg-transparent outline-none focus:bg-indigo-50" />
+                                </td>
+                                <td className="border-t border-border p-0.5">
+                                  <select value={row?.statut ?? ''} title={`Statut — semaine ${w}`}
+                                    onChange={e => setStatut(init.id, w, e.target.value as '' | ScorecardStatut, row)}
+                                    className={cn('w-full text-[11px] font-semibold rounded-md py-0.5 outline-none border-0 bg-transparent',
+                                      row?.statut === 'OK' ? 'text-emerald-600' : row?.statut === 'KO' ? 'text-rose-600' : 'text-subtle/50')}>
+                                    <option value="">—</option>
+                                    <option value="OK">OK</option>
+                                    <option value="KO">KO</option>
+                                  </select>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )
+      })}
+      </div>
+      {adding ? (
+        <div className="border border-dashed border-indigo-300 rounded-xl p-2.5 flex flex-col gap-1.5">
+          <input autoFocus placeholder="Nom de l'initiative" value={form.nom}
+            onChange={e => setForm(f => ({ ...f, nom: e.target.value }))}
+            className="ds-input !py-1 !px-2 text-xs" />
+          <div className="flex gap-1.5">
+            <input type="number" placeholder="Sem. départ" value={form.semaine_depart}
+              onChange={e => setForm(f => ({ ...f, semaine_depart: e.target.value }))}
+              className="ds-input !py-1 !px-2 text-xs flex-1 min-w-0" />
+            <input type="number" placeholder="Sem. deadline" value={form.semaine_deadline}
+              onChange={e => setForm(f => ({ ...f, semaine_deadline: e.target.value }))}
+              className="ds-input !py-1 !px-2 text-xs flex-1 min-w-0" />
+            <input type="number" placeholder="Objectif" value={form.objectif_increments}
+              onChange={e => setForm(f => ({ ...f, objectif_increments: e.target.value }))}
+              className="ds-input !py-1 !px-2 text-xs flex-1 min-w-0" />
+          </div>
+          <div className="flex gap-1.5 justify-end">
+            <button onClick={() => setAdding(false)} className="ds-btn ds-btn-sm">Annuler</button>
+            <button onClick={submitAdd} disabled={createInitiative.isPending} className="ds-btn-primary ds-btn-sm">Ajouter</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setAdding(true)}
+          className="flex items-center justify-center gap-1.5 text-xs font-medium text-indigo-500 border border-dashed border-indigo-200 rounded-xl py-1.5 hover:bg-indigo-50 hover:border-indigo-300 transition-all">
+          <Plus size={12} /> Nouvelle initiative
+        </button>
+      )}
+
+      {zoomedInit && (
+        <Modal open onClose={() => setZoomedId(null)} title={zoomedInit.nom} size="xl">
+          <div className="flex items-center justify-between text-xs text-subtle mb-3">
+            <span>S{zoomedInit.semaine_depart} → S{zoomedInit.semaine_deadline}</span>
+            <span className="font-bold text-navy">
+              {incsFor(zoomedInit.id)[incsFor(zoomedInit.id).length - 1]?.valeur ?? 0} / {zoomedInit.objectif_increments} incréments livrés
+            </span>
+          </div>
+          <InitiativeProgressDetail weeks={initiativeWeeks(zoomedInit, incsFor(zoomedInit.id))} />
+        </Modal>
+      )}
+    </div>
+  )
+}
+
 // ── Registre ──────────────────────────────────────────────────────
 export const WIDGETS: WidgetDef[] = [
   { key: 'heatmap',     label: 'Santé RAG',            description: 'Produits × avancement, budget, date, blocages', icon: <Grid3x3 size={13} />,       defaultSize: { w: 6, h: 5 }, minW: 4, minH: 3, render: HeatmapWidget },
@@ -706,6 +1115,7 @@ export const WIDGETS: WidgetDef[] = [
   { key: 'chart_statuts',    label: 'Graphe statuts',     description: 'Répartition des statuts par produit',          icon: <Rows3 size={13} />,         defaultSize: { w: 6, h: 6 }, minW: 4, minH: 4, render: ctx => <PortfolioStatutsChart produits={ctx.produits} allTaches={ctx.allTaches} /> },
   { key: 'chart_tendance',   label: 'Tendance trimestrielle', description: 'Avancement et budgets par trimestre',      icon: <LineChart size={13} />,     defaultSize: { w: 12, h: 6 }, minW: 6, minH: 4, render: ctx => <PortfolioTendanceChart produits={ctx.produits} /> },
   { key: 'charge',      label: 'Charge équipe',        description: 'Allocation vs capacité sur 4 semaines',         icon: <Users size={13} />,         defaultSize: { w: 4, h: 5 }, minW: 3, minH: 3, render: ctx => <ChargeEquipeWidget ctx={ctx} /> },
+  { key: 'scorecard',   label: 'Scorecard incréments', description: 'Incréments livrés par initiative vs objectif',  icon: <Rocket size={13} />,        defaultSize: { w: 12, h: 12 }, minW: 6, minH: 6, render: ScorecardWidget },
 ]
 
 export const WIDGET_BY_KEY = new Map(WIDGETS.map(w => [w.key, w]))

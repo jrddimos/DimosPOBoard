@@ -102,7 +102,11 @@ describe('effortEffectif', () => {
 
 describe('computeTacheNumbers', () => {
   it('numérote les US à plat par Epic, ignore les Conteneurs, garde le vrai rang des Epics', () => {
-    const epicLabels = ['EPIC 1 — A', 'EPIC 2 — B (vide)', 'EPIC 3 — C']
+    const epics = [
+      { label: 'EPIC 1 — A',        numero: 1 },
+      { label: 'EPIC 2 — B (vide)', numero: 2 },
+      { label: 'EPIC 3 — C',        numero: 3 },
+    ]
     const usRacine     = mkTache({ id_tache: 'US-1', epic: 'EPIC 1 — A' })
     const conteneur    = mkTache({ id_tache: 'CONT-1', type_tache: 'Conteneur', epic: 'EPIC 1 — A' })
     const usRattachee  = mkTache({ id_tache: 'US-2', epic: 'EPIC 1 — A', parent_id: 'CONT-1' })
@@ -113,7 +117,7 @@ describe('computeTacheNumbers', () => {
     const childMap: Record<string, Tache[]> = { 'CONT-1': [usRattachee], 'US-1': [sousTache] }
     const tasksByEpicLabel = (label: string) => allTaches.filter(t => t.epic === label && !t.parent_id)
 
-    const numbers = computeTacheNumbers(epicLabels, tasksByEpicLabel, childMap, byId)
+    const numbers = computeTacheNumbers(epics, tasksByEpicLabel, childMap, byId)
 
     expect(numbers.get('epic::EPIC 1 — A')).toBe('1')
     expect(numbers.get('epic::EPIC 2 — B (vide)')).toBeUndefined()
@@ -123,5 +127,22 @@ describe('computeTacheNumbers', () => {
     expect(numbers.get('SS-1')).toBe('1.1.1')
     expect(numbers.get('US-2')).toBe('1.2')
     expect(numbers.get('US-3')).toBe('3.1')
+  })
+
+  it("garde le numéro du code Epic même avec un trou (pas un simple rang recalculé)", () => {
+    // EPIC 2 a été supprimé/n'existe pas : EPIC 5 doit rester "5", pas
+    // retomber à "2" parce qu'il est 2ᵉ dans la liste triée.
+    const epics = [
+      { label: 'EPIC 1 — A', numero: 1 },
+      { label: 'EPIC 5 — B', numero: 5 },
+    ]
+    const us = mkTache({ id_tache: 'US-1', epic: 'EPIC 5 — B' })
+    const byId = buildTacheIndex([us])
+    const tasksByEpicLabel = (label: string) => [us].filter(t => t.epic === label && !t.parent_id)
+
+    const numbers = computeTacheNumbers(epics, tasksByEpicLabel, {}, byId)
+
+    expect(numbers.get('epic::EPIC 5 — B')).toBe('5')
+    expect(numbers.get('US-1')).toBe('5.1')
   })
 })

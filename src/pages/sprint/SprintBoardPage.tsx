@@ -1,26 +1,25 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Layout } from '@/components/layout/Layout'
 import { Spinner } from '@/components/ui/Spinner'
-import { StatutBadge, EpicBadge, JalonBadge, MoscowBadge } from '@/components/ui/Badge'
+import { StatutBadge, EpicBadge } from '@/components/ui/Badge'
 import { useTaches, useUpdateTache, useCreateSousTache } from '@/hooks/useTaches'
 import { useSprints, useSprintActif, useClosedSprints } from '@/hooks/useSprints'
 import { useUtilisateurs } from '@/hooks/useEquipes'
 import { useToast } from '@/hooks/useToast'
-import { useEpics, epicFullName } from '@/hooks/useEpics'
+import { useEpics, epicFullName, epicOrdreFromCode } from '@/hooks/useEpics'
 import { useJalons } from '@/hooks/useJalons'
-import { sprintInRange, serializeCriteres, parseCriteres, buildTacheIndex, isUS, isSousTache, existingSprintNumeros, parseAssignees, serializeAssignees } from '@/lib/utils'
+import { sprintInRange, serializeCriteres, parseCriteres, buildTacheIndex, computeTacheNumbers, isUS, isSousTache, existingSprintNumeros, formatSprintLabel, parseAssignees, serializeAssignees } from '@/lib/utils'
 import type { CritereItem } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { confirm } from '@/components/ui/ConfirmModal'
 import { CriteresEditor } from '@/components/ui/CriteresEditor'
-import { TacheExtras } from '@/components/tache/TacheExtras'
 import { SousTacheModal } from '@/components/tache/SousTacheModal'
-import { DodDetailModal } from '@/components/ui/DodDetailModal'
+import { TacheDetailPanel, SPRINT_BOARD_EDITABLE_FIELDS } from '@/components/tache/TacheDetailPanel'
 import { useDod, useUpdateDodItem } from '@/hooks/useDod'
 import {
   ChevronDown, X, Zap, CalendarDays, AlertTriangle,
-  GripVertical, CornerDownRight, Kanban, Search, User as UserIcon,
+  GripVertical, CornerDownRight, Kanban, Search, User as UserIcon, Plus, Sigma,
 } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
 import { StatusPicker } from '@/components/ui/StatusPicker'
@@ -62,6 +61,7 @@ function DroppableColumn({ col, children }: { col: typeof COLS[0]; children: Rea
 // ── KanbanCard avec drag intégré ──────────────────────────────
 type KanbanCardProps = {
   t: Tache
+  numbers: Map<string, string>
   col: typeof COLS[0]
   subs: Tache[]
   membres: UserProfile[]
@@ -75,19 +75,32 @@ type KanbanCardProps = {
   onAssign: (id: string, tri: string) => void
   onToggleSub: (sub: Tache) => void
   onAddSub: (t: Tache) => void
+  onSetEffort: (id_tache: string, effort_j: number) => void
 }
 
 function KanbanCard({
-  t, col, subs, membres, isReadOnly, isSelected, isExpanded, showStatusPicker,
-  onSelect, onToggleExpand, onChangeStatut, onAssign, onToggleSub, onAddSub,
+  t, numbers, col, subs, membres, isReadOnly, isSelected, isExpanded, showStatusPicker,
+  onSelect, onToggleExpand, onChangeStatut, onAssign, onToggleSub, onAddSub, onSetEffort,
 }: KanbanCardProps) {
+  // Saisie de l'effort quand il n'est pas encore chiffré (cf. plus bas) —
+  // une fois posé, il redevient figé : pas de correction à la volée en
+  // sprint, seulement le remplissage d'une US arrivée sans estimation.
+  const [editingEffort, setEditingEffort] = useState(false)
+  const [effortDraft, setEffortDraft] = useState('')
+  const num = numbers.get(t.id_tache)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: t.id_tache })
   const { data: epicsList = [] } = useEpics()
   const epicMatch = epicsList.find(e => epicFullName(e) === t.epic)
   const epicColor = epicMatch?.couleur
   const epicBg    = epicMatch?.bg_couleur
 
-  const effortJ     = subs.length > 0 ? subs.reduce((a, s) => a + (s.effort_j ?? 0), 0) : (t.effort_j ?? 0)
+  // Effort propre de l'US + somme des sous-tâches — l'ancienne formule
+  // ignorait complètement l'effort propre dès qu'il y avait des
+  // sous-tâches (cf. TacheDetailPanel "Effort propre (j)" qui, lui,
+  // additionnait bien les deux).
+  const ownEffortJ  = t.effort_j ?? 0
+  const subsEffortJ = subs.reduce((a, s) => a + (s.effort_j ?? 0), 0)
+  const effortJ     = ownEffortJ + subsEffortJ
   // t.effort_realise_j porte déjà le total (propre + sous-tâches, cf.
   // confirmEffort) une fois l'US clôturée — recompute en live depuis les
   // subs seulement tant qu'elle ne l'est pas encore (valeur pas encore posée).
@@ -104,20 +117,47 @@ function KanbanCard({
       className={cn('kanban-card border-l-4 group cursor-grab active:cursor-grabbing touch-pan-y', col.borderColor, isDragging && 'opacity-40', isSelected && 'selected')}
       onClick={onSelect}>
 
-      {/* Header */}
-      <div className="flex items-start justify-between mb-1.5 gap-1">
-        <span className="text-xs font-semibold text-indigo-600 flex-1">{t.id_tache}</span>
-        <EpicBadge value={t.epic ?? ''} className="text-xs" color={epicColor ?? undefined} bg={epicBg ?? undefined} />
+      {/* Header — numéro 1.1/1.2 mis en avant + id technique à gauche
+          (même convention que le backlog, TacheTree), Statut centré entre
+          les deux, Epic à droite. */}
+      <div className="flex items-center justify-between mb-1.5 gap-1">
+        <span className="flex items-center gap-1 shrink-0">
+          {num && <span className="text-xs font-semibold text-indigo-600 shrink-0">{num}</span>}
+          <span className="shrink-0 font-mono text-[9px] text-subtle/70 bg-bg px-1 rounded">{t.id_tache}</span>
+        </span>
+        <div className="flex-1 flex justify-center min-w-0">
+          {showStatusPicker ? (
+            <StatusPicker
+              value={t.statut}
+              onChange={s => onChangeStatut(t, s)}
+              disabled={isReadOnly}
+            />
+          ) : (
+            <StatutBadge value={t.statut} />
+          )}
+        </div>
+        <EpicBadge value={t.epic ?? ''} className="text-xs shrink-0" color={epicColor ?? undefined} bg={epicBg ?? undefined} />
       </div>
 
       <p className="text-xs font-medium text-navy leading-snug mb-2">{t.titre}</p>
 
-      <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-        {t.jalon && <span className="text-xs px-1.5 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-slate-500">{t.jalon}</span>}
-        {effortJ > 0 && (
-          <span className="flex items-center gap-1 text-xs font-semibold">
-            <span className="text-slate-600" title={subs.length > 0 ? 'Somme des sous-tâches' : undefined}>
-              {subs.length > 0 && '∑ '}{effortJ}j
+      {t.jalon && (
+        <div className="mb-2">
+          <span className="text-xs px-1.5 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-slate-500">{t.jalon}</span>
+        </div>
+      )}
+
+      {/* Assigné + Effort côte à côte — le Statut est monté dans l'en-tête. */}
+      <div className="flex items-center gap-1.5 mb-2">
+        <div className="flex-1 min-w-0">
+          <AssignPickerMulti value={parseAssignees(t.assigne_a)} membres={membres}
+            onChange={list => onAssign(t.id_tache, serializeAssignees(list))} disabled={isReadOnly} />
+        </div>
+        {effortJ > 0 ? (
+          <span className="shrink-0 flex items-center gap-1 text-xs font-semibold">
+            <span className="flex items-center gap-0.5 text-slate-600" title={subs.length > 0 ? (ownEffortJ > 0 ? 'Effort propre + somme des sous-tâches' : 'Somme des sous-tâches') : undefined}>
+              {subs.length > 0 && <Sigma size={9} className="text-slate-400 shrink-0" />}
+              {effortJ}j
             </span>
             {effortRealJ != null && effortRealJ > 0 && (
               <>
@@ -128,50 +168,61 @@ function KanbanCard({
               </>
             )}
           </span>
+        ) : subs.length === 0 && !isReadOnly && (
+          editingEffort ? (
+            <input type="number" autoFocus min={0} step={0.1} value={effortDraft}
+              onClick={e => e.stopPropagation()}
+              onChange={e => setEffortDraft(e.target.value)}
+              onBlur={e => {
+                e.stopPropagation()
+                const v = Number(effortDraft)
+                if (v > 0) onSetEffort(t.id_tache, v)
+                setEditingEffort(false)
+              }}
+              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+              className="w-14 shrink-0 text-xs px-1.5 py-0.5 rounded-md border border-indigo-200 text-right" />
+          ) : (
+            <button onClick={e => { e.stopPropagation(); setEditingEffort(true); setEffortDraft('') }}
+              title="Chiffrer l'effort"
+              className="shrink-0 text-[11px] font-medium text-indigo-400 hover:text-indigo-600 border border-dashed border-indigo-200 rounded-md px-1.5 py-0.5 transition-colors">
+              + Effort
+            </button>
+          )
         )}
       </div>
-
-      <div className="mb-1.5">
-        <AssignPickerMulti value={parseAssignees(t.assigne_a)} membres={membres}
-          onChange={list => onAssign(t.id_tache, serializeAssignees(list))} disabled={isReadOnly} />
-      </div>
-
-      <div className={cn('mb-2', blockedByTask && 'opacity-60')}>
-        {showStatusPicker ? (
-          <StatusPicker
-            value={t.statut}
-            onChange={s => onChangeStatut(t, s)}
-            disabled={isReadOnly}
-          />
-        ) : (
-          <StatutBadge value={t.statut} />
-        )}
-      </div>
-      {blockedByTask && (
-        <div className="flex items-center gap-1 mb-2 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-600 text-[11px] font-medium">
-          <AlertTriangle size={10} className="shrink-0" />
-          {pendingSubs} sous-tâche(s) restante(s)
-        </div>
-      )}
-
-      {/* Bouton ajout sous-tâche */}
-      {!isReadOnly && (
-        <button onClick={e => { e.stopPropagation(); onAddSub(t) }}
-          className="w-full flex items-center gap-1.5 mt-1 mb-1 px-2 py-1.5 rounded-lg border border-dashed border-indigo-200 text-indigo-500 hover:bg-indigo-50 hover:border-indigo-300 transition-all text-xs font-medium">
-          <CornerDownRight size={11} />
-          Ajouter une sous-tâche
-        </button>
-      )}
-
-      {/* Sous-tâches */}
-      {subs.length > 0 && (
+      {/* Sous-tâches : pas encore de sous-tâche → bouton d'ajout seul ;
+          sinon compteur + ajout sur la même ligne (au lieu de deux lignes
+          empilées), la liste passant après (ordre de lecture naturel :
+          ce qui existe déjà, puis l'action d'en ajouter une). */}
+      {subs.length === 0 ? (
+        !isReadOnly && (
+          <button onClick={e => { e.stopPropagation(); onAddSub(t) }}
+            className="w-full flex items-center gap-1.5 mt-1 mb-1 px-2 py-1.5 rounded-lg border border-dashed border-indigo-200 text-indigo-500 hover:bg-indigo-50 hover:border-indigo-300 transition-all text-xs font-medium">
+            <CornerDownRight size={11} />
+            Ajouter une sous-tâche
+          </button>
+        )
+      ) : (
         <div className="border-t border-slate-100 pt-2 mt-1" onClick={e => e.stopPropagation()}>
-          <div className="flex items-center gap-2 cursor-pointer" onClick={onToggleExpand}>
-            <div className="flex-1 h-1 bg-slate-100 rounded-full overflow-hidden">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-1 bg-slate-100 rounded-full overflow-hidden cursor-pointer" onClick={onToggleExpand}>
               <div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: `${pct}%` }} />
             </div>
-            <span className="text-xs text-slate-400 whitespace-nowrap">{done}/{subs.length}</span>
-            <ChevronDown size={12} className={cn('text-slate-400 transition-transform shrink-0', isExpanded && 'rotate-180')} />
+            <span className="flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap cursor-pointer" onClick={onToggleExpand}
+              title={blockedByTask ? `${pendingSubs} sous-tâche(s) restante(s)` : undefined}>
+              {blockedByTask && <AlertTriangle size={10} className="text-amber-500 shrink-0" />}
+              {done}/{subs.length}
+            </span>
+            {!isReadOnly && (
+              <button onClick={e => { e.stopPropagation(); onAddSub(t) }} title="Ajouter une sous-tâche"
+                className="shrink-0 p-0.5 rounded text-indigo-500 hover:bg-indigo-50 transition-colors">
+                <Plus size={12} />
+              </button>
+            )}
+            <button onClick={onToggleExpand} title={isExpanded ? 'Replier' : 'Déplier'}
+              className="shrink-0 p-1 -m-1 rounded hover:bg-slate-100 transition-colors">
+              <ChevronDown size={12} className={cn('text-slate-400 transition-transform', isExpanded && 'rotate-180')} />
+            </button>
           </div>
           {isExpanded && (
             <div className="flex flex-col gap-1 mt-2">
@@ -184,7 +235,8 @@ function KanbanCard({
                     )}
                     <div className="flex-1 min-w-0">
                       <span className={cn('text-xs leading-snug', s.statut === 'Fait' ? 'line-through text-slate-400' : 'text-navy')}>{s.titre}</span>
-                      <span className="text-xs text-slate-400 ml-1">{s.id_tache}</span>
+                      {numbers.get(s.id_tache) && <span className="text-xs text-slate-400 ml-1">{numbers.get(s.id_tache)}</span>}
+                      <span className="text-[9px] font-mono text-subtle/70 ml-1">{s.id_tache}</span>
                       {s.assigne_a && <span className="ml-1 text-xs bg-indigo-50 text-indigo-700 px-1.5 rounded-full">{s.assigne_a}</span>}
                       {(s.effort_j > 0 || s.effort_realise_j != null) && (
                         <span className="ml-1 text-xs font-semibold text-slate-500">
@@ -213,48 +265,15 @@ function KanbanCard({
 }
 
 // ── Ghost pour DragOverlay ────────────────────────────────────
-function CardGhost({ t, col }: { t: Tache; col: typeof COLS[0] }) {
+function CardGhost({ t, num, col }: { t: Tache; num?: string; col: typeof COLS[0] }) {
   return (
     <div className={cn('kanban-card border-l-4 shadow-2xl rotate-1 opacity-95 pointer-events-none', col.borderColor)}>
       <div className="flex items-center gap-1.5 mb-1">
         <GripVertical size={11} className="text-slate-300" />
-        <span className="text-xs font-semibold text-indigo-600">{t.id_tache}</span>
+        {num && <span className="text-xs font-semibold text-indigo-600">{num}</span>}
+        <span className="shrink-0 font-mono text-[9px] text-subtle/70 bg-bg px-1 rounded">{t.id_tache}</span>
       </div>
       <p className="text-xs font-medium text-navy leading-snug line-clamp-2">{t.titre}</p>
-    </div>
-  )
-}
-
-// ── Critères cochables dans le panel ─────────────────────────
-function PanelCriteres({ tache, onSave }: { tache: Tache; onSave: (criteres: string) => void }) {
-  const [items, setItems] = useState(() => parseCriteres(tache.criteres))
-
-  useEffect(() => {
-    setItems(parseCriteres(tache.criteres))
-  }, [tache.id_tache, tache.criteres])
-
-  function handleChange(newItems: CritereItem[]) {
-    setItems(newItems)
-    onSave(serializeCriteres(newItems))
-  }
-
-  const done  = items.filter(i => i.checked).length
-  const total = items.length
-
-  return (
-    <div>
-      <div className="ds-label mb-1.5 flex items-center gap-2">
-        Critères d'acceptation (DoD)
-        {total > 0 && (
-          <span className={cn(
-            'ml-auto text-[11px] font-semibold px-1.5 py-0.5 rounded-full',
-            done === total ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
-          )}>
-            {done}/{total}
-          </span>
-        )}
-      </div>
-      <CriteresEditor items={items} onChange={handleChange} compact />
     </div>
   )
 }
@@ -268,7 +287,10 @@ export default function SprintBoardPage() {
   const [onlyMine,     setOnlyMine]     = useState(false)
   const [search,       setSearch]       = useState('')
   const [allSprint,    setAllSprint]    = useState('')
-  const [panel,        setPanel]        = useState<Tache | null>(null)
+  // Détail de tâche : panneau partagé TacheDetailPanel, centré, édition
+  // restreinte (cf. SPRINT_BOARD_EDITABLE_FIELDS) — même composant que le
+  // backlog, juste id de tâche à la place de l'objet complet.
+  const [panelId,      setPanelId]      = useState<string | null>(null)
   const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set())
   const [effortModal,  setEffortModal]  = useState<{ tache: Tache; pendingStatut: Statut; subsRealTotal: number } | null>(null)
   const [effortInput,  setEffortInput]  = useState('')
@@ -279,7 +301,6 @@ export default function SprintBoardPage() {
   const [activeId,     setActiveId]     = useState<string | null>(null)
   const [sousTacheFor, setSousTacheFor] = useState<Tache | null>(null)
   const [mobileCol,    setMobileCol]    = useState<Statut>('À faire')
-  const [dodDetail,    setDodDetail]    = useState<import('@/hooks/useDod').DodItem | null>(null)
 
   const { data: dodItems = [] }               = useDod()
   const { data: epicsListMain = [] }          = useEpics()
@@ -293,7 +314,7 @@ export default function SprintBoardPage() {
   const updateDodItem = useUpdateDodItem()
   const createSub     = useCreateSousTache()
   const toast       = useToast()
-  const { canWrite, user, profile } = useAuth()
+  const { canWrite, profile } = useAuth()
   const { produitActif } = useProduit()
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
@@ -309,6 +330,17 @@ export default function SprintBoardPage() {
 
   const sprint4Board = activeTab === 'current' ? (sprintActif?.numero ?? null) : allSprint
   const byId = useMemo(() => buildTacheIndex(taches), [taches])
+
+  // Numérotation 1.1, 1.2… identique au backlog (cf. TacheTree) — calculée
+  // sur l'ensemble complet des tâches/Epics du produit, pas sur le seul
+  // sous-ensemble affiché dans le sprint courant, pour qu'une US garde le
+  // même numéro d'une vue à l'autre. `numero` = chiffre du code Epic
+  // (Setup > Epics), pas un rang recalculé — cf. computeTacheNumbers.
+  const numberingEpics = useMemo(() => epicsListMain.map(e => ({ label: epicFullName(e), numero: epicOrdreFromCode(e.code) })), [epicsListMain])
+  const tacheNumbers = useMemo(
+    () => computeTacheNumbers(numberingEpics, label => taches.filter(t => !t.parent_id && t.epic === label), childMap, byId),
+    [numberingEpics, taches, childMap, byId],
+  )
 
   const boardTaches = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -484,6 +516,14 @@ export default function SprintBoardPage() {
     toast('Assigné')
   }
 
+  // Chiffrer l'effort d'une US arrivée en sprint sans estimation — une fois
+  // posé, ce n'est plus modifiable depuis la carte (cf. effortJ > 0 dans
+  // KanbanCard) : on ne corrige pas une estimation à la volée en sprint.
+  async function setEffort(id_tache: string, effort_j: number) {
+    await updateTache.mutateAsync({ id_tache, updates: { effort_j } })
+    toast(`Effort chiffré : ${effort_j}j`)
+  }
+
   function toggleExpand(id: string) {
     setExpandedSubs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
@@ -539,7 +579,7 @@ export default function SprintBoardPage() {
         {activeTab === 'current' && sprintActif && (
           <>
             <div className="ds-sep" />
-            <span className="text-sm font-semibold text-navy">{sprintActif.numero}</span>
+            <span className="text-sm font-semibold text-navy">{formatSprintLabel(sprintActif.numero)}</span>
             <span className="ds-pill-stat pill-wip rounded-full px-2.5 py-0.5 text-xs font-medium">en cours</span>
           </>
         )}
@@ -549,7 +589,7 @@ export default function SprintBoardPage() {
             <option value="">-- Sprint --</option>
             {existingSprintNumeros(sprints).map(s => {
               const sp = sprints.find(x => x.numero === s)
-              return <option key={s} value={s}>{s}{sp ? ` (${sp.statut})` : ''}</option>
+              return <option key={s} value={s}>{formatSprintLabel(s)}{sp ? ` (${sp.statut})` : ''}</option>
             })}
           </select>
         )}
@@ -620,17 +660,18 @@ export default function SprintBoardPage() {
                 <SortableContext items={boardTaches.filter(t => t.statut === mobileCol).map(t => t.id_tache)} strategy={verticalListSortingStrategy}>
                   {boardTaches.filter(t => t.statut === mobileCol).map(t => (
                     <KanbanCard key={t.id_tache}
-                      t={t} col={COLS.find(c => c.key === mobileCol)!}
+                      t={t} numbers={tacheNumbers} col={COLS.find(c => c.key === mobileCol)!}
                       subs={getSubsForSprint(t.id_tache)}
                       membres={membres}
                       isReadOnly={isReadOnly}
-                      isSelected={panel?.id_tache === t.id_tache}
+                      isSelected={panelId === t.id_tache}
                       isExpanded={expandedSubs.has(t.id_tache)}
                       showStatusPicker
-                      onSelect={() => setPanel(p => p?.id_tache === t.id_tache ? null : t)}
+                      onSelect={() => setPanelId(id => id === t.id_tache ? null : t.id_tache)}
                       onToggleExpand={() => toggleExpand(t.id_tache)}
                       onChangeStatut={changeStatut}
                       onAssign={assignTo}
+                      onSetEffort={setEffort}
                       onToggleSub={toggleSub}
                       onAddSub={setSousTacheFor}
                     />
@@ -665,17 +706,18 @@ export default function SprintBoardPage() {
                       <SortableContext items={colTaches.map(t => t.id_tache)} strategy={verticalListSortingStrategy}>
                         {colTaches.map(t => (
                           <KanbanCard key={t.id_tache}
-                            t={t} col={col}
+                            t={t} numbers={tacheNumbers} col={col}
                             subs={getSubsForSprint(t.id_tache)}
                             membres={membres}
                             isReadOnly={isReadOnly}
-                            isSelected={panel?.id_tache === t.id_tache}
+                            isSelected={panelId === t.id_tache}
                             isExpanded={expandedSubs.has(t.id_tache)}
                             showStatusPicker={false}
-                            onSelect={() => setPanel(p => p?.id_tache === t.id_tache ? null : t)}
+                            onSelect={() => setPanelId(id => id === t.id_tache ? null : t.id_tache)}
                             onToggleExpand={() => toggleExpand(t.id_tache)}
                             onChangeStatut={changeStatut}
                             onAssign={assignTo}
+                            onSetEffort={setEffort}
                             onToggleSub={toggleSub}
                             onAddSub={setSousTacheFor}
                           />
@@ -692,134 +734,18 @@ export default function SprintBoardPage() {
             </div>
 
             <DragOverlay>
-              {activeTache ? <CardGhost t={activeTache} col={activeCol} /> : null}
+              {activeTache ? <CardGhost t={activeTache} num={tacheNumbers.get(activeTache.id_tache)} col={activeCol} /> : null}
             </DragOverlay>
           </DndContext>
         </div>
 
-        {/* Panel détail — barre du bas sur mobile, colonne latérale sur desktop */}
-        {panel && (
-          <>
-            <div className="fixed inset-0 z-40 bg-brand/40" onClick={() => setPanel(null)} />
-            <div className={cn(
-              'fixed inset-x-0 bottom-0 z-50 animate-in',
-              'md:inset-x-auto md:left-auto md:right-4 md:top-4 md:bottom-4 md:w-3/5 md:min-w-[380px] md:max-w-[860px] 3xl:max-w-[1200px]',
-            )}>
-              <div className="ds-card flex flex-col gap-3 max-h-[80vh] md:max-h-full md:h-full overflow-y-auto rounded-b-none md:rounded-xl shadow-2xl">
-                <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-indigo-600">{panel.id_tache}</span>
-                <button onClick={() => setPanel(null)} className="p-1 rounded-lg hover:bg-slate-50 text-slate-400 hover:text-navy"><X size={13} /></button>
-              </div>
-              <h3 className="text-sm font-semibold text-navy leading-snug">{panel.titre}</h3>
-              <div className="flex flex-wrap gap-1.5">
-                <StatutBadge value={panel.statut} />
-                {panel.moscow && <MoscowBadge value={panel.moscow} />}
-                {panel.jalon && <JalonBadge value={panel.jalon} color={jalonsListMain.find(j => j.code === panel.jalon)?.couleur ?? undefined} />}
-              </div>
-              {panel.description && <div><div className="ds-label mb-1">User Story</div><p className="text-xs text-navy leading-relaxed whitespace-pre-line">{panel.description}</p></div>}
-              {parseCriteres(panel.criteres).length > 0 && (
-                <PanelCriteres
-                  tache={panel}
-                  onSave={async criteres => {
-                    await updateTache.mutateAsync({ id_tache: panel.id_tache, updates: { criteres } })
-                  }}
-                />
-              )}
-              {!isReadOnly && (
-                <button onClick={() => setSousTacheFor(panel)}
-                  className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-700 font-medium">
-                  <CornerDownRight size={12} /> Ajouter une sous-tâche
-                </button>
-              )}
-
-              {/* Détails secondaires — repliés par défaut pour ne pas noyer le panneau */}
-              <details className="pt-3 mt-1 border-t-2 border-slate-300 group/details">
-                <summary className="ds-label cursor-pointer select-none list-none flex items-center gap-1.5">
-                  <ChevronDown size={11} className="transition-transform -rotate-90 group-open/details:rotate-0" />
-                  Détails
-                </summary>
-                <div className="flex flex-col gap-3 mt-2">
-                  {/* Même ordre que le panneau Tâches : Assigné → Epic → Type/Jalon → Sprint → Équipe/Thème */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                    {([
-                      ['Assigné',        panel.assigne_a],
-                      ['Epic',           panel.epic?.split(' — ')[0]],
-                      ['Type fonction',  panel.type_fonction],
-                      ['Jalon - Incrément majeur', panel.jalon],
-                      ['Sprint',         panel.sprint || panel.sprint_debut],
-                      ['Effort',         panel.effort_j ? `${panel.effort_j}j` : null],
-                      ['Équipe',         panel.equipe],
-                      ['Thème',          panel.metier],
-                    ] as [string, string | null | undefined][]).map(([k, v]) => v ? (
-                      <div key={k}><div className="text-slate-400">{k}</div><div className="font-semibold text-navy">{v}</div></div>
-                    ) : null)}
-                  </div>
-                  {panel.lien_dod && (
-                    <div>
-                      <div className="ds-label mb-1">Exigences</div>
-                      <div className="flex flex-wrap gap-1">
-                        {panel.lien_dod.split(/[,;]/).map(s => s.trim()).filter(Boolean).map(code => {
-                          const item = dodItems.find(d => d.code === code)
-                          return (
-                            <button key={code} onClick={() => item && setDodDetail(item)}
-                              title={item ? 'Voir le détail' : undefined}
-                              className="text-xs px-2 py-0.5 rounded-full bg-brand/10 text-brand font-mono font-medium hover:bg-brand/20 transition-colors disabled:cursor-default"
-                              disabled={!item}>
-                              {code}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-                  {panel.commentaire && <div><div className="ds-label mb-1">Commentaire PO</div><p className="text-xs text-slate-400 italic">{panel.commentaire}</p></div>}
-
-                  {panel.statut !== 'Fait' && (
-                    <div>
-                      <div className="ds-label mb-1.5">Déplacer vers sprint</div>
-                      <div className="flex gap-2">
-                        <select defaultValue={panel.sprint || panel.sprint_debut || ''}
-                          className="ds-select text-xs flex-1" id={`sprint-move-${panel.id_tache}`}>
-                          <option value="">Backlog</option>
-                          {existingSprintNumeros(sprints).map(s => <option key={s}>{s}</option>)}
-                        </select>
-                        <button onClick={async () => {
-                          const sel = document.getElementById(`sprint-move-${panel.id_tache}`) as HTMLSelectElement
-                          const val = sel?.value ?? ''
-                          await updateTache.mutateAsync({ id_tache: panel.id_tache, updates: { sprint: val, sprint_debut: val || null } })
-                          toast(`${panel.id_tache} → ${val || 'Backlog'}`)
-                        }} className="ds-btn ds-btn-sm">✓</button>
-                      </div>
-                    </div>
-                  )}
-
-                  {(childMap[panel.id_tache] ?? []).length > 0 && (
-                    <div>
-                      <div className="ds-label mb-2">Toutes les sous-tâches</div>
-                      {(childMap[panel.id_tache] ?? []).map(s => (
-                        <div key={s.id_tache} className="flex items-center gap-2 py-1">
-                          <div className={cn('w-2 h-2 rounded-full shrink-0',
-                            s.statut === 'Fait'     ? 'bg-emerald-400' :
-                            s.statut === 'En cours' ? 'bg-amber-400' :
-                            s.statut === 'Bloqué'   ? 'bg-rose-400' : 'bg-slate-300')} />
-                          <span className={cn('text-xs flex-1', s.statut === 'Fait' && 'line-through text-slate-400')}>{s.titre}</span>
-                          {s.assigne_a && <span className="text-xs bg-indigo-50 text-indigo-700 px-1.5 rounded-full">{s.assigne_a}</span>}
-                          <StatutBadge value={s.statut} />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </details>
-
-              {produitActif && (
-                <div className="pt-3 mt-1 border-t-2 border-slate-300">
-                  <TacheExtras produitId={produitActif.id} tache={panel} membres={membres} userId={user?.id ?? null} toast={toast} />
-                </div>
-              )}
-              </div>
-            </div>
-          </>
+        {/* Détail de tâche — panneau partagé avec le backlog (TacheDetailPanel),
+            centré à l'écran, édition restreinte aux champs pertinents en
+            sprint (cf. SPRINT_BOARD_EDITABLE_FIELDS) : tout le reste
+            s'affiche mais reste grisé/non cliquable. */}
+        {panelId && (
+          <TacheDetailPanel tacheId={panelId} onClose={() => setPanelId(null)}
+            editableFields={SPRINT_BOARD_EDITABLE_FIELDS} centered />
         )}
       </div>
 
@@ -902,7 +828,6 @@ export default function SprintBoardPage() {
         />
       )}
 
-      <DodDetailModal item={dodDetail} onClose={() => setDodDetail(null)} />
     </Layout>
   )
 }

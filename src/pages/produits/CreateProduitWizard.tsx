@@ -139,17 +139,16 @@ function StepEpics() {
   const { data: epics = [] } = useEpics()
   const createEpic = useCreateEpic()
   const deleteEpic  = useDeleteEpic()
-  const toast = useToast()
-  const [num, setNum] = useState('')
   const [nom, setNom] = useState('')
 
+  // Numéro auto-généré et séquentiel (EPIC 1, 2, 3…) — plus de saisie
+  // libre ; réordonnable ensuite par glisser-déposer dans Setup > Epics.
   async function add() {
-    const code = num.trim(), n = nom.trim()
-    if (!code || !n) return
-    if (epics.some(e => e.code.toLowerCase() === code.toLowerCase())) { toast('Ce numéro existe déjà', 'error'); return }
+    const n = nom.trim()
+    if (!n) return
     const couleur = BRAND_COLORS[epics.length % BRAND_COLORS.length]
-    await createEpic.mutateAsync({ code, nom: n, couleur, bg_couleur: `${couleur}22` })
-    setNum(''); setNom('')
+    await createEpic.mutateAsync({ nom: n, couleur, bg_couleur: `${couleur}22` })
+    setNom('')
   }
 
   return (
@@ -158,11 +157,9 @@ function StepEpics() {
       <Repeater items={epics} onDelete={id => deleteEpic.mutate(id)} deleting={deleteEpic.isPending}
         renderItem={e => <span className="text-sm text-navy"><span className="font-mono font-bold text-brand mr-1.5">{e.code}</span>{e.nom}</span>}>
         <div className="flex items-end gap-2">
-          <div className="w-28"><label className="ds-label mb-1 block">Numéro</label>
-            <input value={num} onChange={ev => setNum(ev.target.value)} className="ds-input" placeholder="EPIC 1" onKeyDown={ev => ev.key === 'Enter' && add()} /></div>
           <div className="flex-1"><label className="ds-label mb-1 block">Nom</label>
             <input value={nom} onChange={ev => setNom(ev.target.value)} className="ds-input" placeholder="Train de galets" onKeyDown={ev => ev.key === 'Enter' && add()} /></div>
-          <button onClick={add} disabled={createEpic.isPending || !num.trim() || !nom.trim()} className="ds-btn-primary ds-btn-sm flex items-center gap-1"><Plus size={13} /> Ajouter</button>
+          <button onClick={add} disabled={createEpic.isPending || !nom.trim()} className="ds-btn-primary ds-btn-sm flex items-center gap-1"><Plus size={13} /> Ajouter</button>
         </div>
       </Repeater>
     </div>

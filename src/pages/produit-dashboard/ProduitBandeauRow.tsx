@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, CheckCircle, XCircle } from 'lucide-react'
 import { Tooltip } from '@/components/ui/Tooltip'
-import { cn, buildTacheIndex, buildChildMap, effortEffectif, isUS } from '@/lib/utils'
+import { cn, buildTacheIndex, buildChildMap, effortEffectif, isUS, formatSprintLabel } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { useFinanceConfig } from '@/hooks/useFinanceConfig'
 import { useTachesByProduit } from '@/hooks/useTaches'
@@ -289,7 +289,7 @@ export function ProduitBandeauRow({
           <div>
             <div className="text-[10px] text-subtle uppercase font-bold tracking-wider mb-0.5">Sprint</div>
             <div className="text-sm font-bold text-navy">
-              S{effectiveSprint}
+              {formatSprintLabel(effectiveSprint)}
               {sprintIsCloture && <span className="ml-1 text-[10px] font-normal text-subtle">(clôturé)</span>}
             </div>
           </div>

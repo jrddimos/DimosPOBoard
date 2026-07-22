@@ -12,7 +12,7 @@ import {
 } from '@/hooks/useReunions'
 import { useToast } from '@/hooks/useToast'
 import { MentionField } from '@/components/ui/MentionField'
-import { cn, getISOWeek } from '@/lib/utils'
+import { cn, getISOWeek, formatSprintLabel } from '@/lib/utils'
 import {
   ChevronLeft, ChevronRight, Play, Pause, SkipBack, SkipForward,
   Plus, X, Check, Save, Printer, ChevronDown, ChevronUp, AlertTriangle,
@@ -277,7 +277,7 @@ function ProduitRevueCard({
                     <option value="">Actif / Dernier</option>
                     {[...sortedSprints].reverse().map(s => (
                       <option key={s.numero} value={s.numero}>
-                        S{s.numero} — {s.statut === 'en_cours' ? 'En cours' : s.statut === 'cloture' ? 'Clôturé' : s.statut === 'planifie' ? 'Planifié' : s.statut}
+                        {formatSprintLabel(s.numero)} — {s.statut === 'en_cours' ? 'En cours' : s.statut === 'cloture' ? 'Clôturé' : s.statut === 'planifie' ? 'Planifié' : s.statut}
                       </option>
                     ))}
                   </select>
@@ -308,7 +308,7 @@ function ProduitRevueCard({
             <Target size={10} className="text-indigo-500 shrink-0" />
             <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
               {scope === 'sprint' && effectiveSprintObj
-                ? `Objectifs & Review — S${effectiveSprintObj.numero}`
+                ? `Objectifs & Review — ${formatSprintLabel(effectiveSprintObj.numero)}`
                 : 'Objectifs & Review'}
             </span>
             {scope === 'sprint' && items.length > 0 && (
@@ -342,7 +342,7 @@ function ProduitRevueCard({
                   {/* Objectifs */}
                   <div className="flex flex-col gap-2.5 p-4">
                     <div className="text-[10px] font-bold text-subtle uppercase tracking-wider">
-                      Objectifs — S{effectiveSprintObj.numero}
+                      Objectifs — {formatSprintLabel(effectiveSprintObj.numero)}
                     </div>
                     {freeObj && (
                       <div className="text-xs text-navy/80 leading-relaxed whitespace-pre-line bg-card border border-border rounded-lg px-3 py-2">

@@ -6,7 +6,7 @@ import { cn, epicShortName, effortEffectif, isUS, computeTacheNumbers, buildTach
 import { GuideRail } from '@/components/ui/TreeGuideRail'
 import { useColonneTitre, ColonneTitreHandle } from '@/components/ui/ColonneTitre'
 import { useFillHeight } from '@/hooks/useFillHeight'
-import { epicFullName, useEpics, type Epic } from '@/hooks/useEpics'
+import { epicFullName, epicOrdreFromCode, useEpics, type Epic } from '@/hooks/useEpics'
 import type { useUpdateTache } from '@/hooks/useTaches'
 import type { Tache } from '@/types'
 import { isBloqueeParDependance, type TacheDependance } from '@/hooks/useTacheDependances'
@@ -85,7 +85,9 @@ export function TacheTree({
   // garde le même numéro (1.2, 3.1…) dans le backlog, la vue sprint du Setup
   // et toute vue filtrée. epicsList/filtered/childMap ne servent qu'au rendu.
   const { data: allEpics = [] } = useEpics()
-  const numberingLabels = useMemo(() => allEpics.map(epicFullName), [allEpics])
+  // `numero` = chiffre du code Epic (Setup > Epics), pas un rang recalculé
+  // — cf. computeTacheNumbers pour le pourquoi (désync possible sinon).
+  const numberingEpics = useMemo(() => allEpics.map(e => ({ label: epicFullName(e), numero: epicOrdreFromCode(e.code) })), [allEpics])
   const fullById = useMemo(() => buildTacheIndex(allTaches), [allTaches])
   const fullChildMap = useMemo(() => {
     const m: Record<string, Tache[]> = {}
@@ -93,8 +95,8 @@ export function TacheTree({
     return m
   }, [allTaches])
   const numbers = useMemo(
-    () => computeTacheNumbers(numberingLabels, label => allTaches.filter(t => !t.parent_id && t.epic === label), fullChildMap, fullById),
-    [numberingLabels, allTaches, fullChildMap, fullById],
+    () => computeTacheNumbers(numberingEpics, label => allTaches.filter(t => !t.parent_id && t.epic === label), fullChildMap, fullById),
+    [numberingEpics, allTaches, fullChildMap, fullById],
   )
 
   const data = useMemo<TreeNode[]>(() => {

@@ -17,7 +17,7 @@ import { useTaches } from '@/hooks/useTaches'
 import { useEquipes } from '@/hooks/useEquipes'
 import { useToast } from '@/hooks/useToast'
 import { ToastContainer } from '@/components/ui/Toast'
-import { cn } from '@/lib/utils'
+import { cn, formatSprintLabel } from '@/lib/utils'
 import { BRAND_COLORS } from '@/constants'
 import type { Sprint, Tache, RagConfig, Equipe } from '@/types'
 import { RAG_CONFIG_DEFAULT } from '@/types'
@@ -159,6 +159,15 @@ function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintId
   const [expandConsoInvest, setExpandConsoInvest] = useState(() => (t.realise_invest_details ?? []).length > 0)
   const [expandPrevAchats,  setExpandPrevAchats]  = useState(() => (t.budget_achats_details  ?? []).length > 0)
   const [expandConsoAchats, setExpandConsoAchats] = useState(() => (t.realise_achats_details ?? []).length > 0)
+  // Buffer texte local pour budget_etp (pas de resync depuis `t` : `set()`
+  // renvoie un nombre au parent, qui repasserait par ex. "2." → 2 et
+  // effacerait le point décimal en cours de frappe, cf. bug déjà corrigé
+  // sur l'effort dans TacheDetailPanel).
+  const [etpText, setEtpText] = useState(() => t.budget_etp != null ? String(t.budget_etp) : '')
+  // Même buffer, par ligne, pour la répartition ETP par équipe — en plus du
+  // point décimal (même souci que ci-dessus), `d.etp || ''` effaçait aussi
+  // le champ dès qu'on tapait un "0" en tête (ex. "0.2"), car 0 est falsy.
+  const [etpDrafts, setEtpDrafts] = useState<Record<string, string>>({})
 
   function openPicker() {
     setTempSelection([...selectedIds])
@@ -223,6 +232,7 @@ function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintId
     remove(id: string) {
       const next = etpDetailList.filter(d => d.id !== id)
       onChange({ ...t, budget_etp_detail: next.length ? next : undefined, budget_etp: calcEtpSum(next) })
+      setEtpDrafts(prev => { const n = { ...prev }; delete n[id]; return n })
     },
   }
   const joursTrim   = financeConfig?.jours_par_trim ?? JOURS_ETP_TRIM
@@ -483,7 +493,7 @@ function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintId
                           sel ? 'bg-purple border-purple' : 'border-border')}>
                           {sel && <Check size={9} className="text-white"/>}
                         </div>
-                        <span className="text-xs font-semibold text-navy flex-1">Sprint {sprint.numero}</span>
+                        <span className="text-xs font-semibold text-navy flex-1">Sprint {formatSprintLabel(sprint.numero)}</span>
                         <div className="flex items-center gap-2 text-[11px] text-subtle shrink-0">
                           <span className={cn('px-1.5 py-0.5 rounded-full font-medium', {
                             'bg-brand/10 text-navy':        sprint.statut === 'cloture',
@@ -596,9 +606,15 @@ function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintId
                                 <option value="">-- Équipe --</option>
                                 {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.nom}</option>)}
                               </select>
-                              <input type="number" min="0" step="0.1" value={d.etp || ''} placeholder="0"
+                              <input type="number" min="0" step="0.1" value={etpDrafts[d.id] ?? (d.etp || '')} placeholder="0"
                                 disabled={!prevEditable || isCloture}
-                                onChange={e => etpOps.update(d.id, 'etp', e.target.value === '' ? 0 : Number(e.target.value))}
+                                onChange={e => {
+                                  const raw = e.target.value
+                                  setEtpDrafts(prev => ({ ...prev, [d.id]: raw }))
+                                  if (raw === '') { etpOps.update(d.id, 'etp', 0); return }
+                                  const num = Number(raw)
+                                  if (Number.isFinite(num)) etpOps.update(d.id, 'etp', num)
+                                }}
                                 className={cn('ds-input text-xs text-right w-16 shrink-0', (!prevEditable || isCloture) && 'bg-bg cursor-not-allowed opacity-60')} />
                               {prevEditable && !isCloture && (
                                 <button onClick={() => etpOps.remove(d.id)} className="text-subtle hover:text-red shrink-0"><X size={11}/></button>
@@ -614,9 +630,16 @@ function TrimRow({ t, onChange, onDelete, isAdmin, sprints, taches, usedSprintId
                         </div>
                       ) : (
                         <>
-                          <input type="number" min="0" step="0.5" value={t.budget_etp ?? ''} placeholder="0"
+                          <input type="number" min="0" step="0.1" value={etpText} placeholder="0"
                             disabled={!prevEditable || isCloture}
-                            onChange={e => { if (prevEditable) set('budget_etp', e.target.value === '' ? null : Number(e.target.value)) }}
+                            onChange={e => {
+                              if (!prevEditable) return
+                              const raw = e.target.value
+                              setEtpText(raw)
+                              if (raw === '') { set('budget_etp', null); return }
+                              const num = Number(raw)
+                              if (Number.isFinite(num)) set('budget_etp', num)
+                            }}
                             className={cn('ds-input text-xs text-right w-full', !prevEditable && 'bg-bg cursor-not-allowed opacity-60')} />
                           {!isCloture && prevEditable && (
                             <button onClick={etpOps.add} title="Détailler par équipe (TJM dédié)"

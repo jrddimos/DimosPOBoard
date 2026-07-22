@@ -17,6 +17,16 @@ export function existingSprintNumeros(sprints: Pick<Sprint, 'numero'>[]): string
   return SPRINTS_LIST.filter(s => set.has(s))
 }
 
+// Libellé affiché d'un sprint ("S01" stocké → "SP01" affiché) — évite la
+// confusion avec les numéros de semaine calendaire, affichés eux aussi en
+// "S01" ailleurs (Plan de charges, graphes). Ne touche jamais la valeur
+// stockée (sprints.numero / taches.sprint_debut/sprint_fin) : uniquement
+// la présentation.
+export function formatSprintLabel(numero: string | null | undefined): string {
+  if (!numero) return ''
+  return numero.replace(/^S(?=\d)/, 'SP')
+}
+
 export function buildTacheIndex(taches: Tache[]): Map<string, Tache> {
   return new Map(taches.map(t => [t.id_tache, t]))
 }
@@ -86,24 +96,29 @@ export function buildChildMap(taches: Tache[]): Record<string, Tache[]> {
 // stables). Clé "epic::<label complet>" → "1", clé id_tache → "1.2"/"1.2.1".
 // Un Conteneur ne consomme pas de numéro : ses enfants continuent la
 // séquence de l'Epic comme s'il n'existait pas.
+// `numero` vient du chiffre du code Epic (Setup > Epics, cf.
+// epicOrdreFromCode) — jamais recalculé comme un simple rang dans la
+// liste : sinon un Epic "EPIC 5" avec des trous devant lui (EPIC 2, 3
+// supprimés/inexistants) s'afficherait "3" dans le backlog au lieu de
+// "5", désynchronisé de ce que l'utilisateur a réellement configuré.
 export function computeTacheNumbers(
-  orderedEpicLabels: string[],
+  orderedEpics: { label: string; numero: number }[],
   tasksByEpicLabel: (label: string) => Tache[],
   childMap: Record<string, Tache[]>,
   byId: Map<string, Tache>,
 ): Map<string, string> {
   const numbers = new Map<string, string>()
-  orderedEpicLabels.forEach((label, epicIdx) => {
+  orderedEpics.forEach(({ label, numero }) => {
     const tasks = tasksByEpicLabel(label)
     if (!tasks.length) return
-    numbers.set(`epic::${label}`, String(epicIdx + 1))
+    numbers.set(`epic::${label}`, String(numero))
     let usCounter = 0
     const walk = (list: Tache[]) => {
       for (const t of list) {
         if (t.type_tache === 'Conteneur') { walk(childMap[t.id_tache] ?? []); continue }
         if (!isUS(t, byId)) continue
         usCounter++
-        const num = `${epicIdx + 1}.${usCounter}`
+        const num = `${numero}.${usCounter}`
         numbers.set(t.id_tache, num)
         ;(childMap[t.id_tache] ?? []).forEach((s, i) => numbers.set(s.id_tache, `${num}.${i + 1}`))
       }

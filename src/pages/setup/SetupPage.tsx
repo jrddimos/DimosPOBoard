@@ -12,7 +12,7 @@ import { useTaches, useUpdateTache } from '@/hooks/useTaches'
 import { useToast } from '@/hooks/useToast'
 import { confirm } from '@/components/ui/ConfirmModal'
 import { supabase } from '@/lib/supabase'
-import { downloadCSV, naturalCompare, buildTacheIndex, buildChildMap, effortEffectif, parseCriteres, serializeCriteres, type CritereItem } from '@/lib/utils'
+import { downloadCSV, naturalCompare, buildTacheIndex, buildChildMap, effortEffectif, parseCriteres, serializeCriteres, formatSprintLabel, type CritereItem } from '@/lib/utils'
 import { isEligibleForBacklog, isInThisSprint, buildEligibleTree } from '@/lib/sprintEligibility'
 import { TacheTree } from '@/components/tache/TacheTree'
 import { TacheDetailPanel } from '@/components/tache/TacheDetailPanel'
@@ -20,13 +20,16 @@ import { useProduitIterations, useUpdateIteration, useTransferToNextIteration, t
 // @react-pdf/renderer et exceljs sont lourds (~800 Ko à eux deux) : chargés
 // à la demande au clic sur export, pas au chargement de la page.
 import { METIERS_DEFAULT, SPRINTS_LIST, BRAND_COLORS } from '@/constants'
-import { useEpics, useCreateEpic, useUpdateEpic, useDeleteEpic, epicFullName, type Epic } from '@/hooks/useEpics'
+import { useEpics, useCreateEpic, useUpdateEpic, useDeleteEpic, useReorderEpics, epicFullName, type Epic } from '@/hooks/useEpics'
+import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useJalons, useCreateJalon, useUpdateJalon, useDeleteJalon, type Jalon } from '@/hooks/useJalons'
 import { useDod } from '@/hooks/useDod'
 import {
   Pencil, Trash2, Plus, ChevronDown, ChevronRight, Check, X,
   Tag, Calendar, BookOpen, Target, Download, FileDown, Settings, Lock, Euro, Users,
-  Play, Pause, RotateCcw, CheckCircle2, Zap, Wrench,
+  Play, Pause, RotateCcw, CheckCircle2, Zap, Wrench, GripVertical,
 } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
 import { SelectPicker } from '@/components/ui/SelectPicker'
@@ -248,7 +251,7 @@ function SprintsTab() {
   async function addNextSprint() {
     if (!nextNum) { toast('Limite de 16 sprints atteinte', 'error'); return }
     await upsertSprint.mutateAsync({ numero: nextNum, statut: 'planifie', est_actif: false })
-    toast(`Sprint ${nextNum} créé`)
+    toast(`Sprint ${formatSprintLabel(nextNum)} créé`)
     selectSprint(nextNum)
   }
   const doneCount = items.filter(i => checks[i]).length
@@ -298,7 +301,7 @@ function SprintsTab() {
       const trim = (produit?.objectifs_trimestriels ?? []).find(t => (t.sprints_ids ?? []).includes(selected))
       const trimEnd = trim ? getQuarterEnd(trim.trimestre) : null
       if (!trimEnd) {
-        toast(`${selected} n'est rattaché à aucun trimestre — rattache-le d'abord dans Config produit.`, 'error')
+        toast(`${formatSprintLabel(selected)} n'est rattaché à aucun trimestre — rattache-le d'abord dans Config produit.`, 'error')
         return
       }
       end = trimEnd
@@ -308,7 +311,7 @@ function SprintsTab() {
       label = `${plannedWeeks} semaine${plannedWeeks > 1 ? 's' : ''}`
     }
     await upsertSprint.mutateAsync({ numero: selected, started_at: start.toISOString(), closed_at: end.toISOString() } as Parameters<typeof upsertSprint.mutateAsync>[0])
-    toast(`Dates de ${selected} enregistrées (${label})`)
+    toast(`Dates de ${formatSprintLabel(selected)} enregistrées (${label})`)
   }
 
   async function action(type: 'start' | 'pause' | 'close' | 'unlock') {
@@ -333,7 +336,7 @@ function SprintsTab() {
     }
     if (type === 'start') await supabase.from('sprints').update({ est_actif: false }).neq('numero', selected)
     await upsertSprint.mutateAsync({ numero: selected, ...map[type] } as Parameters<typeof upsertSprint.mutateAsync>[0])
-    toast(`Sprint ${selected} mis à jour`)
+    toast(`Sprint ${formatSprintLabel(selected)} mis à jour`)
   }
 
   function computeStats(tasks: typeof spTaches): SprintStats {
@@ -352,7 +355,7 @@ function SprintsTab() {
   async function doClose(stats: SprintStats) {
     const now = new Date().toISOString()
     await upsertSprint.mutateAsync({ numero: selected, statut: 'cloture', est_actif: false, closed_at: now, stats } as Parameters<typeof upsertSprint.mutateAsync>[0])
-    toast(`Sprint ${selected} clôturé`)
+    toast(`Sprint ${formatSprintLabel(selected)} clôturé`)
   }
 
   async function confirmClose() {
@@ -404,7 +407,7 @@ function SprintsTab() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-card rounded-2xl shadow-xl w-full max-w-lg flex flex-col max-h-[90vh]">
             <div className="p-5 border-b border-border">
-              <h3 className="text-base font-bold text-navy">Clôturer le sprint {selected}</h3>
+              <h3 className="text-base font-bold text-navy">Clôturer le sprint {formatSprintLabel(selected)}</h3>
               <p className="text-sm text-subtle mt-1">{unfinished.length} US non terminée(s) — que faire avec ces US ?</p>
             </div>
             <div className="flex gap-2 px-5 pt-4">
@@ -489,7 +492,7 @@ function SprintsTab() {
             {sprints.length === 0 ? (
               <button onClick={addNextSprint} disabled={upsertSprint.isPending}
                 className="ds-btn-primary ds-btn-sm flex items-center gap-1.5 disabled:opacity-40">
-                <Plus size={13} /> Créer le premier sprint ({nextNum})
+                <Plus size={13} /> Créer le premier sprint ({formatSprintLabel(nextNum)})
               </button>
             ) : (
               <>
@@ -499,11 +502,11 @@ function SprintsTab() {
                     onChange={v => selectSprint(v)}
                     placeholder="-- Choisir un sprint --"
                     searchable
-                    options={sortedSprints.map(s => ({ value: s.numero, label: `${s.numero} — ${statLabel[s.statut] || s.statut}` }))}
+                    options={sortedSprints.map(s => ({ value: s.numero, label: `${formatSprintLabel(s.numero)} — ${statLabel[s.statut] || s.statut}` }))}
                   />
                 </div>
                 <button onClick={addNextSprint} disabled={!nextNum || upsertSprint.isPending}
-                  title={nextNum ? `Créer ${nextNum}` : 'Limite de 16 sprints atteinte'}
+                  title={nextNum ? `Créer ${formatSprintLabel(nextNum)}` : 'Limite de 16 sprints atteinte'}
                   className="p-1.5 rounded-lg text-subtle hover:text-navy hover:bg-bg transition-colors disabled:opacity-30">
                   <Plus size={15} />
                 </button>
@@ -540,7 +543,7 @@ function SprintsTab() {
                 )}
                 <button title="Supprimer ce sprint" onClick={async () => {
                     if (spTaches.length > 0) { toast(`${spTaches.length} US dans ce sprint`, 'error'); return }
-                    if (!await confirm({ title: 'Supprimer ce sprint ?', message: `Le sprint ${selected} sera supprimé.`, confirmLabel: 'Supprimer', variant: 'danger' })) return
+                    if (!await confirm({ title: 'Supprimer ce sprint ?', message: `Le sprint ${formatSprintLabel(selected)} sera supprimé.`, confirmLabel: 'Supprimer', variant: 'danger' })) return
                     await deleteSprint.mutateAsync(selected); toast('Supprimé'); setSelected('')
                   }}
                   className="p-1.5 rounded-lg text-subtle hover:text-red hover:bg-red/10 transition-colors">
@@ -755,42 +758,41 @@ function EpicsTab() {
   const createEpic = useCreateEpic()
   const updateEpic = useUpdateEpic()
   const deleteEpic = useDeleteEpic()
+  const reorderEpics = useReorderEpics()
   const toast = useToast()
-  const [newNum, setNewNum] = useState(''), [newNom, setNewNom] = useState('')
+  const [newNom, setNewNom] = useState('')
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
   const counts: Record<string, number> = {}
   taches.forEach(t => { if (t.epic) counts[t.epic] = (counts[t.epic] ?? 0) + 1 })
 
+  // Le numéro n'est plus saisi : toujours le suivant dans l'ordre, à la
+  // suite des Epics existants (cf. useCreateEpic) — seul le glisser-déposer
+  // (onDragEnd ci-dessous) peut ensuite le faire changer.
   async function add() {
-    // Juste un chiffre côté saisie ("14") — le préfixe "EPIC " est ajouté
-    // automatiquement pour former le vrai code ("EPIC 14"), tel qu'affiché
-    // ensuite dans l'arbre. Tolère aussi un "EPIC" déjà tapé par habitude.
-    const digits = newNum.trim().replace(/^epic\s*/i, '').trim()
     const nom = newNom.trim()
-    if (!digits || !nom) return
-    const code = `EPIC ${digits}`
-    if (epicsList.some(e => e.code.toLowerCase() === code.toLowerCase())) { toast('Ce numéro d\'Epic existe déjà', 'error'); return }
+    if (!nom) return
     const couleur = BRAND_COLORS[epicsList.length % BRAND_COLORS.length]
-    await createEpic.mutateAsync({ code, nom, couleur, bg_couleur: `${couleur}22` })
-    toast(`Epic "${code} — ${nom}" ajouté`)
-    setNewNum(''); setNewNom('')
+    await createEpic.mutateAsync({ nom, couleur, bg_couleur: `${couleur}22` })
+    toast(`Epic "${nom}" ajouté`)
+    setNewNom('')
   }
 
-  // Change juste le numéro (le "N°" édité isolément, comme à la création) —
-  // recalcule le libellé cascadé sur toutes les tâches qui référencent l'Epic.
-  async function changeNum(epic: Epic, rawNum: string) {
-    const digits = rawNum.trim().replace(/^epic\s*/i, '').trim()
-    if (!digits) return
-    const newCode = `EPIC ${digits}`
-    if (newCode === epic.code) return
-    if (epicsList.some(e => e.id !== epic.id && e.code.toLowerCase() === newCode.toLowerCase())) { toast('Ce numéro d\'Epic existe déjà', 'error'); return }
-    const ok = await confirm({ title: 'Changer le numéro d\'Epic ?', message: `"${epic.code}" → "${newCode}" dans toutes les tâches.`, confirmLabel: 'Changer' }); if (!ok) return
-    const old = epicFullName(epic)
-    const canonical = epicFullName({ code: newCode, nom: epic.nom })
-    await updateEpic.mutateAsync({ id: epic.id, updates: { code: newCode } })
-    await supabase.from('taches').update({ epic: canonical }).eq('epic', old)
-    qc.invalidateQueries({ queryKey: ['taches'] })
-    toast('Numéro d\'Epic changé')
+  function onDragEnd(e: DragEndEvent) {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const oldIndex = epicsList.findIndex(ep => ep.id === active.id)
+    const newIndex = epicsList.findIndex(ep => ep.id === over.id)
+    if (oldIndex === -1 || newIndex === -1) return
+    reorderEpics.mutate(arrayMove(epicsList, oldIndex, newIndex).map(ep => ep.id))
+  }
+
+  // Renumérote 1, 2, 3… sans rien déplacer — comble les trous laissés par
+  // d'anciens Epics créés/renommés à la main avant l'auto-numérotation
+  // (ex: 1, 3, 4 après suppression du 2). Réutilise useReorderEpics avec
+  // l'ordre déjà affiché : seuls les codes décalés changent réellement.
+  function combleTrous() {
+    reorderEpics.mutate(epicsList.map(ep => ep.id))
   }
 
   async function renameNom(epic: Epic, rawNom: string) {
@@ -800,7 +802,9 @@ function EpicsTab() {
     const old = epicFullName(epic)
     const canonical = epicFullName({ code: epic.code, nom })
     await updateEpic.mutateAsync({ id: epic.id, updates: { nom } })
-    await supabase.from('taches').update({ epic: canonical }).eq('epic', old)
+    // Scopé au produit de l'Epic — jamais les tâches d'un autre produit
+    // ayant par coïncidence le même libellé exact.
+    await supabase.from('taches').update({ epic: canonical }).eq('epic', old).eq('produit_id', epic.produit_id)
     qc.invalidateQueries({ queryKey: ['taches'] })
     toast('Epic renommé')
   }
@@ -810,9 +814,18 @@ function EpicsTab() {
   }
 
   async function del(epic: Epic) {
-    const ok = await confirm({ title: 'Supprimer cet Epic ?', message: `Les tâches perdront leur Epic.`, confirmLabel: 'Supprimer', variant: 'danger' }); if (!ok) return
+    const nb = counts[epicFullName(epic)] ?? 0
+    const message = nb > 0
+      ? `Attention : ${nb} tâche${nb > 1 ? 's sont rattachées' : ' est rattachée'} à "${epic.code} — ${epic.nom}". Elle${nb > 1 ? 's' : ''} ne ${nb > 1 ? 'seront' : 'sera'} PAS supprimée${nb > 1 ? 's' : ''} : ${nb > 1 ? 'elles perdront' : 'elle perdra'} seulement leur rattachement à cet Epic.`
+      : `Aucune tâche n'est rattachée à cet Epic.`
+    const ok = await confirm({ title: 'Supprimer cet Epic ?', message, confirmLabel: 'Supprimer', variant: 'danger' }); if (!ok) return
     await deleteEpic.mutateAsync(epic.id)
-    await supabase.from('taches').update({ epic: '' }).eq('epic', epicFullName(epic))
+    // Ne supprime jamais les tâches : seul le champ texte `epic` est vidé.
+    await supabase.from('taches').update({ epic: '' }).eq('epic', epicFullName(epic)).eq('produit_id', epic.produit_id)
+    // Renumérote aussitôt les Epics restants pour ne jamais laisser de trou
+    // (ex: 1, 3, 4 après suppression du 2) — même mutation que le
+    // glisser-déposer, avec l'ordre actuel moins l'Epic supprimé.
+    await reorderEpics.mutateAsync(epicsList.filter(e => e.id !== epic.id).map(e => e.id))
     qc.invalidateQueries({ queryKey: ['taches'] })
     toast('Epic supprimé')
   }
@@ -856,47 +869,69 @@ function EpicsTab() {
   return (
     <div className="flex flex-col gap-4 max-w-2xl 3xl:max-w-4xl">
       <div className="ds-card flex items-end gap-2">
-        <div className="flex-none"><div className="ds-label mb-1">N° Epic</div>
-          <input value={newNum} onChange={e => setNewNum(e.target.value)} className="ds-input w-20" placeholder="14" inputMode="numeric" /></div>
         <div className="flex-1"><div className="ds-label mb-1">Nom</div><input value={newNom} onChange={e => setNewNom(e.target.value)} className="ds-input" placeholder="Nom de l'Epic" /></div>
-        <button onClick={add} disabled={createEpic.isPending || !newNum.trim().replace(/^epic\s*/i, '').trim() || !newNom.trim()}
+        <button onClick={add} disabled={createEpic.isPending || !newNom.trim()}
           className="ds-btn-primary flex items-center gap-1"><Plus size={13} /> Ajouter</button>
       </div>
       <div className="flex items-center justify-between -mt-2">
-        <p className="text-xs text-subtle">Cliquez sur le numéro ou le nom pour les modifier, sur le carré pour changer la couleur. Supprimer ne supprime pas les US mais vide leur champ Epic.</p>
-        <button onClick={repareIncoherences} title="Recale le texte Epic des tâches dont le libellé a divergé du référentiel (espace en trop, etc.)"
-          className="ds-btn ds-btn-sm flex items-center gap-1 shrink-0"><Wrench size={11} /> Réparer les incohérences</button>
+        <p className="text-xs text-subtle">Numéro automatique (glisser-déposer pour réordonner). Cliquez sur le nom pour le modifier, sur le carré pour changer la couleur. Supprimer ne supprime pas les US mais vide leur champ Epic.</p>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button onClick={combleTrous} disabled={reorderEpics.isPending} title="Renumérote 1, 2, 3… sans rien déplacer — comble les trous laissés par d'anciens Epics"
+            className="ds-btn ds-btn-sm flex items-center gap-1"><RotateCcw size={11} /> Combler les trous</button>
+          <button onClick={repareIncoherences} title="Recale le texte Epic des tâches dont le libellé a divergé du référentiel (espace en trop, etc.)"
+            className="ds-btn ds-btn-sm flex items-center gap-1"><Wrench size={11} /> Réparer les incohérences</button>
+        </div>
       </div>
       {epicsList.length === 0 ? (
         <p className="text-xs text-subtle italic">Aucun Epic défini pour ce produit.</p>
       ) : (
-        <div className="flex flex-col gap-1.5">
-          {epicsList.map(epic => {
-            const label = epicFullName(epic)
-            const nb = counts[label] ?? 0
-            const num = epic.code.replace(/^epic\s*/i, '').trim()
-            return (
-              <div key={epic.id} className="flex items-center gap-3 p-2.5 bg-card rounded-xl border border-border group">
-                <label className="w-6 h-6 rounded-md shrink-0 cursor-pointer ring-1 ring-border/60 relative overflow-hidden" style={{ background: epic.couleur ?? '#6366F1' }} title="Changer la couleur">
-                  <input type="color" value={epic.couleur ?? '#6366F1'} onChange={e => changeColor(epic, e.target.value)}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                </label>
-                <InlineEdit value={num} onSave={v => changeNum(epic, v)} placeholder={num} inputClassName="w-16 font-mono" />
-                <div className="flex-1 min-w-0">
-                  <InlineEdit value={epic.nom} onSave={v => renameNom(epic, v)} placeholder={epic.nom} />
-                  <div className="text-xs text-subtle">{nb} US</div>
-                </div>
-                {nb === 0 && (
-                  <button onClick={() => del(epic)}
-                    className="p-1.5 rounded-lg max-md:opacity-100 opacity-0 group-hover:opacity-100 hover:bg-rose-50 text-subtle hover:text-rose-600 transition-all">
-                    <Trash2 size={12} />
-                  </button>
-                )}
-              </div>
-            )
-          })}
-        </div>
+        <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+          <SortableContext items={epicsList.map(ep => ep.id)} strategy={verticalListSortingStrategy}>
+            <div className="flex flex-col gap-1.5">
+              {epicsList.map(epic => (
+                <EpicRow key={epic.id} epic={epic} nb={counts[epicFullName(epic)] ?? 0}
+                  onChangeColor={changeColor} onRename={renameNom} onDelete={del} />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
       )}
+    </div>
+  )
+}
+
+function EpicRow({ epic, nb, onChangeColor, onRename, onDelete }: {
+  epic: Epic
+  nb: number
+  onChangeColor: (epic: Epic, couleur: string) => void
+  onRename: (epic: Epic, rawNom: string) => void
+  onDelete: (epic: Epic) => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: epic.id })
+  const style = { transform: CSS.Transform.toString(transform), transition, zIndex: isDragging ? 10 : undefined }
+  const num = epic.code.replace(/^epic\s*/i, '').trim()
+  return (
+    <div ref={setNodeRef} style={style}
+      className={cn('flex items-center gap-3 p-2.5 bg-card rounded-xl border border-border group', isDragging && 'opacity-60')}>
+      <button {...attributes} {...listeners}
+        className="shrink-0 text-subtle/40 hover:text-subtle cursor-grab active:cursor-grabbing touch-none" tabIndex={-1}>
+        <GripVertical size={14} />
+      </button>
+      <label className="w-6 h-6 rounded-md shrink-0 cursor-pointer ring-1 ring-border/60 relative overflow-hidden" style={{ background: epic.couleur ?? '#6366F1' }} title="Changer la couleur">
+        <input type="color" value={epic.couleur ?? '#6366F1'} onChange={e => onChangeColor(epic, e.target.value)}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+      </label>
+      <span className="shrink-0 font-mono text-xs font-semibold text-subtle bg-bg px-2 py-1 rounded-lg w-16 text-center" title="Numéro automatique — glisser-déposer pour réordonner">
+        {num}
+      </span>
+      <div className="flex-1 min-w-0">
+        <InlineEdit value={epic.nom} onSave={v => onRename(epic, v)} placeholder={epic.nom} />
+        <div className="text-xs text-subtle">{nb} US</div>
+      </div>
+      <button onClick={() => onDelete(epic)} title="Supprimer l'Epic (les tâches ne sont pas supprimées)"
+        className="p-1.5 rounded-lg max-md:opacity-100 opacity-0 group-hover:opacity-100 hover:bg-rose-50 text-subtle hover:text-rose-600 transition-all">
+        <Trash2 size={12} />
+      </button>
     </div>
   )
 }
@@ -1161,7 +1196,7 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks, isClotur
   async function assignMany(ts: Tache[]) {
     if (!ts.length) return
     for (const t of ts) await assignToSprint(t)
-    toast(`${ts.length} US ajoutée(s) au sprint ${selected}`)
+    toast(`${ts.length} US ajoutée(s) au sprint ${formatSprintLabel(selected)}`)
   }
 
   async function doRemove(t: Tache) {
@@ -1242,7 +1277,7 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks, isClotur
     <div className="ds-card">
       <div className="flex items-center gap-2 mb-2">
         <button className="flex items-center gap-2 flex-1" onClick={() => setShowTasks(!showTasks)}>
-          <div className="ds-card-title mb-0 flex-1">US du sprint {selected} ({spTachesCount})</div>
+          <div className="ds-card-title mb-0 flex-1">US du sprint {formatSprintLabel(selected)} ({spTachesCount})</div>
           {showTasks ? <ChevronDown size={14} className="text-subtle" /> : <ChevronRight size={14} className="text-subtle" />}
         </button>
         {selected && !isCloture && (

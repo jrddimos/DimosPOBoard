@@ -21,7 +21,7 @@ import { useToast } from '@/hooks/useToast'
 import { useAuth, type UserProfile } from '@/contexts/AuthContext'
 import { useProduit } from '@/contexts/ProduitContext'
 import { confirm } from '@/components/ui/ConfirmModal'
-import { cn, parseCriteres, serializeCriteres, hasPendingCriteres, buildTacheIndex, isSousTache, effortEffectif, existingSprintNumeros, parseLienDodCodes, parseAssignees, serializeAssignees } from '@/lib/utils'
+import { cn, parseCriteres, serializeCriteres, hasPendingCriteres, buildTacheIndex, isSousTache, effortEffectif, existingSprintNumeros, formatSprintLabel, parseLienDodCodes, parseAssignees, serializeAssignees } from '@/lib/utils'
 import { METIERS_DEFAULT } from '@/constants'
 import type { Tache, Statut } from '@/types'
 
@@ -87,7 +87,7 @@ function IterationCard({iteration,membres,sprintNumeros,onUpdate}:{
         <div>
           <span className="ds-label mb-1 block">Sprint</span>
           <SelectPicker value={iteration.sprint??''} onChange={s=>onUpdate({sprint:s})}
-            options={sprintNumeros.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
+            options={sprintNumeros.map(s=>({value:s,label:formatSprintLabel(s)}))} placeholder="-- Sprint --"/>
         </div>
       </div>
       <div onBlur={()=>onUpdate({commentaire})}>
@@ -101,18 +101,33 @@ function IterationCard({iteration,membres,sprintNumeros,onUpdate}:{
   )
 }
 
+// Champs modifiables quand ce panneau est ouvert depuis le Sprint Board
+// (cf. SprintBoardPage.tsx) — tout le reste s'affiche mais reste verrouillé
+// (grisé, non cliquable) : ce sont des champs de cadrage/backlog, pas des
+// actions du quotidien en sprint. Discussion/Pièces jointes (TacheExtras)
+// restent toujours pleinement interactives, indépendamment de cette liste.
+export const SPRINT_BOARD_EDITABLE_FIELDS = new Set([
+  'statut', 'assigne_a', 'criteres', 'sprint_debut', 'sprint_fin', 'commentaire',
+])
+
 // ── Panneau de détail d'une tâche ─────────────────────────────
 // Overlay complet (champs, itérations, dépendances, extras) extrait de
 // TachesPage pour être réutilisable depuis n'importe quelle page (Setup
 // sprint notamment). Autonome : toutes les données viennent des hooks
 // produit ; seuls Dupliquer/Supprimer sont délégués via props (les pages
 // qui ne les fournissent pas n'affichent pas les boutons).
-export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
+// `editableFields` (non fourni = tout éditable, comportement historique) et
+// `centered` (tiroir latéral par défaut) permettent de réutiliser ce même
+// panneau dans un contexte plus restreint (Sprint Board).
+export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete, editableFields, centered }: {
   tacheId: string
   onClose: () => void
   onDuplicate?: (t: Tache) => void
   onDelete?: (t: Tache) => Promise<boolean>
+  editableFields?: Set<string>
+  centered?: boolean
 }) {
+  const locked = (k: string) => !!editableFields && !editableFields.has(k)
   const { produitActif } = useProduit()
   const produitId = produitActif?.id ?? null
   const { user } = useAuth()
@@ -152,26 +167,41 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
   const panelTask = allTaches.find(t => t.id_tache === tacheId) ?? null
 
   const [editForm, setEditForm] = useState<Record<string, unknown>>({})
-  // Formulaire initialisé une seule fois par tâche (pas ré-écrasé quand les
-  // données refetchent pendant l'édition) — équivalent de l'ancien openPanel.
-  const [initedFor, setInitedFor] = useState<string | null>(null)
+  // Champ actuellement en cours de frappe (Titre/Effort/User Story/Commentaire,
+  // cf. Groupe B plus bas) — protégé lors d'une resynchronisation live pour ne
+  // pas écraser une saisie en cours quand une autre personne modifie la tâche
+  // pendant que ce panneau est ouvert (cf. Realtime, useTachesRealtime).
+  const [focusedField, setFocusedField] = useState<string | null>(null)
+  // Resynchronisé à chaque changement de panelTask — pas seulement à
+  // l'ouverture — pour refléter en direct les modifications d'un autre
+  // utilisateur sans devoir fermer/rouvrir le panneau. React Query fait du
+  // structural sharing : panelTask ne change de référence que si la ligne a
+  // réellement changé côté serveur (donc pas de boucle sur un simple refetch
+  // identique). Le champ en cours de frappe (focusedField) est préservé.
   useEffect(() => {
-    if (!panelTask || initedFor === panelTask.id_tache) return
+    if (!panelTask) return
     const t = panelTask
     // effort_j = effort PROPRE de la tâche (le total propre + sous-tâches est
     // calculé à l'affichage via effortEffectif) — surtout ne pas initialiser
     // avec la somme : la sauvegarde du panneau la matérialiserait dans
     // effort_j et tout serait compté double (cf. migration 0057).
-    setEditForm({titre:t.titre,statut:t.statut,sprint:t.sprint??'',sprint_debut:t.sprint_debut??'',sprint_fin:t.sprint_fin??'',effort_j:t.effort_j??0,priorite:t.priorite??'',moscow:t.moscow??'Must Have',assigne_a:t.assigne_a??'',equipe:t.equipe??'',metier:t.metier??'',jalon:t.jalon??'',epic:t.epic??'',type_fonction:t.type_fonction??'Fonction principale',description:t.description??'',criteres:t.criteres??'',lien_dod:t.lien_dod??'',commentaire:t.commentaire??'',parent_id:t.parent_id??''})
-    setInitedFor(t.id_tache)
-  }, [panelTask, initedFor, childMap])
+    const fresh:Record<string,unknown>={titre:t.titre,statut:t.statut,sprint:t.sprint??'',sprint_debut:t.sprint_debut??'',sprint_fin:t.sprint_fin??'',effort_j:t.effort_j??0,priorite:t.priorite??'',moscow:t.moscow??'Must Have',assigne_a:t.assigne_a??'',equipe:t.equipe??'',metier:t.metier??'',jalon:t.jalon??'',epic:t.epic??'',type_fonction:t.type_fonction??'Fonction principale',description:t.description??'',criteres:t.criteres??'',lien_dod:t.lien_dod??'',commentaire:t.commentaire??'',parent_id:t.parent_id??''}
+    setEditForm(f => focusedField ? {...fresh, [focusedField]: f[focusedField]} : fresh)
+  }, [panelTask]) // eslint-disable-line react-hooks/exhaustive-deps
   function setF(k:string){return(e:React.ChangeEvent<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>)=>setEditForm(f=>({...f,[k]:e.target.value}))}
+  // Sauvegarde immédiate d'un champ — même convention que le Kanban
+  // (updateTache.mutateAsync par champ). Pas de toast : le champ affiché est
+  // déjà sa propre confirmation visuelle (cf. Kanban, silencieux pareil).
+  async function saveField(k:string, v:unknown){
+    setEditForm(f=>({...f,[k]:v}))
+    await updateTache.mutateAsync({id_tache:tacheId,updates:{[k]:v}})
+  }
 
   const [selectedIterationId,setSelectedIterationId]=useState<number|null>(null)
   const [showNewIteration,setShowNewIteration]=useState(false)
   const [sousTacheParent,setSousTacheParent]=useState<Tache|null>(null)
   const [deleting,setDeleting]=useState(false)
-  useEffect(()=>{setSelectedIterationId(null);setShowNewIteration(false)},[tacheId])
+  useEffect(()=>{setSelectedIterationId(null);setShowNewIteration(false);setFocusedField(null)},[tacheId])
   // Par défaut, la dernière itération créée — ou aucune tant que la tâche
   // n'a jamais été reprise (voir useCreateIteration : la 1ʳᵉ itération n'est
   // figée en base qu'au moment où une 2ᵉ est créée).
@@ -181,24 +211,18 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
   // le formulaire principal doublonnerait l'info et prêterait à confusion.
   const hasIterations=iterations.length>0
 
-  function setMembre(tri:string){
+  async function setMembre(tri:string){
     const m=membresActifs.find(x=>x.trigramme===tri)
     const eq=m?.equipe_id?equipes.find(e=>e.id===m.equipe_id):null
-    setEditForm(f=>({...f,assigne_a:tri,...(eq?{equipe:eq.nom}:{})}))
+    const updates={assigne_a:tri,...(eq?{equipe:eq.nom}:{})}
+    setEditForm(f=>({...f,...updates}))
+    await updateTache.mutateAsync({id_tache:tacheId,updates})
   }
 
   // Sous-tâche : un seul assigné. US : plusieurs possibles (cf. QuickAddModal).
-  function setMembresMulti(list:string[]){
-    setEditForm(f=>({...f,assigne_a:serializeAssignees(list)}))
-  }
-
-  async function savePanel(){
-    if(editForm.statut==='Fait' && hasPendingCriteres(String(editForm.criteres??''))){
-      const ok=await confirm({title:'Critères non validés',message:'Certains critères d\'acceptation ne sont pas cochés. Clôturer la tâche quand même ?',confirmLabel:'Clôturer',variant:'danger'})
-      if(!ok)return
-    }
-    await updateTache.mutateAsync({id_tache:tacheId,updates:editForm as Partial<Tache>})
-    toast(`${tacheId} mis à jour`)
+  async function setMembresMulti(list:string[]){
+    const assigne_a=serializeAssignees(list)
+    await saveField('assigne_a',assigne_a)
   }
 
   if(!panelTask) return null
@@ -206,8 +230,11 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
   return (
     <>
       <div className="fixed inset-0 z-40 bg-brand/40" onClick={onClose}/>
-      <div className="fixed inset-x-0 bottom-0 z-50 animate-in md:inset-x-auto md:left-auto md:right-4 md:top-4 md:bottom-4 md:w-3/5 md:min-w-[380px] md:max-w-[860px] 3xl:max-w-[1200px]">
-      <div className="ds-card max-h-[80vh] md:max-h-full md:h-full overflow-y-auto rounded-b-none md:rounded-xl shadow-2xl">
+      <div className={centered
+        ? 'fixed inset-0 z-50 flex items-center justify-center p-4 animate-in'
+        : 'fixed inset-x-0 bottom-0 z-50 animate-in md:inset-x-auto md:left-auto md:right-4 md:top-4 md:bottom-4 md:w-3/5 md:min-w-[380px] md:max-w-[860px] 3xl:max-w-[1200px]'}>
+      <div className={cn('ds-card overflow-y-auto shadow-2xl',
+        centered ? 'w-full max-w-3xl max-h-[85vh] rounded-2xl' : 'max-h-[80vh] md:max-h-full md:h-full rounded-b-none md:rounded-xl')}>
         {/* Header */}
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-xs font-semibold text-indigo-600 flex items-center gap-1.5">
@@ -263,11 +290,22 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
         <div className="flex flex-col">
           {/* Identité : Titre + Statut */}
           <div className="grid grid-cols-[1fr_170px] gap-3">
-            <Grp label="Titre"><input value={String(editForm.titre??'')} onChange={setF('titre')} className="ds-input text-xs"/></Grp>
+            <Grp label="Titre" className={cn(locked('titre') && 'opacity-50 pointer-events-none')}>
+              <input value={String(editForm.titre??'')} onChange={setF('titre')}
+                onFocus={()=>setFocusedField('titre')}
+                onBlur={()=>{setFocusedField(null);saveField('titre',editForm.titre)}}
+                className="ds-input text-xs"/>
+            </Grp>
             <Grp label="Statut">
               <StatusPicker
                 value={(String(editForm.statut??'À faire')) as Statut}
-                onChange={s=>setEditForm(f=>({...f,statut:s}))}
+                onChange={async s=>{
+                  if(s==='Fait' && hasPendingCriteres(String(editForm.criteres??''))){
+                    const ok=await confirm({title:'Critères non validés',message:'Certains critères d\'acceptation ne sont pas cochés. Clôturer la tâche quand même ?',confirmLabel:'Clôturer',variant:'danger'})
+                    if(!ok)return
+                  }
+                  await saveField('statut',s)
+                }}
               />
             </Grp>
           </div>
@@ -278,8 +316,9 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
               parent) est autorisé comme destination — sinon on créerait un 4ᵉ niveau. */}
           {panelTask.type_tache!=='Conteneur' && (
           <div className="mt-4 pt-3 border-t-2 border-slate-300">
-            <Grp label={<>Tâche parente <span className="font-normal text-subtle/60">(vide = principale)</span></>}>
-              <SelectPicker value={String(editForm.parent_id??'')} onChange={v=>setEditForm(f=>({...f,parent_id:v}))}
+            <Grp label={<>Tâche parente <span className="font-normal text-subtle/60">(vide = principale)</span></>}
+              className={cn(locked('parent_id') && 'opacity-50 pointer-events-none')}>
+              <SelectPicker value={String(editForm.parent_id??'')} onChange={v=>saveField('parent_id',v)}
                 options={((childMap[panelTask.id_tache]??[]).length>0
                     ? validParentOptions.filter(p=>p.type_tache==='Conteneur')
                     : validParentOptions
@@ -295,12 +334,12 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
 
           {/* Classification : Epic, Type fonction, Jalon, Priorité */}
           <div className="grid grid-cols-6 gap-3 mt-4 pt-3 border-t-2 border-slate-300">
-            <Grp label="Epic" className="col-span-2">
-              <SelectPicker value={String(editForm.epic??'')} onChange={v=>setEditForm(f=>({...f,epic:v}))}
+            <Grp label="Epic" className={cn('col-span-2', locked('epic') && 'opacity-50 pointer-events-none')}>
+              <SelectPicker value={String(editForm.epic??'')} onChange={v=>saveField('epic',v)}
                 options={epicsList.map(e=>({value:epicFullName(e),label:epicFullName(e)}))} placeholder="-- Epic --" searchable/>
             </Grp>
-            <Grp label="Type fonction" className="col-span-2">
-              <SelectPicker value={String(editForm.type_fonction??'')} onChange={v=>setEditForm(f=>({...f,type_fonction:v}))}
+            <Grp label="Type fonction" className={cn('col-span-2', locked('type_fonction') && 'opacity-50 pointer-events-none')}>
+              <SelectPicker value={String(editForm.type_fonction??'')} onChange={v=>saveField('type_fonction',v)}
                 options={[
                   {value:'Fonction principale',label:'Principale'},
                   {value:'Fonction secondaire',label:'Secondaire'},
@@ -308,8 +347,8 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
                   {value:'Fonction exclue',label:'Exclue'},
                 ]} placeholder="-- Type --"/>
             </Grp>
-            <Grp label="Jalon - Incrément majeur" className="col-span-2">
-              <SelectPicker value={String(editForm.jalon??'')} onChange={v=>setEditForm(f=>({...f,jalon:v}))}
+            <Grp label="Jalon - Incrément majeur" className={cn('col-span-2', locked('jalon') && 'opacity-50 pointer-events-none')}>
+              <SelectPicker value={String(editForm.jalon??'')} onChange={v=>saveField('jalon',v)}
                 options={jalonCodes.map(j=>({value:j,label:j}))} placeholder="-- Jalon --"/>
             </Grp>
           </div>
@@ -318,16 +357,24 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
               encore d'itération (au-delà, ces champs vivent sur
               l'itération courante — les montrer ici doublonnerait). */}
           <div className={cn('grid gap-3 mt-4 pt-3 border-t-2 border-slate-300',hasIterations?'grid-cols-3':'grid-cols-6')}>
-            <Grp label="Priorité" className="col-span-1">
-              <PriorityPicker value={String(editForm.priorite??'')} onChange={p=>setEditForm(f=>({...f,priorite:p}))} />
+            <Grp label="Priorité" className={cn('col-span-1', locked('priorite') && 'opacity-50 pointer-events-none')}>
+              <PriorityPicker value={String(editForm.priorite??'')} onChange={p=>saveField('priorite',p)} />
             </Grp>
-            <Grp label="MoSCoW" className="col-span-2">
-              <MoSCoWPicker value={String(editForm.moscow??'')} onChange={m=>setEditForm(f=>({...f,moscow:m}))}/>
+            <Grp label="MoSCoW" className={cn('col-span-2', locked('moscow') && 'opacity-50 pointer-events-none')}>
+              <MoSCoWPicker value={String(editForm.moscow??'')} onChange={m=>saveField('moscow',m)}/>
             </Grp>
             {!hasIterations && (
               <>
-                <Grp label={(childMap[panelTask.id_tache]??[]).length > 0 ? 'Effort propre (j)' : 'Effort (j)'} className="col-span-1">
-                  <input type="number" value={String(editForm.effort_j??'')} onChange={setF('effort_j')} className="ds-input text-xs" min={0} step={0.1}/>
+                {/* Verrouillé seulement si un effort est déjà chiffré : on ne
+                    doit pas pouvoir corriger une estimation à la volée en
+                    sprint, mais une US arrivée sans effort doit pouvoir être
+                    chiffrée (sinon personne ne peut jamais la remplir). */}
+                <Grp label={(childMap[panelTask.id_tache]??[]).length > 0 ? 'Effort propre (j)' : 'Effort (j)'}
+                  className={cn('col-span-1', locked('effort_j') && Number(editForm.effort_j) > 0 && 'opacity-50 pointer-events-none')}>
+                  <input type="number" value={String(editForm.effort_j??'')} onChange={setF('effort_j')}
+                    onFocus={()=>setFocusedField('effort_j')}
+                    onBlur={()=>{setFocusedField(null);saveField('effort_j',Number(editForm.effort_j)||0)}}
+                    className="ds-input text-xs" min={0} step={0.1}/>
                   {(childMap[panelTask.id_tache]??[]).length > 0 && (
                     <div className="text-[10px] text-subtle mt-0.5 tabular-nums whitespace-nowrap">
                       + ∑ {(childMap[panelTask.id_tache]??[]).reduce((s,c)=>s+effortEffectif(c,childMap),0)}j ss-tâches
@@ -351,34 +398,39 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
             {!hasIterations && (
               <>
                 <Grp label="Sprint début">
-                  <SelectPicker value={String(editForm.sprint_debut??'')} onChange={v=>setEditForm(f=>({...f,sprint_debut:v}))}
-                    options={sprintNumeros.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
+                  <SelectPicker value={String(editForm.sprint_debut??'')} onChange={v=>saveField('sprint_debut',v)}
+                    options={sprintNumeros.map(s=>({value:s,label:formatSprintLabel(s)}))} placeholder="-- Sprint --"/>
                 </Grp>
                 <Grp label="Sprint fin">
-                  <SelectPicker value={String(editForm.sprint_fin??'')} onChange={v=>setEditForm(f=>({...f,sprint_fin:v}))}
-                    options={sprintNumeros.map(s=>({value:s,label:s}))} placeholder="-- Sprint --"/>
+                  <SelectPicker value={String(editForm.sprint_fin??'')} onChange={v=>saveField('sprint_fin',v)}
+                    options={sprintNumeros.map(s=>({value:s,label:formatSprintLabel(s)}))} placeholder="-- Sprint --"/>
                 </Grp>
               </>
             )}
-            <Grp label="Équipe">
-              <SelectPicker value={String(editForm.equipe??'')} onChange={v=>setEditForm(f=>({...f,equipe:v}))}
+            <Grp label="Équipe" className={cn(locked('equipe') && 'opacity-50 pointer-events-none')}>
+              <SelectPicker value={String(editForm.equipe??'')} onChange={v=>saveField('equipe',v)}
                 options={equipeNoms.map(e=>({value:e,label:e}))} placeholder="-- Équipe --"/>
             </Grp>
-            <Grp label="Thème">
-              <SelectPicker value={String(editForm.metier??'')} onChange={v=>setEditForm(f=>({...f,metier:v}))}
+            <Grp label="Thème" className={cn(locked('metier') && 'opacity-50 pointer-events-none')}>
+              <SelectPicker value={String(editForm.metier??'')} onChange={v=>saveField('metier',v)}
                 options={METIERS_DEFAULT.map(m=>({value:m,label:m}))} placeholder="-- Thème --" searchable/>
             </Grp>
           </div>
 
           {/* Contenu : User Story (+ Critères si pas d'itération, cf. ci-dessus) */}
           <div className={cn('grid gap-3 mt-4 pt-3 border-t-2 border-slate-300',hasIterations?'grid-cols-1':'grid-cols-2')}>
-            <Grp label="User Story"><textarea value={String(editForm.description??'')} onChange={setF('description')} className="ds-textarea text-xs" rows={5}/></Grp>
+            <Grp label="User Story" className={cn(locked('description') && 'opacity-50 pointer-events-none')}>
+              <textarea value={String(editForm.description??'')} onChange={setF('description')}
+                onFocus={()=>setFocusedField('description')}
+                onBlur={()=>{setFocusedField(null);saveField('description',editForm.description)}}
+                className="ds-textarea text-xs" rows={5}/>
+            </Grp>
             {!hasIterations && (
               <Grp label="Critères d'acceptation (DoD)">
                 <div className="ds-input min-h-[110px] flex flex-col">
                   <CriteresEditor
                     items={parseCriteres(String(editForm.criteres??''))}
-                    onChange={items=>setEditForm(f=>({...f,criteres:serializeCriteres(items)}))}
+                    onChange={items=>saveField('criteres',serializeCriteres(items))}
                     compact
                   />
                 </div>
@@ -388,13 +440,19 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
 
           {/* Exigences (+ Commentaire PO si pas d'itération, cf. ci-dessus) */}
           <div className={cn('grid gap-3 mt-4 pt-3 border-t-2 border-slate-300',hasIterations?'grid-cols-1':'grid-cols-[220px_1fr]')}>
-            <Grp label="Exigences">
-              <DodLinkPicker value={String(editForm.lien_dod??'')} onChange={v=>setEditForm(f=>({...f,lien_dod:v}))} items={dodItems}/>
+            <Grp label="Exigences" className={cn(locked('lien_dod') && 'opacity-50 pointer-events-none')}>
+              <DodLinkPicker value={String(editForm.lien_dod??'')} onChange={v=>saveField('lien_dod',v)} items={dodItems}/>
             </Grp>
             {!hasIterations && (
               <Grp label="Commentaire PO">
-                <MentionField as="textarea" value={String(editForm.commentaire??'')} onChange={v=>setEditForm(f=>({...f,commentaire:v}))}
-                  membres={membresActifs} className="ds-textarea text-xs" rows={2}/>
+                {/* div englobant + onBlur : MentionField utilise déjà onBlur en
+                    interne pour fermer son dropdown de mentions (cf. plus haut,
+                    IterationCard fait pareil pour son propre commentaire). */}
+                <div onFocus={()=>setFocusedField('commentaire')}
+                  onBlur={()=>{setFocusedField(null);saveField('commentaire',editForm.commentaire)}}>
+                  <MentionField as="textarea" value={String(editForm.commentaire??'')} onChange={v=>setEditForm(f=>({...f,commentaire:v}))}
+                    membres={membresActifs} className="ds-textarea text-xs" rows={2}/>
+                </div>
               </Grp>
             )}
           </div>
@@ -461,7 +519,6 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
           )}
         </div>
         <div className="flex gap-2 mt-3 pt-3 border-t-2 border-slate-300">
-          <button onClick={savePanel} className="ds-btn-primary flex-1" disabled={updateTache.isPending}>✓ Sauvegarder</button>
           {onDuplicate && !isSousTache(panelTask,byId)&&(
             <button onClick={()=>onDuplicate(panelTask)}
               title="Dupliquer vers le backlog (avec sous-tâches)"
@@ -472,7 +529,7 @@ export function TacheDetailPanel({ tacheId, onClose, onDuplicate, onDelete }: {
               disabled={deleting} title="Supprimer la tâche"
               className="ds-btn-danger"><Trash2 size={12}/></button>
           )}
-          <button onClick={onClose} className="ds-btn">Annuler</button>
+          <button onClick={onClose} className="ds-btn flex-1">Fermer</button>
         </div>
       </div>
       </div>

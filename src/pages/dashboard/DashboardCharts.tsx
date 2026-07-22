@@ -7,7 +7,7 @@ import { Gantt as SvarGantt, Willow, type ITask } from '@svar-ui/react-gantt'
 import '@svar-ui/react-gantt/all.css'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { ToggleGroup } from '@/components/ui/ToggleGroup'
-import { cn, epicShortName } from '@/lib/utils'
+import { cn, epicShortName, formatSprintLabel } from '@/lib/utils'
 import { scopedMetrics, computeBurndownWeeks } from '@/utils/produitMetrics'
 import type { MultiScope, ProduitMetrics } from '@/utils/produitMetrics'
 import { trimAvancement } from '@/hooks/useProduits'
@@ -371,7 +371,7 @@ export function ProduitTendanceSprintChart({ sprints }: { sprints: Sprint[] }) {
   const cfg = SPRINT_METRIC_CFG[sprintMetric]
   const sprintSeries: LineSeries[] = [{
     id: 'sprint', label: cfg.label, color: cfg.color,
-    points: sprintsWithStats.map(s => ({ x: s.numero, y: cfg.get(s) })),
+    points: sprintsWithStats.map(s => ({ x: formatSprintLabel(s.numero), y: cfg.get(s) })),
   }]
   if (sprintsWithStats.length === 0) return <p className="text-xs text-subtle/40 italic p-2">Aucun sprint clôturé avec statistiques</p>
   return (
@@ -383,7 +383,7 @@ export function ProduitTendanceSprintChart({ sprints }: { sprints: Sprint[] }) {
           { key: 'us',         label: 'US terminées' },
         ]} />
       </div>
-      <TrendLineChart categories={sprintsWithStats.map(s => s.numero)} series={sprintSeries} valueFormatter={cfg.fmt} />
+      <TrendLineChart categories={sprintsWithStats.map(s => formatSprintLabel(s.numero))} series={sprintSeries} valueFormatter={cfg.fmt} />
     </div>
   )
 }

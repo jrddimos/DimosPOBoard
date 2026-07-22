@@ -1,5 +1,6 @@
 import { Document, Page, View, Text, StyleSheet, pdf } from '@react-pdf/renderer'
 import type { Sprint, Tache } from '@/types'
+import { formatSprintLabel } from '@/lib/utils'
 
 const styles = StyleSheet.create({
   page:     { padding: 32, fontSize: 10, fontFamily: 'Helvetica', color: '#1E3A5F' },
@@ -58,9 +59,9 @@ function SprintReviewDoc({ sprint, taches }: { sprint: Sprint; taches: Tache[] }
   const date    = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
 
   return (
-    <Document title={`Sprint Review — ${sprint.numero}`}>
+    <Document title={`Sprint Review — ${formatSprintLabel(sprint.numero)}`}>
       <Page size="A4" style={styles.page}>
-        <Text style={styles.title}>Sprint Review — {sprint.numero}</Text>
+        <Text style={styles.title}>Sprint Review — {formatSprintLabel(sprint.numero)}</Text>
         <Text style={styles.subtitle}>Généré le {date} · Dimos D3X+ PO Board</Text>
 
         <View style={styles.kpiRow}>
@@ -76,7 +77,7 @@ function SprintReviewDoc({ sprint, taches }: { sprint: Sprint; taches: Tache[] }
         {fait.length > 0 && <><Text style={styles.h2}>Réalisé ({fait.length} US)</Text><TaskTable tasks={fait} /></>}
         {nonFait.length > 0 && <><Text style={[styles.h2, { marginTop: 14 }]}>Non réalisé ({nonFait.length} US)</Text><TaskTable tasks={nonFait} /></>}
 
-        <Text style={styles.footer} fixed>Dimos D3X+ · By Roofers For Roofers · {sprint.numero}</Text>
+        <Text style={styles.footer} fixed>Dimos D3X+ · By Roofers For Roofers · {formatSprintLabel(sprint.numero)}</Text>
       </Page>
     </Document>
   )
@@ -87,7 +88,7 @@ export async function exportSprintReviewPDF(sprint: Sprint, taches: Tache[]): Pr
   const url  = URL.createObjectURL(blob)
   const a    = document.createElement('a')
   a.href = url
-  a.download = `SprintReview_${sprint.numero}_${new Date().toISOString().slice(0, 10)}.pdf`
+  a.download = `SprintReview_${formatSprintLabel(sprint.numero)}_${new Date().toISOString().slice(0, 10)}.pdf`
   document.body.appendChild(a); a.click(); document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
