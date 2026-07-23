@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, CheckCircle, XCircle } from 'lucide-react'
 import { Tooltip } from '@/components/ui/Tooltip'
-import { cn, buildTacheIndex, buildChildMap, effortEffectif, isUS, formatSprintLabel } from '@/lib/utils'
+import { cn, buildTacheIndex, buildChildMap, effortEffectif, effortFaitEffectif, isUS, formatSprintLabel } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { useFinanceConfig } from '@/hooks/useFinanceConfig'
 import { useTachesByProduit } from '@/hooks/useTaches'
@@ -134,7 +134,7 @@ export function ProduitBandeauRow({
   const bloqueSprint     = racinesSprint.filter(t => t.statut === 'Bloqué').length
   const backlogPctSprint = totalUSSprint > 0 ? Math.round(faitUSSprint / totalUSSprint * 100) : 0
   const effortTotalSprint = racinesSprint.reduce((s, t) => s + effortEffectif(t, childMap), 0)
-  const effortFaitSprint  = racinesSprint.filter(t => t.statut === 'Fait').reduce((s, t) => s + effortEffectif(t, childMap), 0)
+  const effortFaitSprint  = racinesSprint.reduce((s, t) => s + effortFaitEffectif(t, childMap), 0)
   const effortPctSprint   = effortTotalSprint > 0 ? Math.round(effortFaitSprint / effortTotalSprint * 100) : 0
   const sprintIsCloture   = effectiveSprintObj?.statut === 'cloture'
 
@@ -169,11 +169,11 @@ export function ProduitBandeauRow({
     return racines.filter(t => t.sprint_debut && ids.has(t.sprint_debut))
   }, [racines, currentTrim])
 
-  const effortFaitTrim    = racinesTrim.filter(t => t.statut === 'Fait').reduce((s, t) => s + effortEffectif(t, childMap), 0)
+  const effortFaitTrim    = racinesTrim.reduce((s, t) => s + effortFaitEffectif(t, childMap), 0)
   const trimBudgetEtp     = currentTrim ? trimEtpCostEur(currentTrim, finConfig, joursTotaux) : 0
   const trimRealiseEtpEur = effortFaitTrim * tjmMoyen
 
-  const effortFaitGlobal = racines.filter(t => t.statut === 'Fait').reduce((s, t) => s + effortEffectif(t, childMap), 0)
+  const effortFaitGlobal = racines.reduce((s, t) => s + effortFaitEffectif(t, childMap), 0)
   const realiseEtpEur    = effortFaitGlobal * tjmMoyen
   const totalEtpEur      = (produit.objectifs_trimestriels ?? []).reduce((s, t) => s + trimEtpCostEur(t, finConfig, joursTotaux), 0)
   const totalInvest      = (produit.objectifs_trimestriels ?? []).reduce((s, t) => s + (t.budget_invest ?? 0), 0)

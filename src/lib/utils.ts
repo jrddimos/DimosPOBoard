@@ -79,6 +79,16 @@ export function effortEffectif(t: Tache, childMap: Record<string, Tache[]>): num
   return (t.effort_j ?? 0) + subs.reduce((s, c) => s + effortEffectif(c, childMap), 0)
 }
 
+// Effort réellement "Fait", nœud par nœud (US ou sous-tâche) : une sous-tâche
+// déjà clôturée compte pour son effort même si son US parente n'est pas
+// encore passée à "Fait" — sinon ce travail réalisé disparaît des calculs
+// (effort "fait" à 0 alors que des sous-tâches sont bien terminées).
+export function effortFaitEffectif(t: Tache, childMap: Record<string, Tache[]>): number {
+  const own  = t.statut === 'Fait' ? (t.effort_j ?? 0) : 0
+  const subs = childMap[t.id_tache] ?? []
+  return own + subs.reduce((s, c) => s + effortFaitEffectif(c, childMap), 0)
+}
+
 // childMap parent_id → enfants, sur l'ensemble des tâches passées — même
 // structure que celles construites localement par TachesPage/TacheTree,
 // centralisée pour les consommateurs d'effortEffectif (dashboards, stats).

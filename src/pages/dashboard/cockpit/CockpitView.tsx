@@ -58,7 +58,10 @@ interface CockpitViewProps {
   toggleProduit: (id: number) => void
   selectAll: () => void
   allTaches: Tache[]
-  childMap: Record<string, Tache[]>
+  // Par produit (pas un childMap global) : id_tache n'est unique qu'au sein
+  // d'un produit, un index/childMap partagé sur tous les produits confondus
+  // expose à des collisions entre deux produits partageant un même id_tache.
+  childMapByProduit: Map<number, Record<string, Tache[]>>
   faitDoneMap: Map<string, string>
   navigate: (to: string) => void
   openProduct: (p: Produit) => void
@@ -309,17 +312,18 @@ export default function CockpitView(props: CockpitViewProps) {
   const monMembre = membres.find(m => m.user_id === user?.id)
   const ctx: WidgetCtx = useMemo(() => ({
     produits: props.produits,
+    accessibles: props.accessibles,
     metricsMap: props.metricsMap,
     scope: props.scope,
     allTaches: props.allTaches,
-    childMap: props.childMap,
+    childMapByProduit: props.childMapByProduit,
     faitDoneMap: props.faitDoneMap,
     membres,
     userTrigramme: monMembre?.trigramme ?? null,
     navigate: props.navigate,
     openProduct: props.openProduct,
     fmtDate: props.fmtDate,
-  }), [props.produits, props.metricsMap, props.scope, props.allTaches, props.childMap, props.faitDoneMap, membres, monMembre?.trigramme])
+  }), [props.produits, props.accessibles, props.metricsMap, props.scope, props.allTaches, props.childMapByProduit, props.faitDoneMap, membres, monMembre?.trigramme])
 
   const { width, containerRef, mounted } = useContainerWidth()
 

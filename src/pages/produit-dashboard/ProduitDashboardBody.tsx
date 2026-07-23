@@ -11,7 +11,7 @@ import { useFinanceConfig } from '@/hooks/useFinanceConfig'
 import { useFaitTransitions } from '@/hooks/useActivityLog'
 import { trimEtpCostEur } from '@/utils/produitMetrics'
 import { SPRINTS_LIST } from '@/constants'
-import { cn, buildTacheIndex, buildChildMap, effortEffectif, isUS, parseCriteres, parseLienDodCodes, parseAssignees, formatSprintLabel } from '@/lib/utils'
+import { cn, buildTacheIndex, buildChildMap, effortEffectif, effortFaitEffectif, isUS, parseCriteres, parseLienDodCodes, parseAssignees, formatSprintLabel } from '@/lib/utils'
 import { AlertTriangle, Check, CheckCircle, ChevronDown, XCircle, CornerDownRight, ListPlus, Lock, Pencil, Plus, X, SlidersHorizontal } from 'lucide-react'
 import type { Produit, RisqueItem, ActionLop } from '@/hooks/useProduits'
 import { useEpicsByProduit, epicFullName } from '@/hooks/useEpics'
@@ -27,11 +27,12 @@ const LazyEpicsChart     = lazy(() => import('@/pages/dashboard/DashboardCharts'
 const LazyTendanceChart  = lazy(() => import('@/pages/dashboard/DashboardCharts').then(m => ({ default: m.ProduitTendanceSprintChart })))
 const LazyBurndownChart  = lazy(() => import('@/pages/dashboard/DashboardCharts').then(m => ({ default: m.ProduitBurndownChart })))
 
-function ChartWidget({ title, children }: { title: string; children: React.ReactNode }) {
+function ChartWidget({ title, children, headerRight }: { title: string; children: React.ReactNode; headerRight?: React.ReactNode }) {
   return (
     <div className="bg-card border border-white rounded-2xl overflow-hidden flex flex-col shadow-md h-full">
-      <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 shrink-0">
+      <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 shrink-0 flex items-center justify-between gap-2">
         <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{title}</span>
+        {headerRight}
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto p-3">
         <Suspense fallback={<div className="flex items-center justify-center h-full text-xs text-subtle/40">Chargement…</div>}>
@@ -120,9 +121,14 @@ function countWorkingDays(from: Date, to: Date): number {
   while (d <= end) { if (d.getDay()!==0&&d.getDay()!==6) count++; d.setDate(d.getDate()+1) }
   return count
 }
+// Proportion (avancement / curseur temps), pas un écart de points absolus :
+// "-10 points" ne veut pas dire la même chose à curseur 12% (quasiment rien
+// fait) qu'à curseur 90% (léger retard) — un ratio reflète mieux à quel
+// point on est loin du rythme attendu, quel que soit le moment de la période.
 function ragAvancement(actualPct: number, cursorPct: number | null): Rag {
-  const delta = actualPct - (cursorPct ?? 50)
-  return delta >= -10 ? 'green' : delta >= -20 ? 'amber' : 'red'
+  if (cursorPct === null || cursorPct <= 0) return 'green' // pas encore de repère temporel
+  const pace = actualPct / cursorPct
+  return pace >= 0.8 ? 'green' : pace >= 0.5 ? 'amber' : 'red'
 }
 function ragBudget(realise: number, budget: number, cursorPct: number | null): Rag {
   if (budget === 0) return null
@@ -146,6 +152,15 @@ function critereStatsOf(tasks: Tache[]) {
     fait += items.filter(i => i.checked).length
   })
   return { total, fait }
+}
+
+// Un critère d'acceptation appartient à sa tâche (US ou sous-tâche) : il
+// compte partout où on totalise des critères, qu'il vive sur l'US racine ou
+// sur une de ses sous-tâches — sinon le panneau Avancement (racines
+// uniquement) et le burndown "par critères" (racines + sous-tâches)
+// affichent des totaux différents pour le même périmètre.
+function withSubs(tasks: Tache[], childMap: Record<string, Tache[]>): Tache[] {
+  return tasks.flatMap(t => [t, ...(childMap[t.id_tache] ?? [])])
 }
 
 // ── Composants ───────────────────────────────────────────────────
@@ -321,20 +336,31 @@ function ToggleBtn({ active, onClick, children, expand, className }: { active: b
 export function ProduitDashboardBody({ produit, customizable = true }: { produit: Produit; customizable?: boolean }) {
   const navigate = useNavigate()
 
-  const [scopeView, setScopeView]             = useState<'global' | 'trim' | 'sprint'>('trim')
+  // Persisté PAR PRODUIT (localStorage = déjà propre au navigateur, donc à
+  // l'utilisateur connecté dessus — pas une préférence d'équipe partagée) :
+  // on retrouve la même vue en revenant sur CE dashboard plutôt que de
+  // repartir sur 'trim' à chaque fois, sans imposer ce choix aux autres
+  // produits (une US ne se planifie pas forcément pareil partout).
+  const [scopeView, setScopeViewState]        = useState<'global' | 'trim' | 'sprint'>(() => {
+    try { return (localStorage.getItem(`dashboard-scope-view-${produit.id}`) as 'global' | 'trim' | 'sprint' | null) ?? 'trim' } catch { return 'trim' }
+  })
+  function setScopeView(s: 'global' | 'trim' | 'sprint') {
+    setScopeViewState(s)
+    try { localStorage.setItem(`dashboard-scope-view-${produit.id}`, s) } catch {}
+  }
   // Angle des panneaux sensibles au grain US/Critères (Avancement — remonté
   // au niveau page, à côté du sélecteur Global/Trimestre/Sprint, pour
   // s'appliquer à toutes les vues concernées plutôt qu'être enterré dans un
   // seul panneau). 'exigences' n'a de sens qu'au global (une Exigence
   // n'appartient à aucun trimestre en propre, seulement via les US qui la
   // référencent) : repli silencieux sur 'us' si on quitte le global.
-  // Persisté (préférence personnelle, indépendante du produit affiché).
+  // Persisté par produit (cf. scopeView ci-dessus, même principe).
   const [objectifMode, setObjectifModeState]  = useState<'us' | 'criteres' | 'exigences'>(() => {
-    try { return (localStorage.getItem('dashboard-objectif-mode') as 'us' | 'criteres' | 'exigences' | null) ?? 'us' } catch { return 'us' }
+    try { return (localStorage.getItem(`dashboard-objectif-mode-${produit.id}`) as 'us' | 'criteres' | 'exigences' | null) ?? 'us' } catch { return 'us' }
   })
   function setObjectifMode(m: 'us' | 'criteres' | 'exigences') {
     setObjectifModeState(m)
-    try { localStorage.setItem('dashboard-objectif-mode', m) } catch {}
+    try { localStorage.setItem(`dashboard-objectif-mode-${produit.id}`, m) } catch {}
   }
   // Mode édition de la grille bento — état levé ici pour afficher le bouton
   // "Personnaliser" à côté du sélecteur de sprint plutôt que dans la grille.
@@ -384,6 +410,11 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
 
   // ── Données de base ──────────────────────────────────────────
   const today   = new Date()
+  // Le jour en cours n'est pas terminé : "jours écoulés" ne compte que les
+  // jours ouvrés entièrement passés, pour que le curseur temporel ne
+  // considère pas aujourd'hui comme déjà "consommé" (il reste dans les
+  // jours restants tant qu'il n'est pas fini).
+  const hier    = new Date(today.getTime() - 86400000)
   const semaine = getISOWeek(today)
   const dateMAJ = today.toLocaleDateString('fr-FR')
 
@@ -410,7 +441,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const backlogPct = totalUS > 0 ? Math.round(faitUS / totalUS * 100) : 0
 
   const effortTotal = racines.reduce((s, t) => s + effJ(t), 0)
-  const effortFait  = racines.filter(t => t.statut === 'Fait').reduce((s, t) => s + effJ(t), 0)
+  const effortFait  = racines.reduce((s, t) => s + effortFaitEffectif(t, childMap), 0)
   const effortPct   = effortTotal > 0 ? Math.round(effortFait / effortTotal * 100) : 0
 
   const mustHave     = racines.filter(t => t.moscow === 'Must Have')
@@ -440,7 +471,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const backlogPctTrim  = totalUSTrim > 0 ? Math.round(faitUSTrim / totalUSTrim * 100) : 0
 
   const effortTotalTrim = racinesTrim.reduce((s, t) => s + effJ(t), 0)
-  const effortFaitTrim  = racinesTrim.filter(t => t.statut === 'Fait').reduce((s, t) => s + effJ(t), 0)
+  const effortFaitTrim  = racinesTrim.reduce((s, t) => s + effortFaitEffectif(t, childMap), 0)
   const effortPctTrim   = effortTotalTrim > 0 ? Math.round(effortFaitTrim / effortTotalTrim * 100) : 0
 
   const mustHaveTrim     = racinesTrim.filter(t => t.moscow === 'Must Have')
@@ -448,10 +479,10 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const mustHavePctTrim  = mustHaveTrim.length > 0 ? Math.round(mustHaveFaitTrim / mustHaveTrim.length * 100) : null
 
   // ── Statistiques "Critères d'acceptation" (angle alternatif du panneau
-  // Avancement) — agrégées sur les mêmes racines (US) que l'angle "US",
-  // juste en comptant les items de checklist plutôt que les tâches.
-  const critereStatsGlobal = useMemo(() => critereStatsOf(racines), [racines])
-  const critereStatsTrim   = useMemo(() => critereStatsOf(racinesTrim), [racinesTrim])
+  // Avancement) — US racines ET leurs sous-tâches (withSubs, cf. plus haut) :
+  // un critère compte où qu'il vive, cohérent avec le burndown "par critères".
+  const critereStatsGlobal = useMemo(() => critereStatsOf(withSubs(racines, childMap)), [racines, childMap])
+  const critereStatsTrim   = useMemo(() => critereStatsOf(withSubs(racinesTrim, childMap)), [racinesTrim, childMap])
 
   // ── Statistiques "Exigences couvertes" — global uniquement (cf. plus
   // haut) : couverte = au moins une US y renvoie via lien_dod (même
@@ -475,7 +506,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   // tâches, y compris jamais planifiées — seul sprint_debut est fiable
   // (même bug corrigé dans src/lib/sprintEligibility.ts).
   const racinesSprint    = racines.filter(t => t.sprint_debut === effectiveSprint)
-  const critereStatsSprint = useMemo(() => critereStatsOf(racinesSprint), [racinesSprint])
+  const critereStatsSprint = useMemo(() => critereStatsOf(withSubs(racinesSprint, childMap)), [racinesSprint, childMap])
   const totalUSSprint    = racinesSprint.length
   const faitUSSprint     = racinesSprint.filter(t => t.statut === 'Fait').length
   const enCoursSprint    = racinesSprint.filter(t => t.statut === 'En cours').length
@@ -483,7 +514,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const backlogPctSprint = totalUSSprint > 0 ? Math.round(faitUSSprint / totalUSSprint * 100) : 0
 
   const effortTotalSprint = racinesSprint.reduce((s, t) => s + effJ(t), 0)
-  const effortFaitSprint  = racinesSprint.filter(t => t.statut === 'Fait').reduce((s, t) => s + effJ(t), 0)
+  const effortFaitSprint  = racinesSprint.reduce((s, t) => s + effortFaitEffectif(t, childMap), 0)
   const effortPctSprint   = effortTotalSprint > 0 ? Math.round(effortFaitSprint / effortTotalSprint * 100) : 0
 
   const mustHaveSprint     = racinesSprint.filter(t => t.moscow === 'Must Have')
@@ -580,7 +611,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const joursTotaux  = finConfig?.jours_par_trim ?? 65
   const quarterStart = currentTrim ? getQuarterStart(currentTrim.trimestre) : null
   const quarterEndForBurndown = currentTrim ? getQuarterEnd(currentTrim.trimestre) : null
-  const joursEcoules = quarterStart ? Math.min(countWorkingDays(quarterStart, new Date()), joursTotaux) : null
+  const joursEcoules = quarterStart ? Math.min(countWorkingDays(quarterStart, hier), joursTotaux) : null
   const cursorPct    = joursEcoules !== null ? Math.round(joursEcoules / joursTotaux * 100) : null
 
   // ── Curseur global (1er trim lancé → date_lancement_cible) ──
@@ -601,8 +632,24 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const burndownEnd = scopeView === 'global' ? (globalTargetDateEarly ?? new Date())
     : scopeView === 'sprint' ? (effectiveSprintObj?.closed_at ? new Date(effectiveSprintObj.closed_at) : null)
     : quarterEndForBurndown
-  const burndownObjectif = scopeView === 'global' ? totalUS : scopeView === 'sprint' ? totalUSSprint : totalUSTrim
   const burndownTasks    = scopeView === 'global' ? racines : scopeView === 'sprint' ? racinesSprint : racinesTrim
+  // Coché : chaque sous-tâche compte comme un item à part entière du
+  // burndown, en plus de sa tâche parente — décoché par défaut (comptage
+  // "US racines" uniquement, comportement historique). Ne s'applique qu'au
+  // mode US : en mode critères, les critères des sous-tâches sont TOUJOURS
+  // additionnés à ceux des US (cf. burndownItemsWithSubs plus bas), la case
+  // n'a pas de sens là — un critère appartient à sa tâche, avec ou sans.
+  // Persisté par produit, comme scopeView/objectifMode ci-dessus.
+  const [burndownIncludeSubs, setBurndownIncludeSubsState] = useState(() => {
+    try { return localStorage.getItem(`dashboard-burndown-include-subs-${produit.id}`) === '1' } catch { return false }
+  })
+  function setBurndownIncludeSubs(v: boolean) {
+    setBurndownIncludeSubsState(v)
+    try { localStorage.setItem(`dashboard-burndown-include-subs-${produit.id}`, v ? '1' : '0') } catch {}
+  }
+  const burndownItemsWithSubs = withSubs(burndownTasks, childMap)
+  const burndownItems = burndownIncludeSubs ? burndownItemsWithSubs : burndownTasks
+  const burndownSubsCount = burndownItems.length - burndownTasks.length
 
   // Fenêtre de requête assez large pour couvrir n'importe quel scope, sans refetch au changement de sélecteur.
   const burndownSinceCandidates = [quarterStart, firstTrimStartEarly, ...sortedSprints.map(s => s.started_at ? new Date(s.started_at) : null)]
@@ -614,7 +661,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const { data: faitTransitions = [] } = useFaitTransitions(produit.id, burndownSince ? burndownSince.toISOString() : null)
   const faitDoneMap = new Map<string, string>()
   faitTransitions.forEach(f => { if (!faitDoneMap.has(f.target)) faitDoneMap.set(f.target, f.created_at) })
-  const burndownDoneDatesUS = burndownTasks
+  const burndownDoneDatesUS = burndownItems
     .filter(t => t.statut === 'Fait')
     .map(t => { const iso = faitDoneMap.get(t.id_tache); return iso ? new Date(iso) : (burndownStart ?? new Date()) })
 
@@ -624,18 +671,23 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   // l'US entière ne le soit. Items cochés avant l'ajout de ce champ (pas de
   // checked_at) : retombent sur la date "Fait" de leur tâche, sinon le
   // début de la période affichée.
-  const burndownObjectifCriteres = burndownTasks.reduce((s, t) => s + parseCriteres(t.criteres).length, 0)
-  const burndownDoneDatesCriteres = burndownTasks.flatMap(t => {
+  const burndownObjectifCriteres = burndownItemsWithSubs.reduce((s, t) => s + parseCriteres(t.criteres).length, 0)
+  const burndownDoneDatesCriteres = burndownItemsWithSubs.flatMap(t => {
     const iso = faitDoneMap.get(t.id_tache)
     const fallback = iso ? new Date(iso) : (burndownStart ?? new Date())
     return parseCriteres(t.criteres).filter(c => c.checked).map(c => c.checked_at ? new Date(c.checked_at) : fallback)
   })
 
   // 'exigences' n'a pas (encore) de date de vérification par item : repli
-  // sur le mode US pour le burndown, comme ailleurs dans ce panneau.
+  // sur le mode US pour le burndown, comme ailleurs dans ce panneau. Le
+  // scope Sprint garde le même comptage US/critères que les autres scopes
+  // (cf. le toggle objectifMode) — seule sa granularité temporelle change
+  // (stepDays, cf. plus bas) : un point par jour plutôt que par semaine,
+  // un sprint étant bien plus court qu'un trimestre.
   const isCriteresBurndown = objectifMode === 'criteres'
-  const burndownObjectifFinal   = isCriteresBurndown ? burndownObjectifCriteres  : burndownObjectif
-  const burndownDoneDatesFinal  = isCriteresBurndown ? burndownDoneDatesCriteres : burndownDoneDatesUS
+  const isSprintBurndown = scopeView === 'sprint'
+  const burndownObjectifFinal   = isCriteresBurndown ? burndownObjectifCriteres : burndownItems.length
+  const burndownDoneDatesFinal  = (isCriteresBurndown ? burndownDoneDatesCriteres : burndownDoneDatesUS).map(d => ({ date: d, value: 1 }))
 
   const globalCursorPctEarly = firstTrimStartEarly && globalTargetDateEarly && globalTargetDateEarly > firstTrimStartEarly
     ? Math.min(100, Math.max(0, Math.round(
@@ -693,6 +745,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   let subDelai: string | undefined = undefined
   let estimatedDeliveryDate: Date | null = null
   let projectedPct: number | null = null
+  let margeJoursSprint: number | null = null
 
   const trimEnd = currentTrim?.trimestre ? getQuarterEnd(currentTrim.trimestre) : null
 
@@ -709,7 +762,7 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const faitUSAuto      = racinesAuto.filter(t => t.statut === 'Fait').length
   const backlogPctAuto  = totalUSAuto > 0 ? Math.round(faitUSAuto / totalUSAuto * 100) : 0
   const quarterStartAuto = autoTrim ? getQuarterStart(autoTrim.trimestre) : null
-  const joursEcoulesAuto = quarterStartAuto ? Math.min(countWorkingDays(quarterStartAuto, new Date()), joursTotaux) : null
+  const joursEcoulesAuto = quarterStartAuto ? Math.min(countWorkingDays(quarterStartAuto, hier), joursTotaux) : null
   const cursorPctAuto    = joursEcoulesAuto !== null ? Math.round(joursEcoulesAuto / joursTotaux * 100) : null
   if (!isSprintScope && cursorPctAuto !== null && cursorPctAuto > 0 && totalUSAuto > 0 && backlogPctAuto > 0) {
     const pace        = backlogPctAuto / cursorPctAuto
@@ -719,33 +772,65 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
 
   const sprintObj       = sortedSprints.find(s => s.numero === effectiveSprint)
   const sprintIsCloture = sprintObj?.statut === 'cloture'
+  // Curseur temporel du sprint (burndownStart/End = started_at/closed_at du
+  // sprint effectif quand scopeView==='sprint', cf. plus haut) — même
+  // principe que le curseur trimestre/global : compare l'avancement réel au
+  // temps déjà écoulé dans le sprint, plutôt qu'un simple seuil fixe qui
+  // affichait "warning" à 50% même en tout début de sprint, sans lien avec
+  // le temps restant.
+  const joursTotauxSprint  = (burndownStart && burndownEnd) ? Math.max(1, countWorkingDays(burndownStart, burndownEnd)) : null
+  const joursEcoulesSprint = (burndownStart && joursTotauxSprint) ? Math.min(countWorkingDays(burndownStart, hier), joursTotauxSprint) : null
+  const cursorPctSprint    = (joursEcoulesSprint !== null && joursTotauxSprint) ? Math.round(joursEcoulesSprint / joursTotauxSprint * 100) : null
 
   if (isGlobalScope) {
-    // Global : cible = date de lancement produit, curseur = globalCursorPct
+    // Global : cible = date de lancement produit. La couleur est dérivée de
+    // la comparaison livraison estimée / cible (même calcul que le champ
+    // "Livraison estimée" affiché juste à côté) — et non d'une moyenne de
+    // vélocité séparée — pour ne jamais afficher une contradiction entre
+    // les deux indicateurs (ex: Délai rouge alors que la livraison estimée
+    // est avant la cible).
     if (produit.date_lancement_cible) {
       const targetDate = globalTargetDate!
       if (targetDate < today) {
         ragD     = 'red'
         subDelai = `${delaiInfo.retardJours}j de retard`
-      } else if (globalCursorPct !== null && globalCursorPct > 0 && totalUS > 0) {
-        const pace = backlogPct / globalCursorPct
-        projectedPct = Math.min(100, Math.round(backlogPct + pace * (100 - globalCursorPct)))
-        ragD     = projectedPct >= 90 ? 'green' : projectedPct >= 70 ? 'amber' : 'red'
-        subDelai = `proj. ${projectedPct}% · cible ${fmtDate(produit.date_lancement_cible)}`
+      } else if (estimatedDeliveryDate) {
+        const margeJours = Math.round((targetDate.getTime() - estimatedDeliveryDate.getTime()) / 86400000)
+        ragD     = margeJours >= 14 ? 'green' : margeJours >= 0 ? 'amber' : 'red'
+        subDelai = margeJours >= 0
+          ? `${margeJours}j de marge · cible ${fmtDate(produit.date_lancement_cible)}`
+          : `${-margeJours}j de retard estimé · cible ${fmtDate(produit.date_lancement_cible)}`
       } else {
         ragD     = delaiInfo.rag
         subDelai = fmtDate(produit.date_lancement_cible)
       }
     }
   } else if (isSprintScope) {
-    // Sprint : basé sur le taux de complétion (pas de date cible)
+    // Sprint : sur un horizon aussi court, l'effort (jours-homme) est plus
+    // parlant qu'un comptage d'US — déjà suivi pour le badge "Budget", donc
+    // fiable. Vélocité réelle (effort réalisé / jour écoulé) projetée sur
+    // l'effort restant, comparée aux jours ouvrés restants du sprint.
+    // Fallback sur le comptage d'US si l'effort n'est pas encore exploitable
+    // (sprint tout juste démarré, ou tâches non chiffrées).
     if (totalUSSprint > 0) {
       if (sprintIsCloture) {
         ragD     = backlogPctSprint >= 100 ? 'green' : backlogPctSprint >= 80 ? 'amber' : 'red'
         subDelai = `Clôturé · ${backlogPctSprint}%`
+      } else if (effortTotalSprint > 0 && effortFaitSprint > 0 && joursEcoulesSprint !== null && joursEcoulesSprint > 0 && joursTotauxSprint !== null) {
+        const effortRestantSp  = Math.max(0, effortTotalSprint - effortFaitSprint)
+        const velociteSp       = effortFaitSprint / joursEcoulesSprint
+        const joursRestantsSp  = Math.max(0, joursTotauxSprint - joursEcoulesSprint)
+        const joursNecessaires = effortRestantSp / velociteSp
+        margeJoursSprint = Math.round(joursRestantsSp - joursNecessaires)
+        ragD     = margeJoursSprint >= 2 ? 'green' : margeJoursSprint >= 0 ? 'amber' : 'red'
+        subDelai = margeJoursSprint >= 0
+          ? `${margeJoursSprint}j de marge (effort)`
+          : `${-margeJoursSprint}j de retard estimé (effort)`
       } else {
-        ragD     = backlogPctSprint >= 75 ? 'green' : backlogPctSprint >= 40 ? 'amber' : 'red'
-        subDelai = `${backlogPctSprint}% terminées`
+        ragD     = ragAvancement(backlogPctSprint, cursorPctSprint)
+        subDelai = cursorPctSprint !== null
+          ? `${backlogPctSprint}% terminées · curseur ${cursorPctSprint}%`
+          : `${backlogPctSprint}% terminées`
       }
     }
   } else {
@@ -800,46 +885,66 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
   const tipDelai = (() => {
     if (isSprintScope) {
       if (totalUSSprint === 0) return undefined
-      const lines = [`${faitUSSprint}/${totalUSSprint} US · ${backlogPctSprint}% terminées`]
-      if (enCoursSprint > 0) lines.push(`${enCoursSprint} en cours`)
-      if (bloqueSprint > 0)  lines.push(`${bloqueSprint} bloquée${bloqueSprint !== 1 ? 's' : ''}`)
-      if (sprintIsCloture)   lines.push('Sprint clôturé')
-      return lines.join('\n')
+      if (sprintIsCloture) return `Sprint clôturé · ${backlogPctSprint}% terminées`
+      if (effortTotalSprint > 0 && effortFaitSprint > 0 && joursEcoulesSprint !== null && joursEcoulesSprint > 0 && joursTotauxSprint !== null) {
+        const effortRestantSp = Math.max(0, effortTotalSprint - effortFaitSprint)
+        const velociteSp      = effortFaitSprint / joursEcoulesSprint
+        const joursRestantsSp = Math.max(0, joursTotauxSprint - joursEcoulesSprint)
+        const lines = [`Reste ${effortRestantSp}j (vélocité ${velociteSp.toFixed(1)}j/j · ${joursRestantsSp}j restants)`]
+        if (margeJoursSprint !== null) {
+          lines.push(margeJoursSprint >= 0 ? `→ ${margeJoursSprint}j de marge estimée` : `→ ${-margeJoursSprint}j de retard estimé`)
+        }
+        return lines.join('\n')
+      }
+      return cursorPctSprint !== null
+        ? `${backlogPctSprint}% terminées · curseur ${cursorPctSprint}%`
+        : `${backlogPctSprint}% terminées`
     }
-    if (projectedPct !== null && estimatedDeliveryDate && cibleDate) {
-      return `Projection : ${projectedPct}% à ${cibleLabel.toLowerCase()}\n${cibleLabel} : ${fmtDate(cibleDate)}\nLivraison est. : ${fmtDate(estimatedDeliveryDate.toISOString())}`
-    }
-    if (!isGlobalScope && trimEnd) {
-      const lines = [`${cibleLabel} : ${fmtDate(trimEnd.toISOString())}`]
-      if (joursRestants !== null && joursRestants > 0) lines.push(`Échéance dans ${joursRestants} j`)
-      if (!totalUSTrim) lines.push('(aucune tâche dans les sprints du trim)')
-      else if (!cursorPct) lines.push('(curseur trim non calculable)')
-      return lines.join('\n')
-    }
-    if (isGlobalScope && produit.date_lancement_cible) {
+    if (isGlobalScope) {
+      if (!produit.date_lancement_cible) return undefined
       if (delaiInfo.retardJours > 0) return `Retard de ${delaiInfo.retardJours} jours\nDate lancement : ${fmtDate(produit.date_lancement_cible)}`
       const lines = [`Date lancement : ${fmtDate(produit.date_lancement_cible)}`]
-      if (joursRestants !== null && joursRestants > 0) lines.push(`Échéance dans ${joursRestants} j`)
+      if (estimatedDeliveryDate) {
+        const margeJours = Math.round((new Date(produit.date_lancement_cible).getTime() - estimatedDeliveryDate.getTime()) / 86400000)
+        lines.push(`Livraison est. : ${fmtDate(estimatedDeliveryDate.toISOString())}`)
+        lines.push(margeJours >= 0 ? `Marge : ${margeJours} j` : `Retard estimé : ${-margeJours} j`)
+      } else if (joursRestants !== null && joursRestants > 0) {
+        lines.push(`Échéance dans ${joursRestants} j`)
+      }
       return lines.join('\n')
     }
-    return undefined
+    // Trimestre : projection propre au trimestre CONSULTÉ (backlogPctTrim/
+    // cursorPct) — ne pas mélanger avec "Livraison estimée", qui elle reflète
+    // toujours le rythme du trimestre ACTIF et vit dans tipLivraison.
+    if (!trimEnd) return undefined
+    if (trimEnd < today) return `Trimestre terminé\nFin trimestre : ${fmtDate(trimEnd.toISOString())}`
+    if (projectedPct !== null) {
+      return `Projection : ${projectedPct}% à fin de trimestre\nFin trimestre : ${fmtDate(trimEnd.toISOString())}`
+    }
+    const lines = [`Fin trimestre : ${fmtDate(trimEnd.toISOString())}`]
+    if (joursRestants !== null && joursRestants > 0) lines.push(`Échéance dans ${joursRestants} j`)
+    if (!totalUSTrim) lines.push('(aucune tâche dans les sprints du trim)')
+    else if (!cursorPct) lines.push('(curseur trim non calculable)')
+    return lines.join('\n')
   })()
 
   const tipLivraison = (() => {
     // Sprint : pas de livraison estimée
     if (isSprintScope) return undefined
-    if (estimatedDeliveryDate && projectedPct !== null && cibleDate) {
-      return `Projection : ${projectedPct}% à ${cibleLabel.toLowerCase()}\nVélocité (trim. actif) : ${backlogPctAuto}% réalisé · curseur ${cursorPctAuto}%\n(j${joursEcoulesAuto}/${joursTotaux})\n${cibleLabel} : ${fmtDate(cibleDate)}`
-    }
     if (estimatedDeliveryDate) {
-      return `Basé sur le trimestre actif : ${backlogPctAuto}% réalisé · curseur ${cursorPctAuto}%\n(j${joursEcoulesAuto}/${joursTotaux})`
+      const lines = [`Vélocité (trim. actif) : ${backlogPctAuto}% réalisé · curseur ${cursorPctAuto}%`, `(j${joursEcoulesAuto}/${joursTotaux})`]
+      if (cibleDate) lines.push(`${cibleLabel} : ${fmtDate(cibleDate)}`)
+      return lines.join('\n')
     }
     if (cibleDate) {
       const lines = [`${cibleLabel} : ${fmtDate(cibleDate)}`]
       if (joursRestants !== null && joursRestants > 0) lines.push(`Échéance dans ${joursRestants} j`)
-      if (totalUS > 0) lines.push(`Avancement global : ${backlogPct}% (${faitUS}/${totalUS} US)`)
-      if (!totalUSTrim) lines.push('(aucune tâche dans les sprints du trim)')
-      else if (!cursorPct) lines.push('(curseur trim non calculable)')
+      if (isGlobalScope) {
+        if (totalUS > 0) lines.push(`Avancement global : ${backlogPct}% (${faitUS}/${totalUS} US)`)
+      } else {
+        if (!totalUSTrim) lines.push('(aucune tâche dans les sprints du trim)')
+        else if (!cursorPct) lines.push('(curseur trim non calculable)')
+      }
       return lines.join('\n')
     }
     return undefined
@@ -1485,9 +1590,21 @@ export function ProduitDashboardBody({ produit, customizable = true }: { produit
           { key: 'chart_burndown', label: 'Burndown', minW: 4, minH: 3, defaultSize: { w: 12, h: 5 }, content: (
             <ChartWidget title={`Burndown — ${
               scopeView === 'global' ? 'Global' : scopeView === 'sprint' ? (effectiveSprint ? formatSprintLabel(effectiveSprint) : 'Sprint') : (currentTrim?.trimestre ?? 'Trimestre en cours')
-            }`}>
+            }`}
+              headerRight={
+                // Sans objet en mode critères : les critères des sous-tâches
+                // sont toujours additionnés à ceux des US (cf. burndownItemsWithSubs),
+                // pas de bascule possible là.
+                !isCriteresBurndown && (
+                  <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 normal-case tracking-normal cursor-pointer select-none shrink-0">
+                    <input type="checkbox" checked={burndownIncludeSubs} onChange={e => setBurndownIncludeSubs(e.target.checked)} className="accent-indigo-500" />
+                    Sous-tâches
+                  </label>
+                )
+              }>
               <LazyBurndownChart quarterStart={burndownStart} quarterEnd={burndownEnd} objectif={burndownObjectifFinal}
                 doneDates={burndownDoneDatesFinal} unitLabel={isCriteresBurndown ? 'critères' : 'US'}
+                stepDays={isSprintBurndown ? 1 : 7} subsCount={isCriteresBurndown ? 0 : burndownSubsCount}
                 trimLabel={scopeView === 'global' ? 'Global' : scopeView === 'sprint' ? (effectiveSprint ? formatSprintLabel(effectiveSprint) : null) : (currentTrim?.trimestre ?? null)} />
             </ChartWidget>
           ) },

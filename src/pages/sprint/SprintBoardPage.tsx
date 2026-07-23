@@ -74,13 +74,14 @@ type KanbanCardProps = {
   onChangeStatut: (t: Tache, s: Statut) => void
   onAssign: (id: string, tri: string) => void
   onToggleSub: (sub: Tache) => void
+  onOpenSub: (sub: Tache) => void
   onAddSub: (t: Tache) => void
   onSetEffort: (id_tache: string, effort_j: number) => void
 }
 
 function KanbanCard({
   t, numbers, col, subs, membres, isReadOnly, isSelected, isExpanded, showStatusPicker,
-  onSelect, onToggleExpand, onChangeStatut, onAssign, onToggleSub, onAddSub, onSetEffort,
+  onSelect, onToggleExpand, onChangeStatut, onAssign, onToggleSub, onOpenSub, onAddSub, onSetEffort,
 }: KanbanCardProps) {
   // Saisie de l'effort quand il n'est pas encore chiffré (cf. plus bas) —
   // une fois posé, il redevient figé : pas de correction à la volée en
@@ -228,12 +229,12 @@ function KanbanCard({
             <div className="flex flex-col gap-1 mt-2">
               {subs.map(s => (
                 <div key={s.id_tache} className="flex flex-col gap-1">
-                  <label className="flex items-start gap-2 cursor-pointer" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-start gap-2" onClick={e => e.stopPropagation()}>
                     {!isReadOnly && (
                       <input type="checkbox" checked={s.statut === 'Fait'} onChange={() => onToggleSub(s)}
-                        className="mt-0.5 accent-emerald-500 w-3 h-3 shrink-0" />
+                        className="mt-0.5 accent-emerald-500 w-3 h-3 shrink-0 cursor-pointer" />
                     )}
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onOpenSub(s)}>
                       <span className={cn('text-xs leading-snug', s.statut === 'Fait' ? 'line-through text-slate-400' : 'text-navy')}>{s.titre}</span>
                       {numbers.get(s.id_tache) && <span className="text-xs text-slate-400 ml-1">{numbers.get(s.id_tache)}</span>}
                       <span className="text-[9px] font-mono text-subtle/70 ml-1">{s.id_tache}</span>
@@ -249,7 +250,7 @@ function KanbanCard({
                         </span>
                       )}
                     </div>
-                  </label>
+                  </div>
                   <div className="ml-5">
                     <AssignPicker value={s.assigne_a ?? null} membres={membres}
                       onAssign={tri => onAssign(s.id_tache, tri)} disabled={isReadOnly} />
@@ -673,6 +674,7 @@ export default function SprintBoardPage() {
                       onAssign={assignTo}
                       onSetEffort={setEffort}
                       onToggleSub={toggleSub}
+                      onOpenSub={s => setPanelId(s.id_tache)}
                       onAddSub={setSousTacheFor}
                     />
                   ))}
@@ -719,6 +721,7 @@ export default function SprintBoardPage() {
                             onAssign={assignTo}
                             onSetEffort={setEffort}
                             onToggleSub={toggleSub}
+                            onOpenSub={s => setPanelId(s.id_tache)}
                             onAddSub={setSousTacheFor}
                           />
                         ))}

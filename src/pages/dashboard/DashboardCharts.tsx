@@ -9,7 +9,7 @@ import { Tooltip } from '@/components/ui/Tooltip'
 import { ToggleGroup } from '@/components/ui/ToggleGroup'
 import { cn, epicShortName, formatSprintLabel } from '@/lib/utils'
 import { scopedMetrics, computeBurndownWeeks } from '@/utils/produitMetrics'
-import type { MultiScope, ProduitMetrics } from '@/utils/produitMetrics'
+import type { MultiScope, ProduitMetrics, BurndownDoneEntry } from '@/utils/produitMetrics'
 import { trimAvancement } from '@/hooks/useProduits'
 import type { Produit } from '@/hooks/useProduits'
 import type { Tache, Statut, Sprint } from '@/types'
@@ -248,14 +248,23 @@ export function PortfolioAvancementChart({ produits, metricsMap, scope }: {
   return <HorizontalBarChart data={avancementData} colorFor={l => colorByNom.get(l) ?? '#4A4CC8'} valueFormatter={v => `${v}%`} />
 }
 
-export function PortfolioStatutsChart({ produits, allTaches }: {
-  produits: Produit[]; allTaches: Tache[]
+export function PortfolioStatutsChart({ produits, allTaches, scope }: {
+  produits: Produit[]; allTaches: Tache[]; scope: MultiScope
 }) {
   if (produits.length === 0) return null
-  const statutRows = produits.map(p => ({
-    label: p.nom,
-    taches: allTaches.filter(t => t.produit_id === p.id && t.type_tache !== 'Conteneur'),
-  }))
+  // En scope Trimestre, restreint aux US du trimestre ACTIF de chaque produit
+  // (même logique que RepartitionWidget/computeProduitMetrics) — sinon ce
+  // graphe affichait toujours le total global tous sprints confondus.
+  const statutRows = produits.map(p => {
+    const currentTrim = scope === 'trim'
+      ? [...(p.objectifs_trimestriels ?? [])].reverse().find(o => !!o.lance && !o.pause && !o.cloture) : null
+    const trimSprintSet = new Set<string>(currentTrim?.sprints_ids ?? [])
+    return {
+      label: p.nom,
+      taches: allTaches.filter(t => t.produit_id === p.id && t.type_tache !== 'Conteneur'
+        && (scope !== 'trim' || (!!t.sprint_debut && trimSprintSet.has(t.sprint_debut)))),
+    }
+  })
   return <StackedStatutRows rows={statutRows} />
 }
 
@@ -302,14 +311,17 @@ export function PortfolioTendanceChart({ produits }: { produits: Produit[] }) {
 // durée du trimestre. "Réalisé" (plein, vert) = US restantes réellement, à partir
 // des dates de passage à "Fait" issues du journal d'activité — s'arrête à
 // aujourd'hui, ne continue pas au-delà.
-export function ProduitBurndownChart({ quarterStart, quarterEnd, objectif, doneDates, trimLabel, unitLabel = 'US' }: {
-  quarterStart: Date | null; quarterEnd: Date | null; objectif: number; doneDates: Date[]; trimLabel?: string | null
+export function ProduitBurndownChart({ quarterStart, quarterEnd, objectif, doneDates, trimLabel, unitLabel = 'US', stepDays = 7, subsCount = 0 }: {
+  quarterStart: Date | null; quarterEnd: Date | null; objectif: number; doneDates: BurndownDoneEntry[]; trimLabel?: string | null
   unitLabel?: string
+  stepDays?: number
+  // Nombre de sous-tâches comptées en plus des US racines (0 = case décochée).
+  subsCount?: number
 }) {
   if (!quarterStart || !quarterEnd || objectif === 0) {
     return <p className="text-xs text-subtle italic">Pas de période active avec des {unitLabel} planifiées pour ce périmètre.</p>
   }
-  const weeks = computeBurndownWeeks(quarterStart, quarterEnd, objectif, doneDates)
+  const weeks = computeBurndownWeeks(quarterStart, quarterEnd, objectif, doneDates, stepDays)
   if (weeks.length === 0) {
     return <p className="text-xs text-subtle italic">Cette période n'a pas encore commencé.</p>
   }
@@ -319,9 +331,18 @@ export function ProduitBurndownChart({ quarterStart, quarterEnd, objectif, doneD
   ]
   return (
     <div>
-      <TrendLineChart categories={weeks.map(w => w.label)} series={series} valueFormatter={v => `${v} ${unitLabel} restants`} />
+      {/* Le graphe cumule US + sous-tâches quand la case est cochée (subsCount
+          > 0) : le nombre affiché au survol ne peut alors pas être qualifié
+          de "US" seul (ex: "59 US" alors que c'est 15 US + 44 sous-tâches) —
+          libellé générique dans ce cas, cohérent avec la légende sous le
+          graphe qui, elle, détaille la répartition. */}
+      <TrendLineChart categories={weeks.map(w => w.label)} series={series}
+        valueFormatter={v => subsCount > 0 ? `${v} restants (US + sous-tâches)` : `${v} ${unitLabel} restants`} />
       <p className="text-[11px] text-slate-400 mt-2">
-        {trimLabel ? `${trimLabel} — ` : ''}{objectif} {unitLabel} à écouler sur la période, reste à faire par semaine.
+        {/* `objectif` inclut les sous-tâches quand la case est cochée (c'est ce
+            total qui pilote le graphe) — le texte affiche plutôt le nombre
+            d'US seul, avec les sous-tâches en aside entre parenthèses. */}
+        {trimLabel ? `${trimLabel} — ` : ''}{objectif - subsCount} {unitLabel}{subsCount > 0 ? ` (avec ${subsCount} sous-tâche${subsCount > 1 ? 's' : ''})` : ''} à écouler sur la période, reste à faire par {stepDays === 1 ? 'jour' : 'semaine'}.
       </p>
     </div>
   )
@@ -329,7 +350,7 @@ export function ProduitBurndownChart({ quarterStart, quarterEnd, objectif, doneD
 
 // Version compacte (sparkline) sans axes ni légende, pour une ligne de tableau.
 export function BurndownSparkline({ quarterStart, quarterEnd, objectif, doneDates }: {
-  quarterStart: Date | null; quarterEnd: Date | null; objectif: number; doneDates: Date[]
+  quarterStart: Date | null; quarterEnd: Date | null; objectif: number; doneDates: BurndownDoneEntry[]
 }) {
   if (!quarterStart || !quarterEnd || objectif === 0) return null
   const weeks = computeBurndownWeeks(quarterStart, quarterEnd, objectif, doneDates)

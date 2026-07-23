@@ -1,7 +1,7 @@
 import type { Tache } from '@/types'
 import type { Produit, TrimObjectif } from '@/hooks/useProduits'
 import type { FinanceConfig } from '@/hooks/useFinanceConfig'
-import { effortEffectif } from '@/lib/utils'
+import { effortFaitEffectif } from '@/lib/utils'
 
 function tjmMoyenOf(finConfig: FinanceConfig | undefined): number {
   return (finConfig?.equipe_tjms?.length ?? 0) > 0
@@ -72,9 +72,14 @@ function countWorkingDays(from: Date, to: Date): number {
   while (d <= end) { if (d.getDay()!==0&&d.getDay()!==6) count++; d.setDate(d.getDate()+1) }
   return count
 }
+// Proportion (avancement / curseur temps), pas un écart de points absolus —
+// aligné sur ProduitDashboardBody.tsx (dashboard par produit) : "-10 points"
+// ne veut pas dire la même chose à curseur 12% qu'à curseur 90%, un ratio
+// reflète mieux à quel point on est loin du rythme attendu.
 function ragAvancement(actualPct: number, cursorPct: number | null): Rag {
-  const delta = actualPct - (cursorPct ?? 50)
-  return delta >= -10 ? 'green' : delta >= -20 ? 'amber' : 'red'
+  if (cursorPct === null || cursorPct <= 0) return 'green'
+  const pace = actualPct / cursorPct
+  return pace >= 0.8 ? 'green' : pace >= 0.5 ? 'amber' : 'red'
 }
 function ragBudget(realise: number, budget: number, cursorPct: number | null): Rag {
   if (budget === 0) return null
@@ -107,7 +112,7 @@ export function computeProduitMetrics(
   const enCoursUS  = racines.filter(t => t.statut === 'En cours').length
   const bloqueUS   = racines.filter(t => t.statut === 'Bloqué').length
   const backlogPct = totalUS > 0 ? Math.round(faitUS / totalUS * 100) : 0
-  const effortFaitGlobal = racines.filter(t => t.statut === 'Fait').reduce((s, t) => s + effortEffectif(t, childMap), 0)
+  const effortFaitGlobal = racines.reduce((s, t) => s + effortFaitEffectif(t, childMap), 0)
 
   const globalBudgetEtp = trims.reduce((s, t) => s + trimEtpCostEur(t, finConfig, joursTotaux), 0)
   const globalRealiseEur = effortFaitGlobal * tjmMoyenOf(finConfig)
@@ -136,10 +141,13 @@ export function computeProduitMetrics(
   const totalUSTrim    = racinesTrim.length
   const faitUSTrim     = racinesTrim.filter(t => t.statut === 'Fait').length
   const backlogPctTrim = totalUSTrim > 0 ? Math.round(faitUSTrim / totalUSTrim * 100) : 0
-  const effortFaitTrim = racinesTrim.filter(t => t.statut === 'Fait').reduce((s, t) => s + effortEffectif(t, childMap), 0)
+  const effortFaitTrim = racinesTrim.reduce((s, t) => s + effortFaitEffectif(t, childMap), 0)
 
+  // Le jour en cours n'est pas terminé : "jours écoulés" ne compte que les
+  // jours ouvrés entièrement passés (aligné sur ProduitDashboardBody.tsx).
+  const hier = new Date(today.getTime() - 86400000)
   const quarterStart = currentTrim ? getQuarterStart(currentTrim.trimestre) : null
-  const joursEcoules = quarterStart ? Math.min(countWorkingDays(quarterStart, today), joursTotaux) : null
+  const joursEcoules = quarterStart ? Math.min(countWorkingDays(quarterStart, hier), joursTotaux) : null
   const cursorPct    = joursEcoules !== null ? Math.round(joursEcoules / joursTotaux * 100) : null
 
   const trimEnd = currentTrim ? getQuarterEnd(currentTrim.trimestre) : null
@@ -164,6 +172,10 @@ export function computeProduitMetrics(
   }
 
   // ── ragD global (date_lancement_cible) ──────────────────────
+  // Couleur dérivée de la comparaison livraison estimée / cible (même calcul
+  // que "estimatedDeliveryDate" ci-dessus) — pas d'une moyenne de vélocité
+  // séparée — pour ne jamais contredire la date affichée à côté (aligné sur
+  // ProduitDashboardBody.tsx).
   let ragD: Rag = null
   let projectedPct: number | null = null
 
@@ -171,15 +183,9 @@ export function computeProduitMetrics(
     const targetDate = new Date(produit.date_lancement_cible)
     if (targetDate < today) {
       ragD = 'red'
-    } else if (globalCursorPct !== null && globalCursorPct > 0 && totalUS > 0) {
-      const pace = backlogPct / globalCursorPct
-      projectedPct = Math.min(100, Math.round(backlogPct + pace * (100 - globalCursorPct)))
-      ragD = projectedPct >= 90 ? 'green' : projectedPct >= 70 ? 'amber' : 'red'
-    } else if (cursorPct !== null && cursorPct > 0 && backlogPctTrim > 0) {
-      const pace = backlogPctTrim / cursorPct
-      const joursVersTarget = Math.min(countWorkingDays(today, targetDate), joursTotaux - (joursEcoules ?? 0))
-      projectedPct = Math.min(100, Math.round(backlogPctTrim + pace * (joursVersTarget / joursTotaux * 100)))
-      ragD = projectedPct >= 90 ? 'green' : projectedPct >= 70 ? 'amber' : 'red'
+    } else if (estimatedDeliveryDate) {
+      const margeJours = Math.round((targetDate.getTime() - estimatedDeliveryDate.getTime()) / 86400000)
+      ragD = margeJours >= 14 ? 'green' : margeJours >= 0 ? 'amber' : 'red'
     } else {
       const diff = Math.floor((targetDate.getTime() - today.getTime()) / 86400000)
       ragD = diff < 0 ? 'red' : diff < 14 ? 'amber' : 'green'
@@ -217,20 +223,38 @@ export function computeProduitMetrics(
 // (null au-delà — la ligne s'arrête au lieu de continuer à plat).
 export interface BurndownPoint { label: string; objectif: number; realise: number | null }
 
-export function computeBurndownWeeks(quarterStart: Date, quarterEnd: Date, objectif: number, doneDates: Date[]): BurndownPoint[] {
+// Chaque entrée "terminée" pèse `value` unités du total — toujours 1
+// aujourd'hui (1 US ou 1 critère), mais le poids reste généralisable
+// (ex. effort) si un futur mode en a besoin.
+export interface BurndownDoneEntry { date: Date; value: number }
+
+// `stepDays` : 7 (semaine) par défaut, adapté aux trimestres. Le scope
+// Sprint (dashboard produit) passe 1 (jour) — un sprint dure rarement plus
+// de 2-3 semaines, un pas hebdomadaire y masquait toute progression tant
+// que la première semaine n'était pas écoulée.
+export function computeBurndownWeeks(quarterStart: Date, quarterEnd: Date, objectif: number, doneEntries: BurndownDoneEntry[], stepDays = 7): BurndownPoint[] {
   if (quarterStart > quarterEnd) return []
   const today = new Date()
-  const totalWeeks = Math.max(1, Math.ceil((quarterEnd.getTime() - quarterStart.getTime()) / (7 * 86400000)))
+  const stepMs = stepDays * 86400000
+  const totalSteps = Math.max(1, Math.ceil((quarterEnd.getTime() - quarterStart.getTime()) / stepMs))
+  const stepLabel = stepDays === 1 ? 'J' : 'S'
   const points: BurndownPoint[] = []
-  for (let w = 0; w <= totalWeeks; w++) {
-    const weekDate = new Date(Math.min(quarterStart.getTime() + w * 7 * 86400000, quarterEnd.getTime()))
-    const idealRestant = Math.round(objectif * (1 - w / totalWeeks))
+  for (let w = 0; w <= totalSteps; w++) {
+    const stepDate = new Date(Math.min(quarterStart.getTime() + w * stepMs, quarterEnd.getTime()))
+    const idealRestant = Math.round(objectif * (1 - w / totalSteps))
     let realiseRestant: number | null = null
-    if (weekDate <= today) {
-      const doneCount = doneDates.filter(d => d.getTime() <= weekDate.getTime()).length
-      realiseRestant = Math.max(0, objectif - doneCount)
+    if (stepDate <= today) {
+      // Le dernier point "passé" (le plus proche d'aujourd'hui) utilise
+      // l'instant présent comme date de coupure plutôt que la borne rigide
+      // du pas — sinon une tâche clôturée dans la journée (ou la semaine en
+      // cours) n'apparaissait qu'au pas suivant (le lendemain en mode jour),
+      // jamais tout de suite.
+      const isLatestPastPoint = w === totalSteps || quarterStart.getTime() + (w + 1) * stepMs > today.getTime()
+      const cutoff = isLatestPastPoint ? Math.min(today.getTime(), quarterEnd.getTime()) : stepDate.getTime()
+      const doneValue = doneEntries.filter(e => e.date.getTime() <= cutoff).reduce((s, e) => s + e.value, 0)
+      realiseRestant = Math.max(0, Math.round((objectif - doneValue) * 100) / 100)
     }
-    points.push({ label: w === 0 ? 'Début' : w === totalWeeks ? 'Fin' : `S${w}`, objectif: idealRestant, realise: realiseRestant })
+    points.push({ label: w === 0 ? 'Début' : w === totalSteps ? 'Fin' : `${stepLabel}${w}`, objectif: idealRestant, realise: realiseRestant })
   }
   return points
 }
@@ -255,10 +279,20 @@ export function scopedMetrics(m: ProduitMetrics, scope: MultiScope) {
     ? `${fait}/${total} US ${isGlobal ? 'réalisées' : '(trim)'}\n${backlogPct}% fait · curseur ${cursor ?? '?'}%\nÉcart : ${ecart >= 0 ? '+' : ''}${ecart} pts`
     : undefined
 
+  // Global : marge/retard estimé en jours (même calcul que ragD ci-dessus) —
+  // pas de "% projeté" ici, pour ne jamais contredire la date affichée.
   const tipD = (() => {
+    if (isGlobal) {
+      if (!m.dateLancementCible) return undefined
+      const targetDate = new Date(m.dateLancementCible)
+      if (m.estimatedDeliveryDate) {
+        const margeJours = Math.round((targetDate.getTime() - m.estimatedDeliveryDate.getTime()) / 86400000)
+        return `Date cible : ${fmtD(targetDate)}\nLivraison est. : ${fmtD(m.estimatedDeliveryDate)}\n${margeJours >= 0 ? `Marge : ${margeJours} j` : `Retard estimé : ${-margeJours} j`}`
+      }
+      return `Date cible : ${fmtD(targetDate)}`
+    }
     if (projPct !== null) {
       const lines = [`Projection : ${projPct}%`]
-      if (isGlobal && m.dateLancementCible) lines.push(`Date cible : ${fmtD(new Date(m.dateLancementCible))}`)
       if (m.estimatedDeliveryDate) lines.push(`Livraison est. : ${fmtD(m.estimatedDeliveryDate)}`)
       return lines.join('\n')
     }
@@ -267,9 +301,11 @@ export function scopedMetrics(m: ProduitMetrics, scope: MultiScope) {
     return undefined
   })()
 
-  const tipTraj = projPct !== null
-    ? `Vélocité : ${backlogPct}% · curseur ${cursor ?? '?'}%\nProjection : ${projPct}%`
-    : tipA
+  const tipTraj = isGlobal
+    ? tipD
+    : projPct !== null
+      ? `Vélocité : ${backlogPct}% · curseur ${cursor ?? '?'}%\nProjection : ${projPct}%`
+      : tipA
 
   const tipBl = m.openRisques > 0 || m.openActions > 0
     ? `${m.openRisques} risque${m.openRisques !== 1 ? 's' : ''} ouvert${m.openRisques !== 1 ? 's' : ''}\n${m.openActions} action${m.openActions !== 1 ? 's' : ''} LOP`

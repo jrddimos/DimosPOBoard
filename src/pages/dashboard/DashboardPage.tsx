@@ -61,22 +61,50 @@ export default function DashboardPage() {
       setViewProduitId(produitActif.id)
   }, [mode])
 
-  const byId = useMemo(() => buildTacheIndex(taches), [taches])
-  const allParents = useMemo(
-    () => taches.filter((t: Tache) => isUS(t, byId) && !templateIds.has(t.produit_id as number)),
-    [taches, byId, produits]
-  )
+  // `id_tache` n'est unique qu'AU SEIN d'un produit (UNIQUE(produit_id,
+  // id_tache)) — construire un index (buildTacheIndex) ou un childMap
+  // (buildChildMap) sur TOUTES les tâches tous produits confondus expose à
+  // des collisions dès que deux produits partagent un même id_tache (quasi
+  // garanti : "US-001" existe généralement dans chaque produit). Ça classait
+  // à tort des US comme sous-tâches (ou l'inverse) et mélangeait les
+  // sous-tâches d'un produit dans le childMap d'un autre — faussant
+  // silencieusement les comptages et l'effort du Dashboard portefeuille. On
+  // regroupe donc par produit AVANT d'indexer.
+  const tachesByProduit = useMemo(() => {
+    const m = new Map<number, Tache[]>()
+    taches.forEach(t => {
+      const pid = t.produit_id as number
+      if (!m.has(pid)) m.set(pid, [])
+      m.get(pid)!.push(t)
+    })
+    return m
+  }, [taches])
 
-  // childMap sur TOUTES les tâches (pas les seules racines) : l'effort d'une
-  // US = effort propre + somme de ses sous-tâches (cf. effortEffectif/0057).
-  const childMap = useMemo(() => buildChildMap(taches), [taches])
+  const allParents = useMemo(() => {
+    const out: Tache[] = []
+    tachesByProduit.forEach((group, pid) => {
+      if (templateIds.has(pid)) return
+      const localById = buildTacheIndex(group)
+      group.forEach(t => { if (isUS(t, localById)) out.push(t) })
+    })
+    return out
+  }, [tachesByProduit, produits])
+
+  // childMap sur TOUTES les tâches d'UN produit (pas les seules racines) :
+  // l'effort d'une US = effort propre + somme de ses sous-tâches (cf.
+  // effortEffectif/0057) — gardé par produit (cf. note ci-dessus).
+  const childMapByProduit = useMemo(() => {
+    const m = new Map<number, Record<string, Tache[]>>()
+    tachesByProduit.forEach((group, pid) => m.set(pid, buildChildMap(group)))
+    return m
+  }, [tachesByProduit])
   const metricsMap = useMemo(() => {
     const map = new Map<number, ProduitMetrics>()
     accessibles.forEach(p => {
-      map.set(p.id, computeProduitMetrics(p, allParents.filter((t: Tache) => t.produit_id === p.id), finConfig, today, childMap))
+      map.set(p.id, computeProduitMetrics(p, allParents.filter((t: Tache) => t.produit_id === p.id), finConfig, today, childMapByProduit.get(p.id) ?? {}))
     })
     return map
-  }, [accessibles, allParents, finConfig, today, childMap])
+  }, [accessibles, allParents, finConfig, today, childMapByProduit])
 
   // Date la plus ancienne à laquelle chaque US est passée à "Fait" (clé "produit_id:id_tache").
   const faitDoneMap = useMemo(() => {
@@ -169,7 +197,7 @@ export default function DashboardPage() {
                 toggleProduit={toggleProduit}
                 selectAll={() => setSelectedIds(new Set(accessibles.map(p => p.id)))}
                 allTaches={allParents}
-                childMap={childMap}
+                childMapByProduit={childMapByProduit}
                 faitDoneMap={faitDoneMap}
                 navigate={navigate}
                 openProduct={goToProductDashboard}
@@ -183,7 +211,12 @@ export default function DashboardPage() {
       {/* ══ MODE PAR PRODUIT ════════════════════════════════════ */}
       {mode === 'produit' && (
         viewProduit
-          ? <ProduitDashboardBody produit={viewProduit} />
+          // key=produit.id : force un remount au changement de produit, sinon
+          // les préférences persistées par produit (scopeView, objectifMode,
+          // burndownIncludeSubs — lues une seule fois via useState lazy init)
+          // resteraient celles du produit précédent tant que la page n'est
+          // pas rechargée.
+          ? <ProduitDashboardBody key={viewProduit.id} produit={viewProduit} />
           : <div className="bg-card border border-border rounded-2xl flex flex-col items-center py-16 text-subtle gap-3 shadow-sm">
               <Package size={32} className="opacity-20" />
               <p className="text-sm font-medium">Sélectionner un produit ci-dessus</p>

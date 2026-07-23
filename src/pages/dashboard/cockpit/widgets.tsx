@@ -12,11 +12,10 @@ import {
 import { confirm } from '@/components/ui/ConfirmModal'
 import { Modal } from '@/components/ui/Modal'
 import { getJoursFeries, joursOuvresSemaine } from '@/utils/joursFeries'
-import { getWeeksForYear } from '@/pages/plancharges/utils'
 import { getISOWeek } from '@/lib/utils'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip, LineChart as RLineChart, Line, XAxis, YAxis, CartesianGrid, Legend, ReferenceDot } from 'recharts'
 import { Tooltip } from '@/components/ui/Tooltip'
-import { cn, effortEffectif, formatSprintLabel } from '@/lib/utils'
+import { cn, effortEffectif, effortFaitEffectif, formatSprintLabel } from '@/lib/utils'
 import { scopedMetrics, getQuarterStart, getQuarterEnd } from '@/utils/produitMetrics'
 import type { MultiScope, ProduitMetrics, Rag } from '@/utils/produitMetrics'
 import type { Produit } from '@/hooks/useProduits'
@@ -34,12 +33,20 @@ import { PortfolioAvancementChart, PortfolioStatutsChart, PortfolioTendanceChart
 // ── Contexte passé à chaque widget ────────────────────────────────
 export interface WidgetCtx {
   produits: Produit[]
+  // Tous les produits actifs (non-template) auxquels l'utilisateur a accès,
+  // INDÉPENDAMMENT du filtre "périmètre" (produits cochés) — nécessaire pour
+  // les widgets qui ne doivent pas suivre ce filtre (ex: Charge équipe, cf.
+  // ChargeEquipeWidget) mais doivent quand même exclure les produits
+  // archivés/templates (mêmes critères que activeProduits, PlanChargesPage).
+  accessibles: Produit[]
   metricsMap: Map<number, ProduitMetrics>
   scope: MultiScope
   allTaches: Tache[]
-  // parent_id → sous-tâches (toutes tâches confondues) : l'effort d'une US
-  // = effort propre + somme de ses sous-tâches (effortEffectif, cf. 0057).
-  childMap: Record<string, Tache[]>
+  // parent_id → sous-tâches, PAR PRODUIT (id_tache n'est unique qu'au sein
+  // d'un produit — un childMap partagé sur tous les produits confondus
+  // expose à des collisions) : l'effort d'une US = effort propre + somme de
+  // ses sous-tâches (effortEffectif, cf. 0057).
+  childMapByProduit: Map<number, Record<string, Tache[]>>
   faitDoneMap: Map<string, string>
   membres: UserProfile[]
   userTrigramme: string | null
@@ -193,8 +200,12 @@ export function portfolioKpis(ctx: WidgetCtx): PortfolioKpis {
     totalUS += s.total; faitUS += s.fait
     const cur = scopeCursor(m, scope)
     if (cur !== null) { cursorSum += cur; cursorN++ }
-    if (m.bloqueUS > 0) {
-      blocages += m.bloqueUS; prodBloques++
+    // bloqueTrim en scope Trimestre (pas toujours bloqueUS global) — sinon ce
+    // KPI contredit totalUS/faitUS juste au-dessus, qui eux respectent bien
+    // le scope via scopedMetrics.
+    const bloqueScope = scope === 'global' ? m.bloqueUS : m.bloqueTrim
+    if (bloqueScope > 0) {
+      blocages += bloqueScope; prodBloques++
       soleBlockedProduct = prodBloques === 1 ? p : null
     }
     const target = m.estimatedDeliveryDate ?? (m.dateLancementCible ? new Date(m.dateLancementCible) : null)
@@ -211,7 +222,7 @@ export function portfolioKpis(ctx: WidgetCtx): PortfolioKpis {
 // ══ Widgets ═══════════════════════════════════════════════════════
 
 export const COL_TIPS: Record<string, string> = {
-  Avancement: "Compare le % d'US faites au curseur temps du trimestre (ou à la date cible en scope Global). On track = dans les 10 pts, à risque = dans les 20, off track = au-delà.",
+  Avancement: "Compare le rythme réel (% fait) au rythme attendu (curseur temps). On track = au moins 80% de ce rythme, à risque = au moins 50%, off track = en dessous.",
   Budget: 'Compare le budget consommé au même curseur temps. On track = consommation alignée ou en retrait, off track = ça brûle plus vite que le calendrier.',
   Date: 'Compare la date de livraison projetée à la date cible (ou trimestre en cours). Off track = retard prévu.',
   Blocages: 'US bloquées + risques ouverts. On track = aucun, à risque = 1-2, off track = 3 ou plus.',
@@ -267,8 +278,12 @@ function AvancementWidget(ctx: WidgetCtx) {
         const s = scopedMetrics(m, scope)
         const pct = s.backlogPct
         const cursor = scopeCursor(m, scope)
-        const behind = cursor !== null && pct < cursor - 5
-        const ahead  = cursor !== null && pct >= cursor
+        // Couleur dérivée de ragA (scopedMetrics, même formule proportionnelle
+        // que la heatmap "Santé RAG") — pas d'un seuil à plat recalculé ici,
+        // pour ne jamais afficher une couleur différente pour la même donnée
+        // selon le widget consulté.
+        const ahead  = s.ragA === 'green'
+        const behind = s.ragA === 'red'
 
         // Burn-up trimestre (uniquement en scope 'trim', pas de sens en global)
         const quarterStart = scope === 'trim' && m.trimLabel ? getQuarterStart(m.trimLabel) : null
@@ -284,7 +299,7 @@ function AvancementWidget(ctx: WidgetCtx) {
               .filter(t => t.produit_id === p.id && t.type_tache !== 'Conteneur' && t.statut === 'Fait' && t.sprint_debut && trimSprintSet.has(t.sprint_debut))
               .map(t => {
                 const iso = faitDoneMap.get(`${p.id}:${t.id_tache}`)
-                return iso ? new Date(iso) : (quarterStart ?? new Date())
+                return { date: iso ? new Date(iso) : (quarterStart ?? new Date()), value: 1 }
               })
           : []
 
@@ -383,14 +398,26 @@ function TimelineWidget(ctx: WidgetCtx) {
 }
 
 function BudgetWidget(ctx: WidgetCtx) {
-  const { produits, allTaches, childMap, openProduct } = ctx
+  const { produits, allTaches, childMapByProduit, openProduct, scope } = ctx
   if (!produits.length) return <EmptyHint>Aucun produit dans le périmètre</EmptyHint>
   return (
     <div className="flex flex-col gap-2.5">
       {produits.map(p => {
-        const ts = allTaches.filter(t => t.produit_id === p.id && t.type_tache !== 'Conteneur')
+        const childMap = childMapByProduit.get(p.id) ?? {}
+        // En scope Trimestre, ne garder que les US du trimestre actif — sinon
+        // ce widget affichait toujours l'effort total tous sprints confondus,
+        // en contradiction avec les autres widgets scopés au trimestre.
+        const currentTrim = scope === 'trim'
+          ? [...(p.objectifs_trimestriels ?? [])].reverse().find(o => !!o.lance && !o.pause && !o.cloture) : null
+        const trimSprintSet = new Set<string>(currentTrim?.sprints_ids ?? [])
+        const ts = allTaches.filter(t => t.produit_id === p.id && t.type_tache !== 'Conteneur'
+          && (scope !== 'trim' || (!!t.sprint_debut && trimSprintSet.has(t.sprint_debut))))
         const total = ts.reduce((s, t) => s + effortEffectif(t, childMap), 0)
-        const fait  = ts.filter(t => t.statut === 'Fait').reduce((s, t) => s + effortEffectif(t, childMap), 0)
+        // effortFaitEffectif (pas un simple filter+effortEffectif) : compte
+        // l'effort d'une sous-tâche déjà "Fait" même si son US parente ne
+        // l'est pas encore (cf. le même correctif appliqué au dashboard
+        // produit et à produitMetrics.ts).
+        const fait  = ts.reduce((s, t) => s + effortFaitEffectif(t, childMap), 0)
         const pct   = total > 0 ? Math.round(fait / total * 100) : 0
         return (
           <button key={p.id} onClick={() => openProduct(p)} className="text-left group">
@@ -409,10 +436,20 @@ function BudgetWidget(ctx: WidgetCtx) {
 }
 
 function BlocagesWidget(ctx: WidgetCtx) {
-  const { produits, allTaches, openProduct } = ctx
+  const { produits, allTaches, openProduct, scope } = ctx
   const pById = new Map(produits.map(p => [p.id, p]))
+  // En scope Trimestre, ne liste que les blocages du trimestre actif de
+  // chaque produit — sinon ce widget contredit le KPI "blocages" du bandeau
+  // (lui-même corrigé pour respecter le scope).
   const bloquees = allTaches
-    .filter(t => t.statut === 'Bloqué' && t.type_tache !== 'Conteneur' && pById.has(t.produit_id as number))
+    .filter(t => {
+      if (t.statut !== 'Bloqué' || t.type_tache === 'Conteneur' || !pById.has(t.produit_id as number)) return false
+      if (scope !== 'trim') return true
+      const p = pById.get(t.produit_id as number)!
+      const currentTrim = [...(p.objectifs_trimestriels ?? [])].reverse().find(o => !!o.lance && !o.pause && !o.cloture)
+      const trimSprintSet = new Set<string>(currentTrim?.sprints_ids ?? [])
+      return !!t.sprint_debut && trimSprintSet.has(t.sprint_debut)
+    })
     .slice(0, 12)
   if (!bloquees.length) return <EmptyHint>Aucune tâche bloquée 🎉</EmptyHint>
   return (
@@ -472,9 +509,20 @@ const STATUT_COLORS: Record<string, string> = {
 }
 
 function RepartitionWidget(ctx: WidgetCtx) {
-  const { produits, allTaches } = ctx
+  const { produits, allTaches, scope } = ctx
   const pIds = new Set(produits.map(p => p.id))
-  const ts = allTaches.filter(t => pIds.has(t.produit_id as number) && t.type_tache !== 'Conteneur')
+  // En scope Trimestre, ne garder que les US du trimestre ACTIF de chacun de
+  // ses produits (même logique que computeProduitMetrics/racinesTrim) —
+  // sinon ce widget affichait toujours le total global (tous sprints
+  // confondus), en contradiction avec les autres widgets scopés au trimestre.
+  const ts = allTaches.filter(t => {
+    if (!pIds.has(t.produit_id as number) || t.type_tache === 'Conteneur') return false
+    if (scope !== 'trim') return true
+    const p = produits.find(pp => pp.id === t.produit_id)
+    const currentTrim = p ? [...(p.objectifs_trimestriels ?? [])].reverse().find(o => !!o.lance && !o.pause && !o.cloture) : null
+    const trimSprintSet = new Set<string>(currentTrim?.sprints_ids ?? [])
+    return !!t.sprint_debut && trimSprintSet.has(t.sprint_debut)
+  })
   const data = ['Fait', 'En cours', 'À faire', 'Bloqué']
     .map(s => ({ name: s, value: ts.filter(t => t.statut === s).length }))
     .filter(d => d.value > 0)
@@ -617,19 +665,45 @@ function RoadmapWidget(ctx: WidgetCtx) {
 // ── Charge équipe : allocation vs capacité sur les 4 prochaines semaines ──
 // Composant (et non simple fonction) car il charge ses propres données.
 function ChargeEquipeWidget({ ctx }: { ctx: WidgetCtx }) {
-  const year = new Date().getFullYear()
-  const cur  = getISOWeek(new Date()).semaine
-  const { data: plan = [] }       = usePlanCharges(year)
-  const { data: fermetures = [] } = usePeriodesFermeture(year)
-  const { data: absences = [] }   = useAbsencesCapacite(year)
+  // Fenêtre de 4 semaines calendaires à partir de VRAIES dates (lundi de
+  // chaque semaine), pas un filtre sur le numéro de semaine ISO dans l'année
+  // civile courante — sinon la fenêtre se tronquait silencieusement fin
+  // décembre (semaine 53 inexistante certaines années, semaines de janvier
+  // N+1 jamais incluses) au lieu d'afficher toujours 4 semaines pleines.
+  const today = new Date()
+  const mondayThis = new Date(today)
+  mondayThis.setHours(0, 0, 0, 0)
+  mondayThis.setDate(today.getDate() - ((today.getDay() + 6) % 7))
+  const weekStarts = Array.from({ length: 4 }, (_, i) => {
+    const d = new Date(mondayThis); d.setDate(d.getDate() + i * 7); return d
+  })
+  const yearA = getISOWeek(weekStarts[0]).annee
+  const yearB = getISOWeek(weekStarts[weekStarts.length - 1]).annee
+
+  const { data: planA = [] }       = usePlanCharges(yearA)
+  const { data: planB = [] }       = usePlanCharges(yearB)
+  const { data: fermeturesA = [] } = usePeriodesFermeture(yearA)
+  const { data: fermeturesB = [] } = usePeriodesFermeture(yearB)
+  const { data: absencesA = [] }   = useAbsencesCapacite(yearA)
+  const { data: absencesB = [] }   = useAbsencesCapacite(yearB)
+  const sameYear = yearB === yearA
+  const plan       = sameYear ? planA       : [...planA, ...planB]
+  const fermetures = sameYear ? fermeturesA : [...fermeturesA, ...fermeturesB]
+  const absences   = sameYear ? absencesA   : [...absencesA, ...absencesB]
 
   const rows = useMemo(() => {
     const membres = ctx.membres.filter(m => m.actif && m.trigramme)
     const tris = membres.map(m => m.trigramme!)
-    const feries = new Set(getJoursFeries(year).map(f => f.iso))
+    const feries = new Set([...getJoursFeries(yearA), ...(sameYear ? [] : getJoursFeries(yearB))].map(f => f.iso))
     const fermRanges = fermetures.map(f => ({ debut: f.date_debut, fin: f.date_fin }))
-    const weeks = getWeeksForYear(year).filter(w => w.semaine >= cur && w.semaine < cur + 4)
 
+    // Clé année+semaine (pas juste semaine) : une semaine 1 de deux années
+    // différentes ne doit jamais fusionner ses jours/allocations.
+    // Un jour de fermeture est déjà exclu de `jo` (joursOuvresSemaine, plus
+    // bas) — s'il tombe aussi dans une absence individuelle, il ne doit PAS
+    // être décompté une seconde fois, sinon la capacité chute artificiellement
+    // sous l'allocation réelle et déclenche une fausse surcharge (même
+    // exclusion que sur la page Plan de charges, cf. fermeturesDayMap).
     const absWk = new Map<string, number>()
     absences.forEach(a => {
       const d = new Date(a.date_debut + 'T00:00:00')
@@ -637,33 +711,42 @@ function ChargeEquipeWidget({ ctx }: { ctx: WidgetCtx }) {
       while (d <= end) {
         const dow = d.getDay()
         const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
-        if (dow !== 0 && dow !== 6 && !feries.has(iso)) {
-          const k = `${a.trigramme}|${getISOWeek(d).semaine}`
+        if (dow !== 0 && dow !== 6 && !feries.has(iso) && !fermRanges.some(f => iso >= f.debut && iso <= f.fin)) {
+          const { semaine, annee } = getISOWeek(d)
+          const k = `${a.trigramme}|${annee}|${semaine}`
           absWk.set(k, (absWk.get(k) ?? 0) + 1)
         }
         d.setDate(d.getDate() + 1)
       }
     })
 
+    // Plan de charges (page dédiée) ne totalise que les produits actifs et
+    // non-template — une allocation restée sur un produit archivé/template
+    // gonflait ici le total sans jamais apparaître côté Plan de charges,
+    // déclenchant une fausse surcharge pour des membres pourtant à l'équilibre.
+    const accessibleIds = new Set(ctx.accessibles.map(p => p.id))
     const allocWk = new Map<string, number>()
     plan.forEach(pc => {
-      const k = `${pc.assigne_a}|${pc.semaine}`
+      if (!accessibleIds.has(pc.produit_id)) return
+      const k = `${pc.assigne_a}|${pc.annee}|${pc.semaine}`
       allocWk.set(k, (allocWk.get(k) ?? 0) + (pc.jours ?? 0))
     })
 
-    return weeks.map(w => {
-      const jo = joursOuvresSemaine(w.lundi, feries, fermRanges)
+    return weekStarts.map(monday => {
+      const { semaine, annee } = getISOWeek(monday)
+      const jo = joursOuvresSemaine(monday, feries, fermRanges)
       let capa = 0, alloc = 0
       const over: string[] = []
       tris.forEach(tri => {
-        const c = Math.max(0, jo - (absWk.get(`${tri}|${w.semaine}`) ?? 0))
-        const a = allocWk.get(`${tri}|${w.semaine}`) ?? 0
+        const c = Math.max(0, jo - (absWk.get(`${tri}|${annee}|${semaine}`) ?? 0))
+        const a = allocWk.get(`${tri}|${annee}|${semaine}`) ?? 0
         capa += c; alloc += a
         if (a > c) over.push(tri)
       })
-      return { semaine: w.semaine, capa, alloc, over }
+      return { semaine, capa, alloc, over }
     })
-  }, [ctx.membres, plan, fermetures, absences, year, cur])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.membres, ctx.accessibles, plan, fermetures, absences, yearA, yearB])
 
   if (!rows.length) return <EmptyHint>Plan de charges vide</EmptyHint>
 
@@ -1216,7 +1299,7 @@ export const WIDGETS: WidgetDef[] = [
   { key: 'cartes',      label: 'Cartes produits',      description: 'Mini-cartes cliquables de tous les produits',   icon: <Package size={13} />,       defaultSize: { w: 12, h: 4 }, minW: 4, minH: 3, render: CartesProduitsWidget },
   { key: 'roadmap',     label: 'Roadmap jalons',       description: 'Jalons par produit sur l\'axe des sprints',     icon: <MapIcon size={13} />,       defaultSize: { w: 12, h: 6 }, minW: 6, minH: 4, render: RoadmapWidget },
   { key: 'chart_avancement', label: 'Graphe avancement',  description: 'Barres d\'avancement par produit',            icon: <BarChart3 size={13} />,     defaultSize: { w: 6, h: 6 }, minW: 4, minH: 4, render: ctx => <PortfolioAvancementChart produits={ctx.produits} metricsMap={ctx.metricsMap} scope={ctx.scope} /> },
-  { key: 'chart_statuts',    label: 'Graphe statuts',     description: 'Répartition des statuts par produit',          icon: <Rows3 size={13} />,         defaultSize: { w: 6, h: 6 }, minW: 4, minH: 4, render: ctx => <PortfolioStatutsChart produits={ctx.produits} allTaches={ctx.allTaches} /> },
+  { key: 'chart_statuts',    label: 'Graphe statuts',     description: 'Répartition des statuts par produit',          icon: <Rows3 size={13} />,         defaultSize: { w: 6, h: 6 }, minW: 4, minH: 4, render: ctx => <PortfolioStatutsChart produits={ctx.produits} allTaches={ctx.allTaches} scope={ctx.scope} /> },
   { key: 'chart_tendance',   label: 'Tendance trimestrielle', description: 'Avancement et budgets par trimestre',      icon: <LineChart size={13} />,     defaultSize: { w: 12, h: 6 }, minW: 6, minH: 4, render: ctx => <PortfolioTendanceChart produits={ctx.produits} /> },
   { key: 'charge',      label: 'Charge équipe',        description: 'Allocation vs capacité sur 4 semaines',         icon: <Users size={13} />,         defaultSize: { w: 4, h: 5 }, minW: 3, minH: 3, render: ctx => <ChargeEquipeWidget ctx={ctx} /> },
   { key: 'scorecard',   label: 'ROCKS',                description: 'Incréments livrés par initiative vs objectif',  icon: <Rocket size={13} />,        defaultSize: { w: 12, h: 12 }, minW: 6, minH: 6, render: ScorecardWidget },

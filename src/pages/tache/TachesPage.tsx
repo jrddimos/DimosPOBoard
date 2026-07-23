@@ -44,6 +44,10 @@ type ViewKey = 'list'|'add'|'fast'
 
 // ── Regroupement + filtres de la liste (repris de l'ancien Backlog) ──
 type GroupBy = 'epic'|'jalon'|'none'
+// 'Transféré' (5ᵉ valeur du type Statut) exclu volontairement : il ne vit
+// jamais sur taches.statut, seulement sur tache_iterations.statut (posé
+// automatiquement à la clôture d'un sprint, jamais choisi manuellement) — un
+// chip ici filtrerait toujours sur 0 résultat.
 const STATUTS_FILTRE  = ['À faire','En cours','Fait','Bloqué'] as const
 const MOSCOWS_FILTRE  = ['Must Have','Should Have','Could Have',"Won't Have"] as const
 const TYPES_FN_FILTRE = ['Fonction principale','Fonction secondaire','Fonction support','Fonction exclue'] as const
@@ -497,27 +501,62 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
   const hasActiveFilters=activeFilterCount>0
   function resetFilters(){setSelEpics([]);setSelJalons([]);setSelStatuts([]);setSelMoscows([]);setSelTypes([]);setSearch('');setShowSansEpic(false);setPage(1)}
 
-  const filtered=useMemo(()=>parents.filter(t=>{
+  // Recherche/Jalon/Statut/MoSCoW/Type portent sur le TRAVAIL réel (US) — un
+  // Conteneur n'a jamais ces champs renseignés (masqués dans le formulaire de
+  // création), donc le tester directement l'excluait quasi systématiquement
+  // dès qu'un de ces filtres était actif, et avec lui toutes les US qu'il
+  // contient (jamais testées individuellement, cf. flattenConteneurs/arbre
+  // qui affichent le contenu d'un Conteneur uniquement s'il a survécu ici).
+  function matchesFieldFilters(t:Tache):boolean{
     if(search&&!t.titre.toLowerCase().includes(search.toLowerCase())&&!t.id_tache.toLowerCase().includes(search.toLowerCase())) return false
-    if(showSansEpic&&t.epic) return false
-    if(selEpics.length&&!selEpics.includes(t.epic??'')) return false
     if(selJalons.length&&!selJalons.includes(t.jalon??'')) return false
     if(selStatuts.length&&!selStatuts.includes(t.statut)) return false
     if(selMoscows.length&&!selMoscows.includes(t.moscow??'')) return false
     if(selTypes.length&&!selTypes.includes(t.type_fonction??'')) return false
     return true
-  }),[parents,search,showSansEpic,selEpics,selJalons,selStatuts,selMoscows,selTypes])
+  }
+
+  const filtered=useMemo(()=>parents.filter(t=>{
+    if(showSansEpic&&t.epic) return false
+    if(selEpics.length&&!selEpics.includes(t.epic??'')) return false
+    if(t.type_tache==='Conteneur'){
+      // Visible dès que le Conteneur lui-même matche (ex: recherche sur son
+      // titre) OU qu'au moins une de ses US directes matche — sinon un
+      // Conteneur dont aucune US n'est encore assignée à un Jalon/Statut/
+      // MoSCoW/Type recherché masquerait à tort celles qui matchent.
+      if(matchesFieldFilters(t)) return true
+      return (childMap[t.id_tache]??[]).some(matchesFieldFilters)
+    }
+    return matchesFieldFilters(t)
+  }),[parents,search,showSansEpic,selEpics,selJalons,selStatuts,selMoscows,selTypes,childMap])
+
+  // childMap effectif pour l'AFFICHAGE : quand un filtre "métier" (recherche/
+  // Jalon/Statut/MoSCoW/Type) est actif, un Conteneur ne montre que les US
+  // qui matchent réellement — sinon il affichait TOUTES ses US dès qu'une
+  // seule matchait (ex: filtrer "Fait" avec 1 US faite sur 10 en affichait
+  // 10). Les sous-tâches d'une US matchée restent, elles, toutes affichées
+  // (détail d'un item déjà retenu, cf. childMap[usId] laissé inchangé).
+  const hasFieldFilter=!!search||selJalons.length>0||selStatuts.length>0||selMoscows.length>0||selTypes.length>0
+  const effectiveChildMap=useMemo(()=>{
+    if(!hasFieldFilter) return childMap
+    const m:Record<string,Tache[]>={...childMap}
+    for(const t of parents){
+      if(t.type_tache==='Conteneur') m[t.id_tache]=(childMap[t.id_tache]??[]).filter(matchesFieldFilters)
+    }
+    return m
+  },[childMap,parents,hasFieldFilter,search,selJalons,selStatuts,selMoscows,selTypes])
 
   function effJ(t:Tache):number{
     return effortEffectif(t,childMap)
   }
-  const totalEffort=filtered.reduce((s,t)=>s+effJ(t),0)
   const PAGE_SIZE=50
-  // Vraies tâches, Conteneurs remplacés par leur contenu (récursif) — sert
-  // au compteur d'en-tête ("X US", cf. plus bas : `filtered` compte à tort
-  // les Conteneurs comme des US et pas leur contenu) et à l'affichage de la
-  // vue "Aucun", qui n'affiche pas les Conteneurs eux-mêmes.
-  const filteredReal=useMemo(()=>flattenConteneurs(filtered,childMap),[filtered,childMap])
+  // Vraies tâches, Conteneurs remplacés par leur contenu (récursif, via
+  // effectiveChildMap pour ne garder que les US qui matchent le filtre
+  // actif) — sert au compteur d'en-tête ("X US", cf. plus bas : `filtered`
+  // compte à tort les Conteneurs comme des US et pas leur contenu) et à
+  // l'affichage de la vue "Aucun", qui n'affiche pas les Conteneurs eux-mêmes.
+  const filteredReal=useMemo(()=>flattenConteneurs(filtered,effectiveChildMap),[filtered,effectiveChildMap])
+  const totalEffort=filteredReal.reduce((s,t)=>s+effJ(t),0)
   const filteredPaged=useMemo(()=>{
     const base=groupBy==='none'?filteredReal:filtered
     const start=(page-1)*PAGE_SIZE
@@ -923,7 +962,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
         <div className="hidden md:block bg-card border border-border rounded-xl overflow-x-auto">
           {groupBy==='epic' ? (
             <TacheTree
-              filtered={filtered} childMap={childMap} epicsList={epicsList} epicColorMap={epicColorMap}
+              filtered={filtered} childMap={effectiveChildMap} epicsList={epicsList} epicColorMap={epicColorMap}
               byId={byId} allTaches={allTaches} selected={selected}
               onToggleSelect={(id,checked)=>setSelected(prev=>checked?[...prev,id]:prev.filter(x=>x!==id))}
               panelId={panelId} onOpenPanel={openPanel} dependances={dependances} updateTache={updateTache}

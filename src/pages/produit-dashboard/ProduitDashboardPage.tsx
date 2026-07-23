@@ -20,7 +20,11 @@ export default function ProduitDashboardPage() {
 
   return (
     <Layout title={`Dashboard — ${produit.nom}`}>
-      <ProduitDashboardBody produit={produit} />
+      {/* key=produit.id : force un remount au changement de produit actif,
+          sinon les préférences persistées par produit (scopeView,
+          objectifMode...) resteraient celles du précédent, cf. useState lazy
+          init dans ProduitDashboardBody. */}
+      <ProduitDashboardBody key={produit.id} produit={produit} />
     </Layout>
   )
 }

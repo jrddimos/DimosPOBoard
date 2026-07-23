@@ -32,11 +32,25 @@ export function useAllTaches() {
   return useQuery({
     queryKey: ['taches', 'all'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('taches').select('*')
-        .order('ordre_backlog', { ascending: true, nullsFirst: false })
-        .order('id_tache')
-      if (error) throw error
-      return (data ?? []) as Tache[]
+      // PostgREST plafonne une requête à 1000 lignes par défaut — cette
+      // requête couvre TOUS les produits (contrairement à useTaches/
+      // useTachesByProduit, scopées à un seul), donc bien plus susceptible
+      // de dépasser ce seuil et de tronquer silencieusement le résultat
+      // (faussant tout comptage d'US dans le Dashboard portefeuille).
+      const pageSize = 1000
+      let rows: Tache[] = []
+      let from = 0
+      while (true) {
+        const { data, error } = await supabase.from('taches').select('*')
+          .order('ordre_backlog', { ascending: true, nullsFirst: false })
+          .order('id_tache')
+          .range(from, from + pageSize - 1)
+        if (error) throw error
+        rows = rows.concat((data ?? []) as Tache[])
+        if (!data || data.length < pageSize) break
+        from += pageSize
+      }
+      return rows
     },
     staleTime: 30_000,
   })
