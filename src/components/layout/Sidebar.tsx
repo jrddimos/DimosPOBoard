@@ -23,7 +23,7 @@ import { supabase } from '@/lib/supabase'
 import { BRAND_COLORS } from '@/constants'
 import {
   LayoutDashboard, Kanban, FilePlus, Settings,
-  ChevronDown, LogOut, ClipboardCheck, User, Clock, X,
+  ChevronDown, LogOut, ClipboardCheck, User, X,
   Package, CalendarClock, BarChart3, Camera, TrendingUp,
   StickyNote, Plus, Check, ArrowRight, ChevronRight, ChevronLeft, Sun, Moon, Layers, Bell, Search, Square, Timer,
   SlidersHorizontal, MessageCircle, Send, Lightbulb, ThumbsUp, ThumbsDown, Archive, Milestone,
@@ -830,7 +830,6 @@ export const PRODUCT_NAV: NavItem[] = [
   { id: 'sprint',            label: 'Sprint Board', href: '/sprint',             icon: <Kanban size={15} />         },
   { id: 'taches',            label: 'Tâches Backlog', href: '/taches',           icon: <FilePlus size={15} />       },
   { id: 'dod',               label: 'Exigences',    href: '/dod',                icon: <ClipboardCheck size={15} /> },
-  { id: 'activite',          label: 'Activité',     href: '/activite',           icon: <Clock size={15} />          },
   { id: 'produit-config',    label: 'Configuration', href: '/produit-config',    icon: <SlidersHorizontal size={15} />, writeOnly: true },
 ]
 
@@ -1239,6 +1238,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const globalItems = GLOBAL_NAV.filter(i => !i.adminOnly || isAdmin)
   const productItems = PRODUCT_NAV.filter(i => !i.writeOnly || isAdmin || (produitActif && canWrite(produitActif.id)))
 
+  // Ferme le menu mobile uniquement à la navigation (changement de route),
+  // pas à chaque fois que `onClose` change de référence côté parent.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { onClose() }, [location.pathname, location.search])
 
   return (
@@ -1263,7 +1265,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           </div>
           {!collapsed && (
             <span className={cn('absolute inset-x-0 text-center text-[15px] font-bold tracking-[-0.02em] pointer-events-none', t.logoText)}>
-              PO Board
+              Dimos <em className="italic">Inside</em>
             </span>
           )}
           {!collapsed && (

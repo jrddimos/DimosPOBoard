@@ -836,6 +836,11 @@ export default function ProduitConfigPage() {
     setTrims(existing)
     setRagConfig(produit.rag_config ?? ragConfigDefault)
     setDirty(false)
+  // Ne réinitialise le formulaire qu'au changement de PRODUIT (id), pas à
+  // chaque refetch de `produit` (même contenu, nouvelle référence) ni quand
+  // `ragConfigDefault` (constante) change — sinon un refetch en arrière-plan
+  // effacerait les modifications en cours de saisie.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [produit?.id])
 
   function updateTrim(id: string, updated: TrimObjectif) {

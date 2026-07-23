@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildTacheIndex, isUS, isSousTache, effortEffectif, computeTacheNumbers, sprintInRange } from './utils'
+import { buildTacheIndex, isUS, isSousTache, effortEffectif, effortFaitEffectif, computeTacheNumbers, sprintInRange } from './utils'
 import type { Tache } from '@/types'
 
 function mkTache(overrides: Partial<Tache> = {}): Tache {
@@ -97,6 +97,49 @@ describe('effortEffectif', () => {
       'US-1': [mkTache({ id_tache: 'SS-1', parent_id: 'US-1', effort_j: 4 })],
     }
     expect(effortEffectif(conteneur, childMap)).toBe(5)
+  })
+})
+
+describe('effortFaitEffectif', () => {
+  it('compte l\'effort d\'une sous-tâche "Fait" même si son US parente ne l\'est pas — bug corrigé cette session', () => {
+    const parent = mkTache({ id_tache: 'US-1', effort_j: 2, statut: 'En cours' })
+    const childMap = {
+      'US-1': [
+        mkTache({ id_tache: 'SS-1', effort_j: 3, statut: 'Fait' }),
+        mkTache({ id_tache: 'SS-2', effort_j: 4, statut: 'À faire' }),
+      ],
+    }
+    // Avant le fix : un simple `racines.filter(statut==='Fait').reduce(effortEffectif)`
+    // aurait renvoyé 0 ici (le parent n'est pas "Fait"), alors que 3j de travail sont bien réalisés.
+    expect(effortFaitEffectif(parent, childMap)).toBe(3)
+  })
+
+  it('compte l\'effort propre de l\'US quand elle est "Fait", indépendamment de ses sous-tâches', () => {
+    const parent = mkTache({ id_tache: 'US-1', effort_j: 2, statut: 'Fait' })
+    const childMap = { 'US-1': [mkTache({ id_tache: 'SS-1', effort_j: 3, statut: 'À faire' })] }
+    expect(effortFaitEffectif(parent, childMap)).toBe(2)
+  })
+
+  it('renvoie 0 quand rien n\'est "Fait" (ni le parent, ni ses sous-tâches)', () => {
+    const parent = mkTache({ id_tache: 'US-1', effort_j: 2, statut: 'En cours' })
+    const childMap = { 'US-1': [mkTache({ id_tache: 'SS-1', effort_j: 3, statut: 'En cours' })] }
+    expect(effortFaitEffectif(parent, childMap)).toBe(0)
+  })
+
+  it('additionne effort propre "Fait" et effort des sous-tâches "Fait" (les deux comptent)', () => {
+    const parent = mkTache({ id_tache: 'US-1', effort_j: 2, statut: 'Fait' })
+    const childMap = { 'US-1': [mkTache({ id_tache: 'SS-1', effort_j: 3, statut: 'Fait' })] }
+    expect(effortFaitEffectif(parent, childMap)).toBe(5)
+  })
+
+  it('remonte récursivement sur 2 niveaux (Conteneur > US > sous-tâche)', () => {
+    const conteneur = mkTache({ id_tache: 'C-1', type_tache: 'Conteneur', effort_j: 0, statut: 'À faire' })
+    const us = mkTache({ id_tache: 'US-1', parent_id: 'C-1', effort_j: 1, statut: 'En cours' })
+    const childMap = {
+      'C-1': [us],
+      'US-1': [mkTache({ id_tache: 'SS-1', parent_id: 'US-1', effort_j: 4, statut: 'Fait' })],
+    }
+    expect(effortFaitEffectif(conteneur, childMap)).toBe(4)
   })
 })
 

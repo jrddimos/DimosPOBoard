@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useProduit } from '@/contexts/ProduitContext'
+import { logActivity } from '@/hooks/useActivityLog'
 import type { Sprint } from '@/types'
 
 // ── useSprints ─────────────────────────────────────────────────
@@ -74,6 +75,10 @@ export function useClosedSprints() {
 }
 
 // ── useUpsertSprint ────────────────────────────────────────────
+// Une seule fonction sert à la fois la création et la modification (upsert
+// sur numero+produit_id) — pour journaliser correctement, on distingue les
+// deux en amont via le cache : absent = création, présent = modification
+// (une entrée par champ réellement changé, même principe que useUpdateTache).
 export function useUpsertSprint() {
   const qc = useQueryClient()
   const { produitActif } = useProduit()
@@ -81,13 +86,31 @@ export function useUpsertSprint() {
   return useMutation({
     mutationFn: async (sprint: Partial<Sprint> & { numero: string }) => {
       if (!produitActif) throw new Error('Aucun produit sélectionné')
+      const pid = produitActif.id
+      const current = qc.getQueryData<Sprint[]>(['sprints', pid])?.find(s => s.numero === sprint.numero)
+
       const { error } = await supabase
         .from('sprints')
         .upsert(
-          { ...sprint, produit_id: produitActif.id },
+          { ...sprint, produit_id: pid },
           { onConflict: 'numero,produit_id' }
         )
       if (error) throw error
+
+      if (!current) {
+        await logActivity({ produit_id: pid, action: 'create', target: sprint.numero, title: `Sprint ${sprint.numero}`, entity: 'sprint' })
+        return
+      }
+      for (const key of Object.keys(sprint) as (keyof Sprint)[]) {
+        if (key === 'numero') continue
+        const oldVal = current[key] ?? null
+        const newVal = sprint[key] ?? null
+        if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue
+        await logActivity({
+          produit_id: pid, action: 'update', target: sprint.numero, title: `Sprint ${sprint.numero}`, field: String(key),
+          old_value: JSON.stringify(oldVal), new_value: JSON.stringify(newVal), entity: 'sprint',
+        })
+      }
     },
     onSuccess: () => {
       const pid = produitActif?.id ?? null
@@ -105,8 +128,20 @@ export function useDeleteSprint() {
 
   return useMutation({
     mutationFn: async (numero: string) => {
-      const { error } = await supabase.from('sprints').delete().eq('numero', numero)
+      const pid = produitActif?.id ?? null
+      const current = qc.getQueryData<Sprint[]>(['sprints', pid])?.find(s => s.numero === numero)
+      let query = supabase.from('sprints').delete().eq('numero', numero)
+      // `numero` seul n'est pas unique entre produits (contrainte UNIQUE sur
+      // (numero, produit_id)) — sans ce scope, supprimer "S01" pouvait aussi
+      // effacer le sprint homonyme d'un AUTRE produit (même bug de collision
+      // déjà corrigé côté tâches via id_tache).
+      if (pid) query = query.eq('produit_id', pid)
+      const { error } = await query
       if (error) throw error
+      if (pid) await logActivity({
+        produit_id: pid, action: 'delete', target: numero, title: `Sprint ${numero}`,
+        old_value: current ? JSON.stringify(current) : null, entity: 'sprint',
+      })
     },
     onSuccess: () => {
       const pid = produitActif?.id ?? null

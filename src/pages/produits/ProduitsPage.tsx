@@ -569,7 +569,7 @@ export default function ProduitsPage() {
 
   const produitsFiltres = useMemo(() => {
     const q = search.trim().toLowerCase()
-    let list = q
+    const list = q
       ? produitsAccessibles.filter(p =>
           p.nom.toLowerCase().includes(q) || (p.description ?? '').toLowerCase().includes(q)
         )

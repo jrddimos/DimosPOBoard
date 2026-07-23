@@ -250,7 +250,7 @@ function KpiBand({ ctx }: { ctx: WidgetCtx }) {
 
 // ── Cockpit ───────────────────────────────────────────────────────
 export default function CockpitView(props: CockpitViewProps) {
-  const { user } = useAuth()
+  const { user, isAdmin } = useAuth()
   const { data: membres = [] } = useUtilisateurs()
   const toast = useToast()
 
@@ -259,13 +259,22 @@ export default function CockpitView(props: CockpitViewProps) {
   const updateView = useUpdateDashboardView()
   const deleteView = useDeleteDashboardView()
 
+  // FL3 (ROCKS) est une vue stratégique réservée aux admins — Standard reste
+  // commun à tous.
+  const visibleBuiltinTabs = isAdmin ? BUILTIN_TABS : BUILTIN_TABS.filter(b => b.id !== 'fl3')
+
   // Onglet actif : 'std' ou id d'une vue perso (persisté localement)
   const [activeTab, setActiveTab] = useState<string>(() => localStorage.getItem('cockpit-tab') ?? 'std')
   useEffect(() => { localStorage.setItem('cockpit-tab', activeTab) }, [activeTab])
+  // Un non-admin ayant déjà 'fl3' en localStorage (ex: perdait ses droits
+  // admin depuis) ne doit pas se retrouver bloqué sur un onglet masqué.
+  useEffect(() => {
+    if (activeTab === 'fl3' && !isAdmin) setActiveTab('std')
+  }, [activeTab, isAdmin])
 
   const activeView = views.find(v => String(v.id) === activeTab) ?? null
-  const activeBuiltin = BUILTIN_TABS.find(b => b.id === activeTab) ?? null
-  const baseLayout: ViewLayoutItem[] = activeView ? activeView.layout : (activeBuiltin ?? BUILTIN_TABS[0]).layout
+  const activeBuiltin = visibleBuiltinTabs.find(b => b.id === activeTab) ?? null
+  const baseLayout: ViewLayoutItem[] = activeView ? activeView.layout : (activeBuiltin ?? visibleBuiltinTabs[0]).layout
 
   const [editing, setEditing]       = useState(false)
   // Layout local à l'édition en cours (drag/resize/ajout de widget) — tant
@@ -323,7 +332,7 @@ export default function CockpitView(props: CockpitViewProps) {
     navigate: props.navigate,
     openProduct: props.openProduct,
     fmtDate: props.fmtDate,
-  }), [props.produits, props.accessibles, props.metricsMap, props.scope, props.allTaches, props.childMapByProduit, props.faitDoneMap, membres, monMembre?.trigramme])
+  }), [props.produits, props.accessibles, props.metricsMap, props.scope, props.allTaches, props.childMapByProduit, props.faitDoneMap, membres, monMembre?.trigramme, props.fmtDate, props.navigate, props.openProduct])
 
   const { width, containerRef, mounted } = useContainerWidth()
 
@@ -349,7 +358,7 @@ export default function CockpitView(props: CockpitViewProps) {
     // Les onglets par défaut (Standard, FL3) ne sont pas modifiables
     // directement : on crée une copie perso, graine sur la disposition active.
     if (!user) return
-    const v = await createView.mutateAsync({ user_id: user.id, nom: 'Ma vue', layout: (activeBuiltin ?? BUILTIN_TABS[0]).layout, contexte: 'portefeuille' as const })
+    const v = await createView.mutateAsync({ user_id: user.id, nom: 'Ma vue', layout: (activeBuiltin ?? visibleBuiltinTabs[0]).layout, contexte: 'portefeuille' as const })
     setActiveTab(String(v.id))
     setEditLayout(v.layout)
     setEditing(true)
@@ -366,7 +375,7 @@ export default function CockpitView(props: CockpitViewProps) {
 
   async function createNewView() {
     if (!user || !newName.trim()) return
-    const v = await createView.mutateAsync({ user_id: user.id, nom: newName.trim(), layout: (activeBuiltin ?? BUILTIN_TABS[0]).layout, contexte: 'portefeuille' as const })
+    const v = await createView.mutateAsync({ user_id: user.id, nom: newName.trim(), layout: (activeBuiltin ?? visibleBuiltinTabs[0]).layout, contexte: 'portefeuille' as const })
     setNaming(false); setNewName('')
     setActiveTab(String(v.id))
     setEditLayout(v.layout)
@@ -392,7 +401,7 @@ export default function CockpitView(props: CockpitViewProps) {
           à droite — remplace les deux barres d'outils séparées (topbar page +
           onglets cockpit) d'avant, qui dupliquaient la hiérarchie visuelle. */}
       <div className="flex items-center gap-1.5 mb-4 flex-wrap">
-        {BUILTIN_TABS.map(b => (
+        {visibleBuiltinTabs.map(b => (
           <button key={b.id} onClick={() => switchTab(b.id)}
             className={cn('text-xs font-semibold px-3 py-1.5 rounded-lg transition-all',
               activeTab === b.id ? 'bg-brand text-white' : 'bg-card border border-border text-subtle hover:text-navy')}>

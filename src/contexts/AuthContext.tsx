@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useMemo } from 'react'
+import { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { User } from '@supabase/supabase-js'
 
@@ -96,11 +96,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe()
   }, [])
 
-  async function refreshProfile() {
+  const refreshProfile = useCallback(async () => {
     if (!user) return
     const { data } = await supabase.from('user_profiles').select('*').eq('user_id', user.id).maybeSingle()
     if (data) setProfile(data as UserProfile)
-  }
+  }, [user])
 
   const value = useMemo<AuthContextValue>(() => {
     const isAdmin = profile?.role_global === 'admin'
@@ -117,7 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       canWrite: (pid) => isAdmin || ['po', 'dev'].includes(getRoleForProduit(pid) ?? ''),
       refreshProfile,
     }
-  }, [user, profile, roles, loading])
+  }, [user, profile, roles, loading, refreshProfile])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

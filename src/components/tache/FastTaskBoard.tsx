@@ -97,7 +97,9 @@ function PostitNode({ data }: NodeProps) {
     }
     document.addEventListener('pointerdown', handlePointerDown, true)
     return () => document.removeEventListener('pointerdown', handlePointerDown, true)
-  }, [d.editing, d.onSave])
+  // `d` est un cast local (`data as PostitNodeData`, recréé chaque rendu) —
+  // le linter ne peut pas prouver que d.editing/d.onSave le couvrent déjà.
+  }, [d, d.editing, d.onSave])
 
   if (d.editing) {
     return (
@@ -347,6 +349,11 @@ function BoardInner({ canWrite }: { canWrite: boolean }) {
     const next = { x: current.x + 24, y: current.y + 24, couleur: current.couleur, gen: draftGenRef.current }
     lastPosByZoneRef.current[zoneId] = next
     setDrafts(d => ({ ...d, [zoneId]: next }))
+  // createPostit (l'objet mutation) est volontairement omis : React Query le
+  // recrée à chaque rendu, seule sa méthode .mutateAsync est stable — le
+  // lister ici reconstruirait ce callback en boucle (cf. commentaire plus
+  // bas, "Callbacks passés aux nœuds").
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drafts, createPostit.mutateAsync, toast])
 
   const onChangeDraftColor = useCallback((zoneId: number, couleur: string) => {
@@ -356,6 +363,7 @@ function BoardInner({ canWrite }: { canWrite: boolean }) {
   const onChangePostitColor = useCallback((id: number, couleur: string) => {
     lastColorRef.current = couleur
     updateColor.mutate({ id, couleur })
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- .mutate stable, cf. plus bas
   }, [updateColor.mutate])
   const onCancelDraft = useCallback((zoneId: number) => {
     setDrafts(d => { const next = { ...d }; delete next[zoneId]; return next })
@@ -397,12 +405,14 @@ function BoardInner({ canWrite }: { canWrite: boolean }) {
     setEditingKey(null)
     if (!titre || titre === p.titre) return
     await updateTache.mutateAsync({ id_tache: p.id_tache, updates: { titre } })
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- .mutateAsync stable, cf. plus bas
   }, [updateTache.mutateAsync])
 
   const handleAddGroup = useCallback(async () => {
     if (!canWrite) return
     const pos = screenToFlowPosition({ x: window.innerWidth / 2 - 160, y: window.innerHeight / 2 - 120 })
     await createGroup.mutateAsync({ nom: 'Nouveau groupe', x: pos.x, y: pos.y })
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- .mutateAsync stable, cf. plus bas
   }, [canWrite, createGroup.mutateAsync, screenToFlowPosition])
 
   // Vide le board pour repartir propre : supprime tous les post-it et
@@ -430,12 +440,14 @@ function BoardInner({ canWrite }: { canWrite: boolean }) {
   // sont recréés à chaque rendu par React Query (seule `.mutate` est stable),
   // ce qui reconstruisait les nœuds en boucle et perturbait la mesure interne
   // de React Flow (un nœud fraîchement monté "clignotait").
+  /* eslint-disable react-hooks/exhaustive-deps -- .mutate stable, objet mutation volontairement omis (cf. ci-dessus) */
   const onStartEdit = useCallback((key: string) => setEditingKey(key), [])
   const onCancelEdit = useCallback(() => setEditingKey(null), [])
   const onDeletePostit = useCallback((id: number) => deletePostit.mutate(id), [deletePostit.mutate])
   const onRenameGroup = useCallback((id: number, nom: string) => updateGroup.mutate({ id, updates: { nom } }), [updateGroup.mutate])
   const onDeleteGroup = useCallback((id: number) => deleteGroup.mutate(id), [deleteGroup.mutate])
   const onResizeGroup = useCallback((id: number, w: number, h: number) => updateGroup.mutate({ id, updates: { width: w, height: h } }), [updateGroup.mutate])
+  /* eslint-enable react-hooks/exhaustive-deps */
   const onConvertGroup = useCallback((groupId: number, nom: string) => setConvertTarget({ groupId, nom }), [])
 
   // Transforme un groupe de post-it en backlog réel : le nom du groupe
@@ -463,7 +475,7 @@ function BoardInner({ canWrite }: { canWrite: boolean }) {
     // et le groupe qui les contenait (les tâches, elles, restent bien sûr).
     for (const p of groupPostits) await deletePostit.mutateAsync(p.id)
     await deleteGroup.mutateAsync(convertTarget.groupId)
-  }, [convertTarget, postits, epicsList, createEpic, createTacheMut, updateTache, deletePostit, deleteGroup, toast])
+  }, [convertTarget, postits, createEpic, createTacheMut, updateTache, deletePostit, deleteGroup, toast])
 
   useEffect(() => {
     setNodes(buildNodes(groups, postits, zones, drafts, {

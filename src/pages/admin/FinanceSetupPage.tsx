@@ -90,6 +90,9 @@ export default function FinanceSetupPage() {
         }, 0)
       : 0
     return { equipesAvecTjm: equipesAvecTjm.length, budgetTotal, tjmMoyen, budgetAnnuel, nbTrimestres }
+  // getTjm ne lit que `equipeTjms`, déjà en dépendance — pas besoin de la
+  // lister séparément (fonction non mémoïsée, recréée chaque rendu).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeEquipes, equipeTjms, joursParTrim, trimestres])
 
   if (isLoading) return (

@@ -64,8 +64,12 @@ export default function MonTravailPage() {
   const [filterMetier,  setFilterMetier]  = useState('')
   const [showFilters,   setShowFilters]   = useState(false)
 
+  // Initialise une seule fois (tant que selMembre est vide) — `selMembre` est
+  // volontairement absent des dépendances pour ne pas écraser un changement
+  // manuel de l'utilisateur dans le sélecteur.
   useEffect(() => {
     if (monMembre?.trigramme && !selMembre) setSelMembre(monMembre.trigramme)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monMembre?.trigramme])
 
   const membres_actifs = membres.filter(m => m.actif)

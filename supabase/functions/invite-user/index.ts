@@ -210,7 +210,7 @@ Deno.serve(async (req) => {
     // l'invitation elle-même (le lien atterrira alors sur /login, à corriger
     // en whitelistant le domaine plutôt qu'en subissant un 400).
     if (error && redirectTo && /redirect/i.test(error.message ?? '')) {
-      ;({ data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+      ({ data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
         data: { display_name: display_name || email },
       }))
     }

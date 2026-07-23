@@ -8,5 +8,8 @@ export function useClickOutside(ref: RefObject<HTMLElement | null>, onOutside: (
     }
     document.addEventListener('mousedown', handle)
     return () => document.removeEventListener('mousedown', handle)
+  // ref est stable (identité constante d'un render à l'autre) et sa valeur
+  // .current est lue au moment du clic, pas figée à la pose de l'effet.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, onOutside])
 }

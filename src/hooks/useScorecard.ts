@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { logActivity } from '@/hooks/useActivityLog'
 
 // Widget cockpit "Scorecard" (vue FL3) — suivi hebdomadaire d'incréments
 // livrés par initiative transverse (hors produits D3X), portefeuille donc
@@ -66,8 +67,10 @@ export function useCreateScorecardInitiative() {
   const { user } = useAuth()
   return useMutation({
     mutationFn: async (payload: { nom: string; semaine_depart: number; semaine_deadline: number; objectif_increments: number; ordre?: number }) => {
-      const { error } = await supabase.from('scorecard_initiatives').insert({ ...payload, created_by: user?.id ?? null })
+      const { data, error } = await supabase.from('scorecard_initiatives').insert({ ...payload, created_by: user?.id ?? null }).select().single()
       if (error) throw error
+      const created = data as ScorecardInitiative
+      await logActivity({ produit_id: null, action: 'create', target: String(created.id), title: created.nom, entity: 'rocks' })
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: QK_INITIATIVES }),
   })
@@ -77,8 +80,19 @@ export function useUpdateScorecardInitiative() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, updates }: { id: number; updates: Partial<Pick<ScorecardInitiative, 'nom' | 'semaine_depart' | 'semaine_deadline' | 'objectif_increments' | 'couleur' | 'ordre'>> }) => {
+      const current = qc.getQueryData<ScorecardInitiative[]>(QK_INITIATIVES)?.find(i => i.id === id)
       const { error } = await supabase.from('scorecard_initiatives').update(updates).eq('id', id)
       if (error) throw error
+      const title = current?.nom ?? String(id)
+      for (const key of Object.keys(updates) as (keyof typeof updates)[]) {
+        const oldVal = current ? current[key] ?? null : null
+        const newVal = updates[key] ?? null
+        if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue
+        await logActivity({
+          produit_id: null, action: 'update', target: String(id), title, field: String(key),
+          old_value: JSON.stringify(oldVal), new_value: JSON.stringify(newVal), entity: 'rocks',
+        })
+      }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: QK_INITIATIVES }),
   })
@@ -88,8 +102,13 @@ export function useDeleteScorecardInitiative() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (id: number) => {
+      const current = qc.getQueryData<ScorecardInitiative[]>(QK_INITIATIVES)?.find(i => i.id === id)
       const { error } = await supabase.from('scorecard_initiatives').delete().eq('id', id)
       if (error) throw error
+      await logActivity({
+        produit_id: null, action: 'delete', target: String(id), title: current?.nom ?? String(id),
+        old_value: current ? JSON.stringify(current) : null, entity: 'rocks',
+      })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK_INITIATIVES })

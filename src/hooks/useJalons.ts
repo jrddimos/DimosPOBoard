@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useProduit } from '@/contexts/ProduitContext'
+import { logActivity } from '@/hooks/useActivityLog'
 
 export interface Jalon {
   id:          number
@@ -60,8 +61,10 @@ export function useCreateJalon() {
       if (fetchError) throw fetchError
       const rang = (existing ?? []).length + 1
       const code = `I${rang}`
-      const { error } = await supabase.from('jalons').insert({ produit_id: produitActif.id, code, nom, description, couleur, ordre: rang * 10 })
+      const { data, error } = await supabase.from('jalons').insert({ produit_id: produitActif.id, code, nom, description, couleur, ordre: rang * 10 }).select().single()
       if (error) throw error
+      const created = data as Jalon
+      await logActivity({ produit_id: produitActif.id, action: 'create', target: String(created.id), title: `${created.code} — ${created.nom}`, entity: 'jalon' })
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jalons', produitActif?.id] }),
   })
@@ -76,8 +79,21 @@ export function useUpdateJalon() {
   const { produitActif } = useProduit()
   return useMutation({
     mutationFn: async ({ id, updates }: { id: number; updates: Partial<Pick<Jalon, 'nom' | 'description' | 'couleur'>> }) => {
+      const pid = produitActif?.id ?? null
+      const current = qc.getQueryData<Jalon[]>(['jalons', pid])?.find(j => j.id === id)
       const { error } = await supabase.from('jalons').update(updates).eq('id', id)
       if (error) throw error
+      if (!pid) return
+      const title = current ? `${current.code} — ${current.nom}` : String(id)
+      for (const key of Object.keys(updates) as (keyof typeof updates)[]) {
+        const oldVal = current ? current[key] ?? null : null
+        const newVal = updates[key] ?? null
+        if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue
+        await logActivity({
+          produit_id: pid, action: 'update', target: String(id), title, field: String(key),
+          old_value: JSON.stringify(oldVal), new_value: JSON.stringify(newVal), entity: 'jalon',
+        })
+      }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jalons', produitActif?.id] }),
   })
@@ -126,8 +142,14 @@ export function useDeleteJalon() {
   const { produitActif } = useProduit()
   return useMutation({
     mutationFn: async (id: number) => {
+      const pid = produitActif?.id ?? null
+      const current = qc.getQueryData<Jalon[]>(['jalons', pid])?.find(j => j.id === id)
       const { error } = await supabase.from('jalons').delete().eq('id', id)
       if (error) throw error
+      if (pid) await logActivity({
+        produit_id: pid, action: 'delete', target: String(id), title: current ? `${current.code} — ${current.nom}` : String(id),
+        old_value: current ? JSON.stringify(current) : null, entity: 'jalon',
+      })
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jalons', produitActif?.id] }),
   })

@@ -47,7 +47,7 @@ export default function SetPasswordPage() {
 
         <div className="bg-card rounded-2xl border border-border shadow-sm p-8">
           <h1 className="text-xl font-bold text-navy mb-1">Définir votre mot de passe</h1>
-          <p className="text-sm text-subtle mb-6">Choisissez un mot de passe pour accéder au PO Board</p>
+          <p className="text-sm text-subtle mb-6">Choisissez un mot de passe pour accéder à Dimos Inside</p>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div>

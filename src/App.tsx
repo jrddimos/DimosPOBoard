@@ -14,7 +14,6 @@ import TachesPage      from '@/pages/tache/TachesPage'
 import SetupPage       from '@/pages/setup/SetupPage'
 import DodPage         from '@/pages/dod/DodPage'
 import MonTravailPage  from '@/pages/montravail/MonTravailPage'
-import ActivitePage    from '@/pages/activite/ActivitePage'
 import ReunionPage            from '@/pages/reunion/ReunionPage'
 import ReunionsHubPage        from '@/pages/reunion/ReunionsHubPage'
 import ReunionDetailPage      from '@/pages/reunion/ReunionDetailPage'
@@ -107,7 +106,8 @@ function AppRoutes() {
       <Route path="/taches"      element={requireProduit(<TachesPage />)} />
       <Route path="/dod"         element={requireProduit(<DodPage />)} />
       <Route path="/montravail"  element={<MonTravailPage />} />
-      <Route path="/activite"    element={requireProduit(<ActivitePage />)} />
+      {/* Compat : Activité a été fusionnée dans Setup (onglet produit) */}
+      <Route path="/activite"    element={<Navigate to="/setup?tab=activite" replace />} />
       <Route path="/reunions"            element={<ReunionsHubPage />} />
       <Route path="/reunions/po"         element={<ReunionPage />} />
       <Route path="/reunions/:id"        element={<ReunionDetailPage />} />

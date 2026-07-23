@@ -8,7 +8,7 @@ import { ToggleGroup } from '@/components/ui/ToggleGroup'
 import { confirm } from '@/components/ui/ConfirmModal'
 import {
   Milestone, Settings, Plus, Minus, Trash2, X, Layers, Boxes, CalendarDays, Check, Pencil,
-  Rocket, Star, Target, Flag, Zap, Trophy, Gem, Lightbulb, Users, type LucideIcon,
+  Rocket, Star, Target, Flag, Zap, Trophy, Gem, Lightbulb, Users, ChevronRight, ChevronLeft, type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -23,6 +23,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useDarkModeStore } from '@/hooks/useDarkMode'
 import { useEquipes } from '@/hooks/useEquipes'
 import { useClickOutside } from '@/hooks/useClickOutside'
+import { useToast } from '@/hooks/useToast'
 import { getQuarterStart, getQuarterEnd } from '@/utils/produitMetrics'
 import { type TrimCheckItem } from '@/hooks/useProduits'
 import { BRAND_COLORS } from '@/constants'
@@ -46,10 +47,6 @@ function mix(hex: string, target: string, ratio: number): string {
     return Math.round(av + (bv - av) * ratio)
   }
   return `#${[chan(16), chan(8), chan(0)].map(v => v.toString(16).padStart(2, '0')).join('')}`
-}
-
-function formatTrim(d: Date): string {
-  return `T${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`
 }
 
 function formatQuarterLabel(id: string): string {
@@ -103,13 +100,60 @@ function currentQuarterId(): string {
   return `Q${Math.floor(now.getMonth() / 3) + 1}-${now.getFullYear()}`
 }
 
-// Largeur d'une colonne trimestre du Gantt.
-const CELL_WIDTH = 70
+// Largeur d'une colonne trimestre du Gantt — élargie (70→120) pour laisser
+// assez de place au texte des objectifs affichés à l'intérieur de la barre.
+const CELL_WIDTH = 120
 
-// Pose une classe-ancre sur la cellule d'échelle du trimestre courant. La lib
-// étend silencieusement la fenêtre aux tâches (autoScale), on ne peut donc pas
-// déduire la position d'« aujourd'hui » du seul chartStart : l'overlay mesure
-// cette cellule dans le DOM pour se caler dessus.
+// Géométrie des lignes produit : la barre elle-même devient une boîte pleine
+// hauteur de ligne (plus une pilule fine) — pour chaque trimestre couvert,
+// une checklist empilée de ses objectifs collée en haut de la boîte (plus
+// d'icône produit à décaler pour). La hauteur de ligne du Gantt (cellHeight)
+// est GLOBALE à tout le tableau (gammes comprises), donc calculée
+// dynamiquement sur le nombre max d'objectifs d'UN SEUL trimestre parmi tous
+// les produits affichés (cf. computeCellHeight), plafonné à OBJ_MAX_VISIBLE
+// pour éviter qu'un seul produit très chargé n'étire toutes les lignes du
+// Gantt à l'extrême.
+const ROW_TOP_PAD = 6
+const OBJ_LINE_H = 14
+const OBJ_MAX_VISIBLE = 5
+const ROW_BOTTOM_PAD = 8
+const ROW_MARGIN = 6
+
+function computeCellHeight(tasks: RmRow[]): number {
+  let maxObjs = 0
+  for (const t of tasks) {
+    if (t.kind !== 'item' || !t.markers) continue
+    for (const m of t.markers) maxObjs = Math.max(maxObjs, m.objectifs.length)
+  }
+  const visible = Math.min(Math.max(maxObjs, 1), OBJ_MAX_VISIBLE)
+  const contentHeight = ROW_TOP_PAD + visible * OBJ_LINE_H + ROW_BOTTOM_PAD
+  return Math.max(40, contentHeight + ROW_MARGIN)
+}
+
+// Lignes réellement visibles compte tenu des branches repliées — le Gantt
+// masque nativement les enfants d'une ligne dont `open` vaut false (via son
+// pointeur `parent`), mais nos propres calculs (hauteur du conteneur,
+// hauteur de ligne dynamique) doivent aussi ignorer ce qui est masqué, sinon
+// replier une gamme laisse un grand vide au lieu de libérer la place.
+function computeVisibleTasks(tasks: RmRow[], collapsedIds: Set<string>): RmRow[] {
+  const byId = new Map(tasks.map(t => [String(t.id), t]))
+  function hiddenByAncestor(t: RmRow): boolean {
+    let p = t.parent
+    while (p !== undefined && p !== null && p !== 0 && p !== '0') {
+      const pid = String(p)
+      if (collapsedIds.has(pid)) return true
+      p = byId.get(pid)?.parent
+    }
+    return false
+  }
+  return tasks.filter(t => !hiddenByAncestor(t))
+}
+
+// Pose une classe-ancre sur la cellule d'échelle du trimestre courant.
+// `autoScale` est désactivé (cf. <SvarGantt>) pour que la fenêtre affichée
+// respecte strictement horizonYears — mais on continue de mesurer cette
+// cellule dans le DOM plutôt que de calculer depuis chartStart, plus simple
+// à garder correct si la lib recalcule ses colonnes en interne.
 function anchorQuarterNow(date: Date, unit: string): string {
   if (unit !== 'quarter') return ''
   const now = new Date()
@@ -128,16 +172,62 @@ type RmRow = ITask & {
   total?: number
   // Profondeur d'un item : 1 sous une gamme, 2 sous une sous-gamme.
   depth?: number
+  // Badges d'objectifs par trimestre (uniquement les lignes kind='item').
+  markers?: BarMarker[]
 }
 
-// Cellule "nom" : gammes en tête de section (pastille + compteur), sous-gammes
-// indentées, produits avec leur icône colorée, indentés selon leur profondeur.
-function NameCell({ row }: { row: RmRow }) {
+// Drag-and-drop par Pointer Events (pas l'API HTML5 native, ni dnd-kit) :
+// SVAR Gantt contrôle lui-même le DOM/les events de ses lignes (sélection au
+// clic, etc.) — le drag natif HTML5 (draggable/dragstart) s'est avéré peu
+// fiable une fois imbriqué dans son propre gestionnaire de souris (dragstart
+// ne partait pas de façon cohérente). Pointer Events + setPointerCapture
+// contourne totalement ça : une fois la capture posée sur l'élément source
+// au pointerdown, TOUS les events suivants (move/up) lui sont redirigés quoi
+// que fasse la lib, on n'a plus besoin que le dragstart natif se déclenche.
+// La cible sous le curseur est retrouvée via document.elementFromPoint +
+// l'attribut data-rm-row-id posé sur chaque ligne (gamme/sous/item).
+interface RmDragProps {
+  draggedId: string | null
+  dragOverId: string | null
+  onPointerDown: (e: React.PointerEvent<HTMLElement>, row: RmRow) => void
+  onPointerMove: (e: React.PointerEvent<HTMLElement>) => void
+  onPointerUp: (e: React.PointerEvent<HTMLElement>) => void
+}
+
+// Cellule "nom" : gammes en tête de section (chevron dépliable + pastille +
+// compteur), sous-gammes indentées (même chevron), produits avec leur icône
+// colorée, indentés selon leur profondeur. Le chevron d'une gamme replie/
+// déplie tout son arbre (elle + ses sous-gammes) en un clic — cf. toggleBranch.
+// `drag` (absent = DnD désactivé, ex. vue par équipe ou non-admin) : une
+// sous-gamme ou un produit peut être glissé sur une gamme/sous-gamme pour y
+// être déplacé (cf. RoadmapGanttView pour la logique de validation/drop).
+function NameCell({ row, collapsed, onToggle, drag }: { row: RmRow; collapsed: boolean; onToggle: (row: RmRow) => void; drag?: RmDragProps }) {
   const couleur = row.couleur ?? '#4A4CC8'
+  const rowId = String(row.id)
+  const isDragging = drag?.draggedId === rowId
+  const isDragOver = drag?.dragOverId === rowId
   if (row.kind === 'gamme' || row.kind === 'sous') {
     const sous = row.kind === 'sous'
+    // Seules les sous-gammes se déplacent (vers une AUTRE gamme de premier
+    // niveau) — les gammes de premier niveau restent fixes, uniquement
+    // cibles de drop.
+    const draggableSelf = !!drag && sous
     return (
-      <span className={cn('flex items-center gap-2 min-w-0', sous && 'pl-4')}>
+      <span
+        data-rm-row-id={rowId} data-rm-row-kind={row.kind}
+        className={cn('flex items-center gap-1.5 min-w-0 rounded-md transition-colors', sous && 'pl-4', draggableSelf && 'touch-none',
+          isDragging && 'opacity-40', isDragOver && 'bg-indigo-50 ring-1 ring-inset ring-indigo-300')}
+        onPointerDown={draggableSelf ? e => drag!.onPointerDown(e, row) : undefined}
+        onPointerMove={drag?.draggedId ? drag.onPointerMove : undefined}
+        onPointerUp={drag?.draggedId ? drag.onPointerUp : undefined}
+      >
+        <button
+          onClick={e => { e.stopPropagation(); onToggle(row) }}
+          title={collapsed ? 'Déplier' : 'Replier'}
+          className="p-0.5 -ml-0.5 rounded hover:bg-bg text-subtle hover:text-navy shrink-0 transition-colors"
+        >
+          <ChevronRight size={sous ? 10 : 11} className={cn('transition-transform duration-150', !collapsed && 'rotate-90')} />
+        </button>
         <span
           className={cn('rounded-full shrink-0', sous ? 'w-2 h-2' : 'w-2.5 h-2.5')}
           style={{ background: couleur, boxShadow: sous ? undefined : `0 0 0 3px ${couleur}26` }}
@@ -149,7 +239,14 @@ function NameCell({ row }: { row: RmRow }) {
   }
   const Icon = ICON_MAP.get(row.icone ?? '') ?? Rocket
   return (
-    <span className="flex items-center gap-2 min-w-0" style={{ paddingLeft: (row.depth ?? 1) * 16 }}>
+    <span
+      data-rm-row-id={rowId} data-rm-row-kind={row.kind}
+      className={cn('flex items-center gap-2 min-w-0 rounded-md transition-colors', drag && 'touch-none', isDragging && 'opacity-40')}
+      style={{ paddingLeft: (row.depth ?? 1) * 16 }}
+      onPointerDown={drag ? e => drag.onPointerDown(e, row) : undefined}
+      onPointerMove={drag?.draggedId ? drag.onPointerMove : undefined}
+      onPointerUp={drag?.draggedId ? drag.onPointerUp : undefined}
+    >
       <span
         className="w-5 h-5 rounded-md flex items-center justify-center text-white shrink-0 shadow-sm"
         style={{ background: `linear-gradient(135deg, ${mix(couleur, '#ffffff', 0.25)}, ${couleur})` }}
@@ -159,33 +256,16 @@ function NameCell({ row }: { row: RmRow }) {
   )
 }
 
-// Cellule "période" : plage de trimestres, plus une mini-jauge d'objectifs
-// pour les produits qui en ont.
-function PeriodCell({ row }: { row: RmRow }) {
-  if (!row.start || !row.end) return null
-  const couleur = row.couleur ?? '#4A4CC8'
-  const pct = row.total ? Math.round(((row.done ?? 0) / row.total) * 100) : 0
-  return (
-    <div className="flex flex-col items-center justify-center gap-1 w-full">
-      <span className={cn('text-[10px] font-semibold leading-none', row.kind === 'item' ? 'text-subtle' : 'text-subtle/70')}>
-        {formatTrim(row.start)} → {formatTrim(row.end)}
-      </span>
-      {row.kind === 'item' && (row.total ?? 0) > 0 && (
-        <span className="block w-20 h-1 rounded-full bg-border overflow-hidden">
-          <span className="block h-full rounded-full" style={{
-            width: `${pct}%`,
-            background: pct === 100 ? 'linear-gradient(90deg,#fde047,#f59e0b)' : `linear-gradient(90deg, ${mix(couleur, '#ffffff', 0.3)}, ${couleur})`,
-          }} />
-        </span>
-      )}
-    </div>
-  )
-}
-
-function buildRoadmapColumns(nameHeader: string) {
+function buildRoadmapColumns(nameHeader: string, collapsedIds: Set<string>, onToggle: (row: RmRow) => void, drag?: RmDragProps) {
   return [
-    { id: 'text', header: nameHeader, flexgrow: 1, align: 'left' as const, cell: ({ row }: { row: RmRow }) => <NameCell row={row} /> },
-    { id: 'period', header: 'Période', width: 140, align: 'center' as const, cell: ({ row }: { row: RmRow }) => <PeriodCell row={row} /> },
+    {
+      id: 'text', header: nameHeader, flexgrow: 1, align: 'left' as const,
+      // treetoggle:false — sans ça la grille pose SON PROPRE chevron natif
+      // devant la cellule (colonne "arbre" par défaut), en plus du nôtre
+      // dans NameCell : deux chevrons qui se marchaient dessus.
+      treetoggle: false,
+      cell: ({ row }: { row: RmRow }) => <NameCell row={row} collapsed={collapsedIds.has(String(row.id))} onToggle={onToggle} drag={drag} />,
+    },
   ]
 }
 
@@ -194,9 +274,11 @@ const ROADMAP_SCALES = [
   { unit: 'quarter' as const, step: 1, format: (d: Date) => `T${Math.floor(d.getMonth() / 3) + 1}` },
 ]
 
-// Badge d'objectifs positionné sur la barre, au centre de chaque trimestre
-// couvert par l'élément (left en % de la largeur de la barre).
-type BarMarker = { trimestre: string; left: number; done: number; total: number; tooltip: string; icone?: string | null }
+// Liste d'objectifs positionnée sur la barre, au centre de chaque trimestre
+// couvert par l'élément (left en % de la largeur de la barre) — `objectifs`
+// porte la liste déjà filtrée (par équipe le cas échéant) affichée telle
+// quelle sous la barre, cf. RoadmapBarContent.
+type BarMarker = { trimestre: string; left: number; done: number; total: number; tooltip: string; icone?: string | null; objectifs: TrimCheckItem[] }
 
 // Calcule les badges d'objectifs d'un item sur une fenêtre [start, end]
 // donnée (positions en % relatives à CETTE fenêtre, pas forcément la période
@@ -220,7 +302,7 @@ function buildItemMarkers(it: RoadmapItem, start: Date, end: Date, equipeId?: nu
       ? `${formatQuarterLabel(qid)} — ${doneQ}/${objectifs.length} objectif(s)\n` + objectifs.map(o => `${o.checked ? '✓' : '○'} ${o.texte}`).join('\n')
       : `${formatQuarterLabel(qid)} — aucun objectif${equipeId == null ? ' (cliquez pour en ajouter)' : ' de cette équipe'}`
     const mid = (qs.getTime() + qe.getTime()) / 2
-    return [{ trimestre: qid, left: span ? ((mid - start.getTime()) / span) * 100 : 50, done: doneQ, total: objectifs.length, tooltip, icone: qData?.icone }]
+    return [{ trimestre: qid, left: span ? ((mid - start.getTime()) / span) * 100 : 50, done: doneQ, total: objectifs.length, tooltip, icone: qData?.icone, objectifs }]
   })
   return { markers, done, total }
 }
@@ -241,7 +323,12 @@ function activeWindowFromMarkers(markers: BarMarker[]): { start: Date; end: Date
 // Feuilles de style des barres du Gantt à partir de la palette type→couleur
 // collectée pendant la construction des tâches — identique pour la vue par
 // gamme et la vue par équipe (seul le regroupement des lignes change).
-function buildColorCss(typeColors: Map<string, { color: string; kind: 'gamme' | 'sous' | 'item' }>): string {
+// `rowHeight` doit être un pixel exact (pas un `calc(100% - Npx)`) : les
+// barres sont positionnées en absolute DANS le chart (pas dans un wrapper de
+// ligne dédié), donc un `height:100%` s'y résout à la hauteur de tout le
+// chart plutôt qu'à celle de SA seule ligne — c'est ce qui faisait déborder
+// la boîte d'objectifs sur la ligne suivante.
+function buildColorCss(typeColors: Map<string, { color: string; kind: 'gamme' | 'sous' | 'item' }>, rowHeight: number): string {
   return [...typeColors.entries()].map(([type, { color, kind }]) => {
     if (kind !== 'item') {
       const h = kind === 'gamme' ? 14 : 10
@@ -260,9 +347,16 @@ function buildColorCss(typeColors: Map<string, { color: string; kind: 'gamme' | 
     const light = mix(color, '#ffffff', 0.5)
     return `
       .wx-gantt .wx-bar.wx-task.${type} {
+        /* Boîte pleine hauteur de ligne (plus une pilule fine) : les
+           objectifs sont affichés À L'INTÉRIEUR de la barre elle-même
+           (icône produit en haut, checklist par trimestre en dessous, cf.
+           RoadmapBarContent), pas dans la ligne en dessous. Hauteur en pixel
+           exact (pas calc(100%…), cf. commentaire sur buildColorCss). */
+        height: ${rowHeight - ROW_MARGIN}px !important;
+        margin-top: ${ROW_MARGIN / 2}px;
         background: linear-gradient(135deg, ${light} 0%, ${color} 100%);
         border: none;
-        border-radius: 999px;
+        border-radius: 14px;
         box-shadow: 0 3px 10px -2px ${color}77;
       }
       .wx-gantt .wx-bar.wx-task.${type}:hover {
@@ -273,34 +367,55 @@ function buildColorCss(typeColors: Map<string, { color: string; kind: 'gamme' | 
   }).join('\n')
 }
 
-// Contenu custom des barres du Gantt : icône de l'élément à gauche + un badge
-// par trimestre (étoile dorée = tout validé, cible+compteur = en cours,
-// point discret = aucun objectif saisi). Les champs custom (markers, icone)
-// sont portés par la tâche elle-même (ITask accepte des clés libres).
+function truncateObjectif(s: string, n: number): string {
+  return s.length > n ? s.slice(0, n - 1) + '…' : s
+}
+
+// Contenu custom des barres du Gantt : icône de l'élément en haut de la
+// boîte + pour chaque trimestre couvert, une petite carte contenant la
+// checklist empilée de ses objectifs (case cochée/non cochée + texte),
+// directement lisible sans clic (l'édition — cocher, ajouter, tagger une
+// équipe — reste au clic, cf. ItemDetailPopover). Les champs custom (markers,
+// icone) sont portés par la tâche elle-même (ITask accepte des clés libres).
+// `.rm-bar` capte lui-même le clic (sur tout son périmètre, pas juste un
+// badge) pour rouvrir le popover sur toute la ligne ; le contenu affiché
+// reste en lecture seule (pas de case à cocher directement dans le Gantt).
 function RoadmapBarContent({ data, api }: { data: ITask; api?: { exec: (action: string, params: unknown) => void } }) {
-  const markers = (data as { markers?: BarMarker[] }).markers
+  const markers = (data as RmRow).markers
   if (!markers) return null
-  const ItemIcon = ICON_MAP.get((data as { icone?: string }).icone ?? '') ?? Rocket
   const nowQ = currentQuarterId()
   return (
-    <div className="rm-bar">
-      <span className="rm-bar-icon"><ItemIcon size={11} /></span>
+    <div className="rm-bar" onClick={() => api?.exec('select-task', { id: data.id })}>
       {markers.map(m => {
-        const complete = m.total > 0 && m.done === m.total
-        const QIcon = m.icone ? ICON_MAP.get(m.icone) : undefined
+        const stackDone = m.total > 0 && m.done === m.total
         return (
-          <span
+          <div
             key={m.trimestre} title={m.tooltip}
-            onClick={() => api?.exec('select-task', { id: data.id })}
-            className={cn('rm-marker', complete && 'rm-done', m.total === 0 && !QIcon && 'rm-empty', m.trimestre === nowQ && 'rm-now')}
+            className={cn('rm-obj-stack', m.trimestre === nowQ && 'rm-now-stack', stackDone && 'rm-stack-done')}
             style={{ left: `${m.left}%` }}
           >
-            {complete
-              ? (QIcon ? <QIcon size={11} /> : <Star size={11} fill="currentColor" />)
-              : QIcon
-                ? <><QIcon size={10} />{m.total > 0 && <i>{m.done}/{m.total}</i>}</>
-                : m.total > 0 && <><Target size={10} /><i>{m.done}/{m.total}</i></>}
-          </span>
+            {m.objectifs.length === 0 ? (
+              <span className="rm-obj-empty">—</span>
+            ) : (
+              <>
+                {/* Le nombre de lignes rendues ne doit JAMAIS dépasser
+                    OBJ_MAX_VISIBLE (espace réservé par computeCellHeight) —
+                    la ligne "+N de plus" occupe alors un des créneaux, pas un
+                    créneau EN PLUS (sinon débordement sous la boîte). */}
+                {(m.objectifs.length <= OBJ_MAX_VISIBLE ? m.objectifs : m.objectifs.slice(0, OBJ_MAX_VISIBLE - 1)).map(o => (
+                  <span key={o.id} className="rm-obj-line">
+                    <span className={cn('rm-chk', o.checked && 'rm-chk-done')}>
+                      {o.checked && <Check size={7} strokeWidth={3.5} />}
+                    </span>
+                    <span className={cn('rm-obj-text', o.checked && 'rm-obj-done')}>{truncateObjectif(o.texte, 22)}</span>
+                  </span>
+                ))}
+                {m.objectifs.length > OBJ_MAX_VISIBLE && (
+                  <span className="rm-obj-more">+{m.objectifs.length - (OBJ_MAX_VISIBLE - 1)} de plus</span>
+                )}
+              </>
+            )}
+          </div>
         )
       })}
     </div>
@@ -332,39 +447,38 @@ const BASE_GANTT_CSS = `
   .rm-hscroll::-webkit-scrollbar-track { background: transparent; }
   .rm-hscroll::-webkit-scrollbar-thumb { background: rgba(100,116,139,.45); border-radius: 999px; }
   .rm-hscroll::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,.7); }
-  .rm-bar { position: absolute; inset: 0; pointer-events: none; }
-  .rm-bar-icon {
-    position: absolute; left: 5px; top: 50%; transform: translateY(-50%);
-    width: 19px; height: 19px; border-radius: 999px;
-    background: rgba(255,255,255,.92); color: #312e81;
-    display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 1px 4px rgba(0,0,0,.28);
+  .rm-bar { position: absolute; inset: 0; cursor: pointer; }
+  /* Objectifs affichés À L'INTÉRIEUR de la barre colorée (pas sur le fond de
+     carte) : texte blanc fixe, plus besoin d'adapter au thème clair/sombre.
+     Chaque trimestre a sa propre petite carte (fond + coins arrondis) pour
+     bien lire "ça appartient à CE trimestre", pas juste du texte qui flotte.
+     overflow:hidden en garde-fou : le nombre de lignes est plafonné côté JS
+     (cf. RoadmapBarContent) mais ça évite tout débordement résiduel. */
+  .rm-obj-stack {
+    position: absolute; top: ${ROW_TOP_PAD}px;
+    transform: translateX(-50%);
+    width: ${CELL_WIDTH - 16}px; max-height: ${OBJ_MAX_VISIBLE * OBJ_LINE_H + 4}px;
+    display: flex; flex-direction: column; gap: 1px; overflow: hidden;
+    padding: 2px 4px; border-radius: 8px;
+    background: rgba(255,255,255,.09); box-shadow: inset 0 0 0 1px rgba(255,255,255,.16);
+    pointer-events: none;
   }
-  .rm-marker {
-    position: absolute; top: 50%; transform: translate(-50%,-50%);
-    min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px;
-    background: rgba(255,255,255,.94); color: #312e81;
-    display: flex; align-items: center; justify-content: center; gap: 2px;
-    font-size: 9px; font-weight: 800;
-    box-shadow: 0 1px 5px rgba(0,0,0,.3);
-    pointer-events: auto; cursor: pointer;
+  .rm-obj-stack.rm-now-stack { background: rgba(255,255,255,.18); box-shadow: inset 0 0 0 1px rgba(255,255,255,.35); }
+  .rm-obj-stack.rm-stack-done { background: rgba(255,255,255,.14); }
+  .rm-obj-line { display: flex; align-items: center; gap: 3px; }
+  .rm-obj-text {
+    font-size: 9px; line-height: 13px; font-weight: 600; color: rgba(255,255,255,.95);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
   }
-  .rm-marker i { font-style: normal; letter-spacing: -.3px; }
-  .rm-marker.rm-empty { width: 7px; min-width: 7px; height: 7px; padding: 0; background: rgba(255,255,255,.55); box-shadow: none; }
-  .rm-marker.rm-done {
-    background: linear-gradient(135deg, #fde047, #f59e0b); color: #fff;
-    animation: rmGlow 2.2s ease-in-out infinite;
+  .rm-obj-text.rm-obj-done { text-decoration: line-through; color: rgba(255,255,255,.6); }
+  .rm-chk {
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+    width: 8px; height: 8px; border-radius: 2px; border: 1px solid rgba(255,255,255,.7);
+    background: rgba(255,255,255,.1);
   }
-  .rm-marker.rm-now:not(.rm-empty)::after {
-    content: ''; position: absolute; inset: -4px; border-radius: 999px;
-    border: 2px solid rgba(255,255,255,.75);
-    animation: rmPulse 1.8s ease-out infinite;
-  }
-  @keyframes rmPulse { 0% { transform: scale(.7); opacity: .9 } 100% { transform: scale(1.3); opacity: 0 } }
-  @keyframes rmGlow {
-    0%, 100% { box-shadow: 0 0 6px 1px rgba(251,191,36,.55) }
-    50% { box-shadow: 0 0 15px 4px rgba(251,191,36,.9) }
-  }
+  .rm-chk.rm-chk-done { background: #fff; border-color: #fff; color: #1e293b; }
+  .rm-obj-empty { font-size: 9px; font-style: italic; color: rgba(255,255,255,.55); }
+  .rm-obj-more { font-size: 8px; font-weight: 700; color: rgba(255,255,255,.75); margin-left: 11px; }
 `
 
 function StatTile({ icon, label, value, from, to, index = 0 }: { icon: ReactNode; label: string; value: string | number; from: string; to: string; index?: number }) {
@@ -419,11 +533,18 @@ function RoadmapGanttView() {
   const createItem = useCreateRoadmapItem()
   const updateItem = useUpdateRoadmapItem()
   const deleteItem = useDeleteRoadmapItem()
+  const updateGamme = useUpdateGammeProduit()
+  const toast = useToast()
   const dark = useDarkModeStore(s => s.dark)
   const [selected, setSelected] = useState<string | null>(null)
   const [modal, setModal] = useState<{ mode: 'create' | 'edit'; item?: RoadmapItem } | null>(null)
   const [detailId, setDetailId] = useState<number | null>(null)
   const [horizonYears, setHorizonYears] = useState(3)
+  // Décalage (en années) de la fenêtre affichée par rapport à l'année en
+  // cours — la taille de la fenêtre (horizonYears) reste fixe, on la fait
+  // juste glisser dans le temps via Précédent/Suivant, au lieu de rester
+  // figée sur "année en cours → +N".
+  const [windowOffset, setWindowOffset] = useState(0)
   // Vue "par gamme" (structure produit, défaut) ou "par équipe" (transverse :
   // quels objectifs, toutes gammes confondues, portent chaque équipe et
   // quand — répond à « mon équipe X travaille sur quoi ce trimestre »).
@@ -433,13 +554,66 @@ function RoadmapGanttView() {
   // Symétrique, pour la légende de la vue par équipe.
   const [hiddenEquipes, setHiddenEquipes] = useState<Set<number>>(new Set())
 
+  // Branches repliées (gammes/sous-gammes/équipes, ids de ligne du Gantt) —
+  // persisté en localStorage pour que l'arbre garde son état d'une visite à
+  // l'autre (pas juste le temps de la session).
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('roadmap-collapsed-branches') ?? '[]')) } catch { return new Set() }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('roadmap-collapsed-branches', JSON.stringify([...collapsedIds])) } catch { /* ignore */ }
+  }, [collapsedIds])
+  // Replie/déplie une ligne — pour une gamme (pas une sous-gamme, ni une
+  // équipe), cascade sur toutes ses sous-gammes en même temps : "rapidement
+  // tout l'arbre d'une gamme" en un seul clic, pas sous-gamme par sous-gamme.
+  function toggleBranch(row: RmRow) {
+    const id = String(row.id)
+    const collapsing = !collapsedIds.has(id)
+    const targets = [id]
+    if (row.kind === 'gamme' && id.startsWith('gamme-')) {
+      const numId = Number(id.slice('gamme-'.length))
+      targets.push(...gammes.filter(sg => sg.parent_id === numId).map(sg => `gamme-${sg.id}`))
+    }
+    setCollapsedIds(prev => {
+      const next = new Set(prev)
+      for (const t of targets) { if (collapsing) next.add(t); else next.delete(t) }
+      return next
+    })
+  }
+  // Empreinte stable de l'état replié/déplié — force un remount complet du
+  // Gantt (cf. key sur <SvarGantt>) à chaque bascule, pour être sûr que le
+  // nouvel `open` de chaque tâche est bien repris (pas de re-diff partiel
+  // hasardeux côté lib) et que l'overlay "Aujourd'hui" se recale sur le
+  // nouveau DOM du chart (cf. dépendance de l'effet de scroll juste après).
+  const collapsedFingerprint = [...collapsedIds].sort().join(',')
+
+  // ── Drag-and-drop : déplacer un produit ou une sous-gamme vers une autre
+  // gamme (cf. RmDragProps/NameCell) — réservé aux admins, désactivé dans la
+  // vue par équipe (regroupement dérivé, pas l'arbre gammes réel). Les
+  // handlers eux-mêmes sont définis plus bas (après activeTasks), cf. dragProps.
+  const [dragged, setDragged] = useState<{ id: string; kind: RmRow['kind'] } | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
+
+  // Popover détail (clic sur une barre produit) : position d'ancrage en
+  // coordonnées viewport, capturée sur le clic qui a sélectionné la tâche —
+  // SVAR Gantt (version libre) n'expose pas de hauteur de ligne par tâche,
+  // impossible donc de "déplier" la ligne elle-même dans le Gantt ; le détail
+  // flotte par-dessus au lieu d'être intégré à la grille.
+  const [anchorPos, setAnchorPos] = useState<{ x: number; y: number } | null>(null)
+  const detailContainerRef = useRef<HTMLDivElement>(null)
+
   // L'élément affiché dans le panneau détail est re-dérivé de la liste à
   // chaque rendu pour rester frais après chaque mutation (auto-save).
   const detailItem = detailId !== null ? items.find(i => i.id === detailId) ?? null : null
   const detailGamme = detailItem ? gammes.find(g => g.id === detailItem.gamme_id) : undefined
   const detailParent = detailGamme?.parent_id != null ? gammes.find(g => g.id === detailGamme.parent_id) : undefined
+  // Un clic ailleurs que dans le Gantt (qui contient aussi bien les barres que
+  // le popover lui-même, rendu comme enfant du même conteneur malgré son
+  // positionnement fixed) ferme le détail — cliquer une AUTRE barre reste à
+  // l'intérieur de ce conteneur et se contente de changer detailId.
+  useClickOutside(detailContainerRef, () => setDetailId(null), detailItem !== null)
 
-  const { tasks, taskTypes, colorCss, stats, gammeLegend } = useMemo(() => {
+  const { tasks, taskTypes, colorCss, stats, gammeLegend, rowHeight } = useMemo(() => {
     const tasks: RmRow[] = []
     // Couleur par type de barre, avec le kind pour générer un style différent :
     // bandeau translucide (gamme), bandeau fin (sous-gamme), pilule (produit).
@@ -514,7 +688,7 @@ function RoadmapGanttView() {
       const allDates = [...directs, ...sousBlocs.flatMap(b => b.valid)]
       const start = new Date(Math.min(...allDates.map(v => v.start.getTime())))
       const end = new Date(Math.max(...allDates.map(v => v.end.getTime())))
-      tasks.push({ id: gammeId, text: g.nom, type: gammeId, parent: 0, start, end, kind: 'gamme', couleur, count })
+      tasks.push({ id: gammeId, text: g.nom, type: gammeId, parent: 0, start, end, kind: 'gamme', couleur, count, open: !collapsedIds.has(gammeId) })
 
       directs.forEach(v => pushItem(v, gammeId, couleur, 1))
 
@@ -524,19 +698,24 @@ function RoadmapGanttView() {
         typeColors.set(sousId, { color: sousCouleur, kind: 'sous' })
         const sStart = new Date(Math.min(...valid.map(v => v.start.getTime())))
         const sEnd = new Date(Math.max(...valid.map(v => v.end.getTime())))
-        tasks.push({ id: sousId, text: sg.nom, type: sousId, parent: gammeId, start: sStart, end: sEnd, kind: 'sous', couleur: sousCouleur, count: valid.length })
+        tasks.push({ id: sousId, text: sg.nom, type: sousId, parent: gammeId, start: sStart, end: sEnd, kind: 'sous', couleur: sousCouleur, count: valid.length, open: !collapsedIds.has(sousId) })
         valid.forEach(v => pushItem(v, sousId, sousCouleur, 2))
       }
     }
 
     const taskTypes = [...typeColors.keys()].map(id => ({ id, label: id }))
-    const colorCss = buildColorCss(typeColors)
+    // Calculée AVANT buildColorCss : la hauteur de la barre "item" doit être
+    // un pixel exact (pas un `calc(100% - Npx)`) — en position absolute dans
+    // le chart, `100%` ne se résout pas forcément à la hauteur de SA ligne
+    // mais à celle d'un ancêtre plus grand, d'où le débordement observé.
+    const rowHeight = computeCellHeight(computeVisibleTasks(tasks, collapsedIds))
+    const colorCss = buildColorCss(typeColors, rowHeight)
 
     return {
-      tasks, taskTypes, colorCss, gammeLegend,
+      tasks, taskTypes, colorCss, gammeLegend, rowHeight,
       stats: { nbGammes: nbGammesActives, nbItems: nbItemsAffiches, totalObjectifs, doneObjectifs },
     }
-  }, [items, gammes, hiddenGammes])
+  }, [items, gammes, hiddenGammes, collapsedIds])
 
   // ── Regroupement alternatif : par équipe ────────────────────────
   // Transverse aux gammes : pour chaque équipe active, ne garde que les
@@ -544,7 +723,7 @@ function RoadmapGanttView() {
   // et resserre la barre de chacun sur sa fenêtre réelle d'implication (pas
   // la période complète du produit) — répond à « mon équipe X travaille sur
   // quoi, et quand ».
-  const { tasks: equipeTasks, taskTypes: equipeTaskTypes, colorCss: equipeColorCss, equipeLegend } = useMemo(() => {
+  const { tasks: equipeTasks, taskTypes: equipeTaskTypes, colorCss: equipeColorCss, equipeLegend, rowHeight: equipeRowHeight } = useMemo(() => {
     const tasks: RmRow[] = []
     const typeColors = new Map<string, { color: string; kind: 'gamme' | 'sous' | 'item' }>()
     const equipeLegend: { id: number; nom: string; couleur: string; count: number }[] = []
@@ -575,7 +754,7 @@ function RoadmapGanttView() {
       typeColors.set(eqRowId, { color: couleur, kind: 'gamme' })
       const start = new Date(Math.min(...concerned.map(v => v.start.getTime())))
       const end = new Date(Math.max(...concerned.map(v => v.end.getTime())))
-      tasks.push({ id: eqRowId, text: eq.nom, type: eqRowId, parent: 0, start, end, kind: 'gamme', couleur, count: concerned.length })
+      tasks.push({ id: eqRowId, text: eq.nom, type: eqRowId, parent: 0, start, end, kind: 'gamme', couleur, count: concerned.length, open: !collapsedIds.has(eqRowId) })
 
       concerned.forEach(({ it, start, end, markers, done, total }) => {
         const type = slugify(`${eq.nom}-${it.nom}`) || `equipe-${eq.id}-item-${it.id}`
@@ -590,20 +769,20 @@ function RoadmapGanttView() {
     }
 
     const taskTypes = [...typeColors.keys()].map(id => ({ id, label: id }))
-    return { tasks, taskTypes, colorCss: buildColorCss(typeColors), equipeLegend }
-  }, [items, equipes, hiddenEquipes])
+    const rowHeight = computeCellHeight(computeVisibleTasks(tasks, collapsedIds))
+    return { tasks, taskTypes, colorCss: buildColorCss(typeColors, rowHeight), equipeLegend, rowHeight }
+  }, [items, equipes, hiddenEquipes, collapsedIds])
 
   function onSelectTask(ev: { id: string | number }) {
     const idStr = String(ev.id)
     setSelected(idStr)
     // La vue par équipe préfixe les lignes produit en `equipe-{id}-item-{id}`
     // (un même produit peut apparaître sous plusieurs équipes) — les deux
-    // formats ouvrent le même panneau détail.
+    // formats ouvrent le même popover détail.
     const m = idStr.match(/^(?:equipe-\d+-)?item-(\d+)$/)
-    if (!m) return
-    // Clic sur un élément : déplie le panneau détail sous le Gantt
-    // (l'édition de structure passe par le bouton "Modifier" du panneau).
-    setDetailId(Number(m[1]))
+    // Clic sur une ligne gamme/sous-gamme (pas un produit) : ferme le popover
+    // plutôt que de laisser affiché le détail d'un autre produit, périmé.
+    setDetailId(m ? Number(m[1]) : null)
   }
 
   // Auto-save d'un trimestre du panneau détail (objectifs et/ou icône).
@@ -687,11 +866,18 @@ function RoadmapGanttView() {
     const ro = new ResizeObserver(update)
     ro.observe(chart)
     return () => { chart.removeEventListener('scroll', update); ro.disconnect(); chartElRef.current = null }
-  }, [horizonYears, groupBy, tasks.length, equipeTasks.length])
+  }, [horizonYears, windowOffset, groupBy, tasks.length, equipeTasks.length, collapsedFingerprint])
   // Fenêtre du Gantt : 3 ans par défaut (année en cours + suivantes),
-  // extensible/réductible via le stepper, indépendamment des éléments.
-  const chartStart = new Date(now.getFullYear(), 0, 1)
-  const chartEnd = new Date(now.getFullYear() + horizonYears - 1, 11, 31, 23, 59, 59)
+  // extensible/réductible via le stepper, décalable via Précédent/Suivant
+  // (windowOffset) — indépendamment des éléments (autoScale désactivé,
+  // cf. <SvarGantt>, pour que la fenêtre affichée respecte strictement ça).
+  const chartStart = new Date(now.getFullYear() + windowOffset, 0, 1)
+  const chartEnd = new Date(now.getFullYear() + windowOffset + horizonYears - 1, 11, 31, 23, 59, 59)
+  // Si on a navigué (Précédent/Suivant) hors de la période contenant
+  // aujourd'hui, il ne faut PAS afficher la ligne "Aujourd'hui" avec la
+  // dernière position mesurée (obsolète) — seulement quand elle est bien
+  // dans la fenêtre actuellement affichée.
+  const todayInWindow = now.getTime() >= chartStart.getTime() && now.getTime() <= chartEnd.getTime()
 
   // Bascule Gamme/Équipe : deux jeux de lignes/légende/styles construits en
   // parallèle plus haut, on choisit juste lequel alimente le rendu ici.
@@ -702,7 +888,71 @@ function RoadmapGanttView() {
   const activeLegend = isEquipeView ? equipeLegend : gammeLegend
   const activeHidden = isEquipeView ? hiddenEquipes : hiddenGammes
   const setActiveHidden = isEquipeView ? setHiddenEquipes : setHiddenGammes
-  const columns = buildRoadmapColumns(isEquipeView ? 'Équipe / Produit' : 'Gamme / Produit')
+  // Pour retrouver la ligne complète (kind, text, id numérique) sous le
+  // curseur pendant un drag, à partir du data-rm-row-id lu dans le DOM.
+  const rowsById = useMemo(() => new Map(activeTasks.map(t => [String(t.id), t])), [activeTasks])
+
+  function parseNumId(id: string): number | null {
+    const m = id.match(/^(?:gamme|item)-(\d+)$/)
+    return m ? Number(m[1]) : null
+  }
+  function canDrop(kind: RmRow['kind'] | undefined, target: RmRow): boolean {
+    if (target.kind !== 'gamme' && target.kind !== 'sous') return false
+    if (kind === 'item') return true
+    if (kind === 'sous') return target.kind === 'gamme' // une sous-gamme ne va que sous une gamme de 1er niveau
+    return false
+  }
+  function handlePointerDownRow(e: React.PointerEvent<HTMLElement>, row: RmRow) {
+    if (row.kind !== 'item' && row.kind !== 'sous') return
+    if (e.button !== 0) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    setDragged({ id: String(row.id), kind: row.kind })
+  }
+  function handlePointerMoveRow(e: React.PointerEvent<HTMLElement>) {
+    if (!dragged) return
+    const el = document.elementFromPoint(e.clientX, e.clientY)
+    const targetEl = el?.closest<HTMLElement>('[data-rm-row-id]')
+    const targetRow = targetEl ? rowsById.get(targetEl.dataset.rmRowId!) : undefined
+    setDragOverId(targetRow && canDrop(dragged.kind, targetRow) ? String(targetRow.id) : null)
+  }
+  async function handlePointerUpRow(e: React.PointerEvent<HTMLElement>) {
+    const d = dragged
+    const overId = dragOverId
+    setDragged(null); setDragOverId(null)
+    try { e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* déjà relâché */ }
+    if (!d || !overId) return
+    const row = rowsById.get(overId)
+    if (!row || !canDrop(d.kind, row)) return
+    const targetNumId = parseNumId(overId)
+    if (targetNumId == null) return
+    if (d.kind === 'item') {
+      const itemNumId = parseNumId(d.id)
+      const it = itemNumId != null ? items.find(i => i.id === itemNumId) : undefined
+      if (!it || it.gamme_id === targetNumId) return
+      await updateItem.mutateAsync({ id: it.id, updates: { gamme_id: targetNumId } })
+      toast(`"${it.nom}" déplacé vers "${row.text}"`)
+    } else {
+      const sousNumId = parseNumId(d.id)
+      const sg = sousNumId != null ? gammes.find(g => g.id === sousNumId) : undefined
+      if (!sg || sg.parent_id === targetNumId) return
+      await updateGamme.mutateAsync({ id: sg.id, updates: { parent_id: targetNumId } })
+      toast(`"${sg.nom}" déplacée vers "${row.text}"`)
+    }
+  }
+  const dragProps: RmDragProps | undefined = (isAdmin && !isEquipeView) ? {
+    draggedId: dragged?.id ?? null, dragOverId,
+    onPointerDown: handlePointerDownRow, onPointerMove: handlePointerMoveRow, onPointerUp: handlePointerUpRow,
+  } : undefined
+  const columns = buildRoadmapColumns(isEquipeView ? 'Équipe / Produit' : 'Gamme / Produit', collapsedIds, toggleBranch, dragProps)
+  // Lignes réellement visibles (branches repliées exclues) — sert à la fois
+  // au calcul de la hauteur de ligne dynamique et à la hauteur du conteneur,
+  // pour que replier une branche libère vraiment de la place au lieu de
+  // laisser un vide de la taille de ce qui est masqué.
+  const visibleTasks = useMemo(() => computeVisibleTasks(activeTasks, collapsedIds), [activeTasks, collapsedIds])
+  // Même valeur que celle utilisée par buildColorCss pour CE jeu de tâches
+  // (calculée dans le même useMemo, avant la CSS) — jamais recalculée à
+  // partir d'un autre live state pour éviter tout écart avec la CSS déjà générée.
+  const dynamicCellHeight = isEquipeView ? equipeRowHeight : rowHeight
 
   return (
     <>
@@ -752,6 +1002,15 @@ function RoadmapGanttView() {
             ]} />
           )}
           <div className="flex items-center gap-0.5 text-xs font-semibold text-subtle bg-card border border-border rounded-lg px-1 py-0.5">
+            <button onClick={() => setWindowOffset(o => o - horizonYears)}
+              className="p-1 rounded hover:bg-bg hover:text-navy" title="Période précédente"><ChevronLeft size={12} /></button>
+            {windowOffset !== 0 && (
+              <button onClick={() => setWindowOffset(0)}
+                className="px-1 rounded hover:bg-bg hover:text-navy text-[10px] uppercase tracking-wide" title="Revenir à aujourd'hui">Auj.</button>
+            )}
+            <button onClick={() => setWindowOffset(o => o + horizonYears)}
+              className="p-1 rounded hover:bg-bg hover:text-navy" title="Période suivante"><ChevronRight size={12} /></button>
+            <span className="w-px h-4 bg-border mx-0.5" />
             <button onClick={() => setHorizonYears(y => Math.max(1, y - 1))} disabled={horizonYears <= 1}
               className="p-1 rounded hover:bg-bg hover:text-navy disabled:opacity-40" title="Réduire la fenêtre d'un an"><Minus size={12} /></button>
             <span className="px-1 tabular-nums">{horizonYears} an{horizonYears > 1 ? 's' : ''}</span>
@@ -800,26 +1059,27 @@ function RoadmapGanttView() {
           </div>
         )
       ) : (
-        <>
+        <div ref={detailContainerRef} onClickCapture={e => setAnchorPos({ x: e.clientX, y: e.clientY })}>
           <p className="text-xs text-subtle mb-3">
-            Cliquez un produit pour l'éditer — <Star size={10} className="inline text-amber-500" fill="currentColor" /> trimestre validé,
-            <Target size={10} className="inline mx-1" /> objectifs en cours, halo = trimestre actuel, ligne rouge = aujourd'hui.
+            Cliquez un produit pour l'éditer — <Check size={10} className="inline text-green" /> objectif validé,
+            fond ambré = trimestre complet, halo indigo = trimestre en cours, ligne rouge = aujourd'hui.
+            {dragProps && <> Glissez un produit ou une sous-gamme sur une autre gamme pour le/la déplacer.</>}
           </p>
           <style>{activeColorCss + BASE_GANTT_CSS}</style>
-          <div ref={ganttBoxRef} className="ds-card overflow-hidden rounded-2xl p-0 relative" style={{ height: Math.max(320, 118 + activeTasks.length * 40) }}>
+          <div ref={ganttBoxRef} className="ds-card overflow-hidden rounded-2xl p-0 relative" style={{ height: Math.max(320, 118 + visibleTasks.length * dynamicCellHeight) }}>
             <div className="absolute inset-x-0 top-0 h-1 z-10" style={{ background: 'linear-gradient(90deg,#6366f1,#4A4CC8,#ea580c,#16a34a)' }} />
             <ThemeWrapper>
               <SvarGantt
-                key={`${horizonYears}-${groupBy}`}
+                key={`${horizonYears}-${windowOffset}-${groupBy}-${dynamicCellHeight}-${collapsedFingerprint}`}
                 tasks={activeTasks} taskTypes={activeTaskTypes} columns={columns} scales={ROADMAP_SCALES}
-                start={chartStart} end={chartEnd}
+                start={chartStart} end={chartEnd} autoScale={false}
                 highlightTime={anchorQuarterNow}
                 readonly selected={selected ? [selected] : []}
-                cellWidth={CELL_WIDTH} cellHeight={40} scaleHeight={38} gridWidth={450}
+                cellWidth={CELL_WIDTH} cellHeight={dynamicCellHeight} scaleHeight={38} gridWidth={450}
                 taskTemplate={RoadmapBarContent} onSelectTask={onSelectTask}
               />
             </ThemeWrapper>
-            {chartBox?.band && (() => {
+            {chartBox?.band && todayInWindow && (() => {
               const qs = getQuarterStart(currentQuarterId())
               const qe = getQuarterEnd(currentQuarterId())
               if (!qs || !qe) return null
@@ -854,18 +1114,19 @@ function RoadmapGanttView() {
           )}
 
           {detailItem && (
-            <ItemDetailPanel
+            <ItemDetailPopover
               item={detailItem}
               gamme={detailGamme}
               parentNom={detailParent?.nom}
               isAdmin={isAdmin}
               equipes={equipes}
+              anchor={anchorPos}
               onClose={() => setDetailId(null)}
               onEdit={() => setModal({ mode: 'edit', item: detailItem })}
               onSaveQuarter={(qid, patch) => saveQuarter(detailItem, qid, patch)}
             />
           )}
-        </>
+        </div>
       )}
 
       {modal && (
@@ -1005,19 +1266,46 @@ function ItemModal({ mode, item, gammes, isAdmin, onClose, onSave, onDelete }: {
 }
 
 // ── Panneau détail : un élément déplié, une carte par trimestre ──
-function ItemDetailPanel({ item, gamme, parentNom, isAdmin, equipes, onClose, onEdit, onSaveQuarter }: {
+// Largeur cible du popover (clampée à la fenêtre sur petit écran) et marge
+// minimale gardée avec les bords du viewport.
+const POPOVER_WIDTH = 620
+const POPOVER_MARGIN = 12
+
+// Calcule une position fixed (viewport) à partir du point de clic ayant
+// sélectionné la barre — bascule au-dessus du point si la place manque en
+// dessous, et clampe horizontalement pour ne jamais déborder de l'écran.
+function popoverPlacement(anchor: { x: number; y: number } | null): React.CSSProperties {
+  if (!anchor) return { display: 'none' }
+  const vw = window.innerWidth, vh = window.innerHeight
+  const width = Math.min(POPOVER_WIDTH, vw - POPOVER_MARGIN * 2)
+  let left = anchor.x - width / 2
+  left = Math.min(Math.max(left, POPOVER_MARGIN), vw - width - POPOVER_MARGIN)
+  const spaceBelow = vh - anchor.y - POPOVER_MARGIN
+  const spaceAbove = anchor.y - POPOVER_MARGIN
+  const openUp = spaceBelow < 260 && spaceAbove > spaceBelow
+  return {
+    position: 'fixed', left, width, maxHeight: Math.max(180, openUp ? spaceAbove : spaceBelow),
+    ...(openUp ? { bottom: vh - anchor.y + 12 } : { top: anchor.y + 12 }),
+  }
+}
+
+// ── Popover détail : flotte au-dessus du Gantt, ancré sur le clic ────────
+// Remplace l'ancien panneau en flux (sous le Gantt) — SVAR Gantt n'autorise
+// pas de hauteur par ligne, donc "déplier" la barre elle-même dans la grille
+// n'est pas faisable ; le détail se superpose à la place, sans décaler les
+// autres lignes. La fermeture (clic ailleurs, autre produit) est gérée par le
+// useClickOutside du conteneur parent (RoadmapGanttView), pas ici.
+function ItemDetailPopover({ item, gamme, parentNom, isAdmin, equipes, anchor, onClose, onEdit, onSaveQuarter }: {
   item: RoadmapItem
   gamme?: GammeProduit
   parentNom?: string
   isAdmin: boolean
   equipes: Equipe[]
+  anchor: { x: number; y: number } | null
   onClose: () => void
   onEdit: () => void
   onSaveQuarter: (qid: string, patch: Partial<Omit<TrimQuarterObjectifs, 'trimestre'>>) => void
 }) {
-  const panelRef = useRef<HTMLDivElement>(null)
-  useEffect(() => { panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }) }, [item.id])
-
   const couleur = item.couleur ?? gamme?.couleur ?? '#4A4CC8'
   const ItemIcon = ICON_MAP.get(item.icone ?? '') ?? Rocket
   const quarterIds = quartersBetween(item.trimestre_debut, item.trimestre_fin)
@@ -1025,11 +1313,11 @@ function ItemDetailPanel({ item, gamme, parentNom, isAdmin, equipes, onClose, on
 
   return (
     <motion.div
-      ref={panelRef}
-      initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, ease: 'easeOut' }}
-      className="mt-4 rounded-2xl border border-border bg-card shadow-lg overflow-hidden"
+      initial={{ opacity: 0, scale: 0.96, y: -4 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.15, ease: 'easeOut' }}
+      className="z-40 rounded-2xl border border-border bg-card shadow-2xl overflow-hidden flex flex-col"
+      style={popoverPlacement(anchor)}
     >
-      <div className="flex items-center gap-3 px-4 py-3"
+      <div className="flex items-center gap-3 px-4 py-3 shrink-0"
         style={{ background: `linear-gradient(120deg, ${mix(couleur, '#000000', 0.15)}, ${mix(couleur, '#000000', 0.45)})` }}>
         <span className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0 shadow-inner">
           <ItemIcon size={17} />
@@ -1048,7 +1336,7 @@ function ItemDetailPanel({ item, gamme, parentNom, isAdmin, equipes, onClose, on
         )}
         <button onClick={onClose} className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/15 shrink-0"><X size={14} /></button>
       </div>
-      <div className="p-4 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))' }}>
+      <div className="p-4 grid gap-3 overflow-y-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))' }}>
         {quarterIds.map(qid => (
           <QuarterCard
             key={qid} qid={qid} couleur={couleur} isAdmin={isAdmin} isCurrent={qid === nowQ} equipes={equipes}

@@ -212,14 +212,21 @@ export function parseLienDodCodes(lien: string | null | undefined): string[] {
   return (lien ?? '').split(/[,;]/).map(s => s.trim()).filter(Boolean)
 }
 
-export function downloadCSV(data: Record<string, unknown>[], filename: string, headers: string[], cols: string[]) {
+// Extrait de downloadCSV pour \u00EAtre r\u00E9utilisable l\u00E0 o\u00F9 on veut le texte CSV
+// sans d\u00E9clencher un t\u00E9l\u00E9chargement imm\u00E9diat (ex: assembler plusieurs
+// exports dans un zip, cf. SetupPage.tsx "Tout t\u00E9l\u00E9charger").
+export function buildCSVString(data: Record<string, unknown>[], headers: string[], cols: string[]): string {
   const rows = [headers, ...data.map(row => cols.map(col => {
     const val = row[col]
     if (val === null || val === undefined) return '""'
     if (typeof val === 'object') return `"${JSON.stringify(val).replace(/"/g, '""')}"`
     return `"${String(val).replace(/"/g, '""')}"`
   }))]
-  const csv = '\uFEFF' + rows.map(r => r.join(',')).join('\r\n')
+  return '\uFEFF' + rows.map(r => r.join(',')).join('\r\n')
+}
+
+export function downloadCSV(data: Record<string, unknown>[], filename: string, headers: string[], cols: string[]) {
+  const csv = buildCSVString(data, headers, cols)
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
   const url  = URL.createObjectURL(blob)
   const a    = document.createElement('a')

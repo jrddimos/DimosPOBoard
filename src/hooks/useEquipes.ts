@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { parseAssignees } from '@/lib/utils'
+import { logActivity } from '@/hooks/useActivityLog'
 import type { UserProfile } from '@/contexts/AuthContext'
 import type { Equipe } from '@/types'
 
@@ -19,8 +20,10 @@ export function useCreateEquipe() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (equipe: Omit<Equipe,'id'|'created_at'>) => {
-      const { error } = await supabase.from('equipes').insert(equipe)
+      const { data, error } = await supabase.from('equipes').insert(equipe).select().single()
       if (error) throw error
+      const created = data as Equipe
+      await logActivity({ produit_id: null, action: 'create', target: String(created.id), title: created.nom, entity: 'equipe' })
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['equipes'] }),
   })
@@ -30,8 +33,19 @@ export function useUpdateEquipe() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, updates }: { id: number; updates: Partial<Equipe> }) => {
+      const current = qc.getQueryData<Equipe[]>(['equipes'])?.find(e => e.id === id)
       const { error } = await supabase.from('equipes').update(updates).eq('id', id)
       if (error) throw error
+      const title = current?.nom ?? String(id)
+      for (const key of Object.keys(updates) as (keyof typeof updates)[]) {
+        const oldVal = current ? current[key] ?? null : null
+        const newVal = updates[key] ?? null
+        if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue
+        await logActivity({
+          produit_id: null, action: 'update', target: String(id), title, field: String(key),
+          old_value: JSON.stringify(oldVal), new_value: JSON.stringify(newVal), entity: 'equipe',
+        })
+      }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['equipes'] }),
   })
@@ -41,10 +55,15 @@ export function useDeleteEquipe() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (id: number) => {
+      const current = qc.getQueryData<Equipe[]>(['equipes'])?.find(e => e.id === id)
       // Désaffecter les utilisateurs d'abord
       await supabase.from('user_profiles').update({ equipe_id: null }).eq('equipe_id', id)
       const { error } = await supabase.from('equipes').delete().eq('id', id)
       if (error) throw error
+      await logActivity({
+        produit_id: null, action: 'delete', target: String(id), title: current?.nom ?? String(id),
+        old_value: current ? JSON.stringify(current) : null, entity: 'equipe',
+      })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['equipes'] })

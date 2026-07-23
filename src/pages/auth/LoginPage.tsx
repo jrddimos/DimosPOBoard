@@ -39,7 +39,7 @@ export default function LoginPage() {
           <div className="inline-flex items-center justify-center w-14 h-14 bg-brand rounded-2xl mb-4">
             <img src="/logo.svg" alt="" className="w-8 h-8" />
           </div>
-          <h1 className="text-2xl font-bold text-navy">PO Board</h1>
+          <h1 className="text-2xl font-bold text-navy">Dimos <em className="italic">Inside</em></h1>
           <p className="text-subtle text-sm mt-1">By Roofers For Roofers</p>
         </div>
 

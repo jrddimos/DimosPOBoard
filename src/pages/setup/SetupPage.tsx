@@ -9,10 +9,12 @@ import { Spinner } from '@/components/ui/Spinner'
 import { SprintStatutBadge } from '@/components/ui/Badge'
 import { useSprints, useSprintActif, useUpsertSprint, useDeleteSprint } from '@/hooks/useSprints'
 import { useTaches, useUpdateTache } from '@/hooks/useTaches'
+import { useRestoreTache, useUndoFieldChange } from '@/hooks/useActivityUndo'
+import { useActivityLog, useGlobalActivityLog, useClearActivityLog, useClearGlobalActivityLog, type ActivityLog } from '@/hooks/useActivityLog'
 import { useToast } from '@/hooks/useToast'
 import { confirm } from '@/components/ui/ConfirmModal'
 import { supabase } from '@/lib/supabase'
-import { downloadCSV, naturalCompare, buildTacheIndex, buildChildMap, effortEffectif, parseCriteres, serializeCriteres, formatSprintLabel, type CritereItem } from '@/lib/utils'
+import { downloadCSV, buildCSVString, naturalCompare, buildTacheIndex, buildChildMap, effortEffectif, parseCriteres, serializeCriteres, formatSprintLabel, type CritereItem } from '@/lib/utils'
 import { isEligibleForBacklog, isInThisSprint, buildEligibleTree } from '@/lib/sprintEligibility'
 import { TacheTree } from '@/components/tache/TacheTree'
 import { TacheDetailPanel } from '@/components/tache/TacheDetailPanel'
@@ -28,7 +30,7 @@ import { useJalons, useCreateJalon, useUpdateJalon, useDeleteJalon, useReorderJa
 import { useDod } from '@/hooks/useDod'
 import {
   Pencil, Trash2, Plus, ChevronDown, ChevronRight, Check, X,
-  Tag, Calendar, BookOpen, Target, Download, FileDown, Settings, Lock, Euro, Users,
+  Tag, Calendar, BookOpen, Target, Download, FileDown, Settings, Lock, Euro, Users, Clock,
   Play, Pause, RotateCcw, CheckCircle2, Zap, Wrench, GripVertical,
 } from 'lucide-react'
 import { PageTitle } from '@/components/ui/PageTitle'
@@ -39,7 +41,7 @@ import type { SprintStats, Tache } from '@/types'
 import FinanceTab from '@/pages/admin/FinanceSetupPage'
 import EquipesTab from '@/pages/admin/EquipesUtilisateursPage'
 
-type SetupTab = 'sprints'|'epics'|'jalons'|'metiers'|'export'|'finance'|'equipes'
+type SetupTab = 'sprints'|'epics'|'jalons'|'activite'|'metiers'|'export'|'finance'|'equipes'|'global'
 
 // Thèmes est ouvert à tous (lecture seule pour les non-admins) ; Finance et
 // Équipes restent réservés aux admins, comme avant leur fusion dans Setup.
@@ -51,12 +53,26 @@ const GLOBAL_TABS_ALL   = [
 const GLOBAL_TABS_ADMIN = [
   { key: 'equipes' as SetupTab, label: 'Équipes & Utilisateurs',  icon: <Users size={12} /> },
   { key: 'finance' as SetupTab, label: 'Finance',                icon: <Euro size={12} /> },
+  // Exporte des données tous produits confondus (avec filtre optionnel par
+  // produit) — jamais un réglage d'UN SEUL produit, donc à sa place ici et
+  // pas dans les onglets produit (où il vivait par erreur auparavant, avec
+  // en plus un accès non réservé aux admins).
+  { key: 'export'  as SetupTab, label: 'Export',                 icon: <Download size={12} /> },
+  // Historique + restauration des entités transverses (équipes, finance,
+  // fermetures, gammes, ROCKS, roadmap, suggestions…) — jamais rattachées à
+  // un seul produit, donc pas dans l'onglet Activité produit. Réservé aux
+  // admins : la RLS sur `activite` retombe déjà sur is_admin() dès que
+  // produit_id IS NULL (has_produit_role(NULL,...) ne matche jamais).
+  { key: 'global'  as SetupTab, label: 'Global',                 icon: <Clock size={12} /> },
 ]
 const PRODUCT_TABS = [
-  { key: 'sprints' as SetupTab, label: 'Sprints',  icon: <Calendar size={12} /> },
-  { key: 'epics'   as SetupTab, label: 'Epics',    icon: <BookOpen size={12} /> },
-  { key: 'jalons'  as SetupTab, label: 'Jalons - Incréments majeurs', icon: <Target size={12} /> },
-  { key: 'export'  as SetupTab, label: 'Export',   icon: <Download size={12} /> },
+  { key: 'sprints'  as SetupTab, label: 'Sprints',  icon: <Calendar size={12} /> },
+  { key: 'epics'    as SetupTab, label: 'Epics',    icon: <BookOpen size={12} /> },
+  { key: 'jalons'   as SetupTab, label: 'Jalons - Incréments majeurs', icon: <Target size={12} /> },
+  // Historique + restauration : ouvert à tous (comme avant sa fusion dans
+  // Setup), les actions sensibles (Annuler/Restaurer/Effacer) restent
+  // gérées à l'intérieur du composant (canWrite / isAdmin).
+  { key: 'activite' as SetupTab, label: 'Activité', icon: <Clock size={12} /> },
 ]
 
 export default function SetupPage() {
@@ -69,7 +85,7 @@ export default function SetupPage() {
   // Onglets visibles selon le contexte : jamais mélangés
   const GLOBAL_TABS  = [...(isAdmin ? GLOBAL_TABS_ADMIN : []), ...GLOBAL_TABS_ALL]
   const isProductTab = (t: SetupTab) => PRODUCT_TABS.some(x => x.key === t)
-  const isGlobalTab  = (t: SetupTab) => t === 'metiers' || t === 'finance' || t === 'equipes'
+  const isGlobalTab  = (t: SetupTab) => t === 'metiers' || t === 'finance' || t === 'equipes' || t === 'export' || t === 'global'
   const tabs = isProductTab(tab) ? PRODUCT_TABS : GLOBAL_TABS
 
   useEffect(() => {
@@ -106,7 +122,7 @@ export default function SetupPage() {
         <div className="ds-card flex items-center gap-2 text-sm text-subtle">
           <Lock size={14}/> Accès en lecture seule — la gestion des thèmes globaux est réservée aux administrateurs.
         </div>
-      ) : (tab === 'finance' || tab === 'equipes') && !isAdmin ? (
+      ) : (tab === 'finance' || tab === 'equipes' || tab === 'export' || tab === 'global') && !isAdmin ? (
         <div className="ds-card flex items-center gap-2 text-sm text-subtle">
           <Lock size={14}/> Accès réservé aux administrateurs.
         </div>
@@ -114,10 +130,12 @@ export default function SetupPage() {
         {tab === 'sprints' && <SprintsTab />}
         {tab === 'epics'   && <EpicsTab />}
         {tab === 'jalons'  && <JalonsTab />}
+        {tab === 'activite' && <ActiviteTab />}
         {tab === 'metiers' && <MetiersTab />}
         {tab === 'export'  && <ExportTab />}
         {tab === 'finance' && <FinanceTab />}
         {tab === 'equipes' && <EquipesTab />}
+        {tab === 'global'  && <GlobalActiviteTab />}
       </>}
     </Layout>
   )
@@ -279,11 +297,15 @@ function SprintsTab() {
     setItems(parsed); setChecks(ch); setFreeObj(fObj); setFreeRev(fRev)
   }
 
+  // Sélectionne le sprint actif une seule fois (tant que `selected` est vide)
+  // — volontairement absent des dépendances pour ne pas écraser un choix
+  // manuel de l'utilisateur via selectSprint().
   useEffect(() => {
     if (sprintActif?.numero && !selected) {
       setSelected(sprintActif.numero); parseSprint(sprintActif)
       setPlannedStart(sprintActif.started_at ? sprintActif.started_at.slice(0, 10) : '')
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sprintActif])
 
   function selectSprint(num: string) {
@@ -1442,63 +1464,443 @@ function SprintTaskManager({ selected, taches, showTasks, setShowTasks, isClotur
   )
 }
 
+// ─── Activité : historique + annulation/restauration ───────────
+const ACTIVITE_ACTION_STYLE = {
+  create:  { bg: 'bg-emerald-50',  text: 'text-emerald-600', label: 'Créé'     },
+  update:  { bg: 'bg-indigo-50',   text: 'text-indigo-600',  label: 'Modifié'  },
+  delete:  { bg: 'bg-rose-50',     text: 'text-rose-600',    label: 'Supprimé' },
+  status:  { bg: 'bg-amber-50',    text: 'text-amber-600',   label: 'Statut'   },
+  restore: { bg: 'bg-teal-50',     text: 'text-teal-600',    label: 'Restauré' },
+}
+
+// old_value/new_value sont du JSON (cf. useUpdateTache) — repli sur la
+// valeur brute pour les entrées enregistrées avant (texte simple).
+function activiteParseVal(raw: string | null): unknown {
+  if (raw == null) return null
+  try { return JSON.parse(raw) } catch { return raw }
+}
+function activiteRawVal(raw: string | null): string {
+  const v = activiteParseVal(raw)
+  if (v === null || v === undefined || v === '') return '(vide)'
+  return String(v)
+}
+// Tronqué à l'affichage (une valeur longue — description, critères... —
+// gonflait sinon la hauteur de la ligne) ; la valeur complète reste
+// consultable via l'attribut title (activiteRawVal) au survol.
+function activiteFormatVal(raw: string | null): string {
+  const s = activiteRawVal(raw)
+  return s.length > 60 ? s.slice(0, 60) + '…' : s
+}
+
+// Regroupe les modifications ('update'/'status') consécutives sur une même
+// tâche et proches dans le temps (30 min) — typiquement plusieurs champs
+// enregistrés l'un après l'autre pendant qu'un panneau de détail reste
+// ouvert. Un "Tout annuler" les défait alors en un clic. Créations/
+// suppressions/restaurations restent toujours affichées individuellement.
+const ACTIVITE_GROUP_WINDOW_MS = 30 * 60 * 1000
+type ActiviteLogGroup = ActivityLog[]
+function groupActiviteLogs(logs: ActivityLog[]): (ActivityLog | ActiviteLogGroup)[] {
+  const out: (ActivityLog | ActiviteLogGroup)[] = []
+  let current: ActiviteLogGroup = []
+  const flush = () => {
+    if (current.length === 1) out.push(current[0])
+    else if (current.length > 1) out.push(current)
+    current = []
+  }
+  for (const log of logs) {
+    const groupable = log.action === 'update' || log.action === 'status'
+    const last = current[current.length - 1]
+    const sameSession = last && last.target === log.target &&
+      Math.abs(new Date(last.created_at).getTime() - new Date(log.created_at).getTime()) <= ACTIVITE_GROUP_WINDOW_MS
+    if (groupable && sameSession) {
+      current.push(log)
+    } else {
+      flush()
+      if (groupable) current.push(log)
+      else out.push(log)
+    }
+  }
+  flush()
+  return out
+}
+
+// Liste + logique Annuler/Restaurer partagée entre l'onglet Activité d'un
+// produit (scope = ce produit) et l'onglet Global de Setup (scope = entités
+// transverses, produit_id IS NULL) — seules la source des logs et les
+// permissions d'accès diffèrent entre les deux.
+function ActivityLogList({ logs, isLoading, canRestore, canClear, onClear, emptyHint }: {
+  logs: ActivityLog[]
+  isLoading: boolean
+  canRestore: boolean
+  canClear: boolean
+  onClear: () => void
+  emptyHint: string
+}) {
+  const restoreTache = useRestoreTache()
+  const undoField = useUndoFieldChange()
+  const toast = useToast()
+
+  async function handleRestore(log: ActivityLog) {
+    try {
+      await restoreTache.mutateAsync(log)
+      toast(`✅ "${log.title || log.target}" restaurée`)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erreur lors de la restauration', 'error')
+    }
+  }
+
+  async function handleUndo(log: ActivityLog) {
+    try {
+      await undoField.mutateAsync(log)
+      toast(`✅ ${log.field} annulé sur ${log.title || log.target}`)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Erreur lors de l'annulation", 'error')
+    }
+  }
+
+  // Annule chaque entrée du groupe dans l'ordre (le plus récent d'abord, déjà
+  // l'ordre du journal) — si un même champ a été modifié plusieurs fois dans
+  // la session, ça le fait bien reculer pas à pas jusqu'à sa toute première
+  // valeur, pas juste à l'avant-dernière.
+  async function handleUndoGroup(group: ActiviteLogGroup) {
+    try {
+      for (const log of group) await undoField.mutateAsync(log)
+      toast(`✅ ${group.length} modification${group.length > 1 ? 's' : ''} annulée${group.length > 1 ? 's' : ''} sur ${group[0].title || group[0].target}`)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Erreur lors de l'annulation", 'error')
+    }
+  }
+
+  // Grouper par jour, puis par session de modifications au sein du jour
+  const byDay: Record<string, ActivityLog[]> = {}
+  logs.forEach(log => {
+    const day = log.created_at.slice(0, 10)
+    if (!byDay[day]) byDay[day] = []
+    byDay[day].push(log)
+  })
+
+  function renderEntry(log: ActivityLog) {
+    const style = ACTIVITE_ACTION_STYLE[log.action]
+    return (
+      <div key={log.id} className="ds-card flex items-start gap-3 py-2.5">
+        <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 mt-0.5', style.bg, style.text)}>
+          {style.label}
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-indigo-600">{log.target}</span>
+            <span className="text-xs text-navy truncate">{log.title}</span>
+          </div>
+          {log.field && (
+            <div className="text-xs text-subtle mt-0.5 flex items-center gap-1 min-w-0">
+              <span className="shrink-0">{log.field}</span>
+              {log.old_value != null && <span className="line-through text-rose-400 truncate" title={activiteRawVal(log.old_value)}>{activiteFormatVal(log.old_value)}</span>}
+              {log.new_value != null && <span className="text-emerald-600 font-medium truncate" title={activiteRawVal(log.new_value)}>{activiteFormatVal(log.new_value)}</span>}
+            </div>
+          )}
+        </div>
+        {log.action === 'delete' && log.old_value && canRestore && (
+          <button onClick={() => handleRestore(log)} disabled={restoreTache.isPending}
+            title="Restaurer cette tâche (et son rattachement d'origine)"
+            className="ds-btn ds-btn-sm shrink-0 flex items-center gap-1">
+            <RotateCcw size={11}/>Restaurer
+          </button>
+        )}
+        {(log.action === 'update' || log.action === 'status') && log.field && log.old_value != null && canRestore && (
+          <button onClick={() => handleUndo(log)} disabled={undoField.isPending}
+            title="Annuler cette modification" className="ds-btn ds-btn-sm shrink-0 flex items-center gap-1">
+            <RotateCcw size={11}/>Annuler
+          </button>
+        )}
+        <span className="text-xs text-subtle shrink-0">
+          {new Date(log.created_at).toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'})}
+        </span>
+      </div>
+    )
+  }
+
+  function renderGroup(group: ActiviteLogGroup) {
+    const head = group[0]
+    return (
+      <div key={`grp-${head.id}`} className="ds-card py-2.5">
+        <div className="flex items-start gap-3">
+          <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 mt-0.5', ACTIVITE_ACTION_STYLE.update.bg, ACTIVITE_ACTION_STYLE.update.text)}>
+            {group.length} modifs
+          </span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-indigo-600">{head.target}</span>
+              <span className="text-xs text-navy truncate">{head.title}</span>
+            </div>
+            <div className="flex flex-col gap-0.5 mt-1">
+              {group.map(log => (
+                <div key={log.id} className="flex items-center gap-2 text-xs text-subtle min-w-0">
+                  <span className="w-16 shrink-0 truncate">{log.field}</span>
+                  {log.old_value != null && <span className="line-through text-rose-400 truncate max-w-[160px]" title={activiteRawVal(log.old_value)}>{activiteFormatVal(log.old_value)}</span>}
+                  {log.new_value != null && <span className="text-emerald-600 font-medium truncate max-w-[160px]" title={activiteRawVal(log.new_value)}>{activiteFormatVal(log.new_value)}</span>}
+                  <span className="text-subtle/60 ml-auto shrink-0">{new Date(log.created_at).toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'})}</span>
+                  {canRestore && (
+                    <button onClick={() => handleUndo(log)} disabled={undoField.isPending}
+                      title="Annuler seulement cette modification" className="text-subtle/50 hover:text-indigo-600 shrink-0">
+                      <RotateCcw size={11}/>
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+          {canRestore && (
+            <button onClick={() => handleUndoGroup(group)} disabled={undoField.isPending}
+              title="Annuler toutes les modifications de cette session" className="ds-btn ds-btn-sm shrink-0 flex items-center gap-1">
+              <RotateCcw size={11}/>Tout annuler
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-subtle">{logs.length} événement{logs.length > 1 ? 's' : ''}</span>
+        {logs.length > 0 && canClear && (
+          <button onClick={onClear}
+            className="ds-btn ds-btn-sm text-rose-500 hover:bg-rose-50 flex items-center gap-1 ml-auto">
+            <Trash2 size={11}/>Effacer
+          </button>
+        )}
+      </div>
+
+      {isLoading ? (
+        <div className="flex justify-center py-20"><Spinner /></div>
+      ) : !logs.length ? (
+        <div className="ds-card flex flex-col items-center py-20 text-subtle gap-3">
+          <Clock size={48} className="opacity-20"/>
+          <p className="text-sm font-medium">Aucune activité</p>
+          <p className="text-xs">{emptyHint}</p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {Object.entries(byDay).map(([day, dayLogs]) => (
+            <div key={day}>
+              <div className="ds-section-divider">
+                <span>{new Date(day).toLocaleDateString('fr-FR', {weekday:'long',day:'2-digit',month:'long'})}</span>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                {groupActiviteLogs(dayLogs).map(item => Array.isArray(item) ? renderGroup(item) : renderEntry(item))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ActiviteTab() {
+  const { produitActif } = useProduit()
+  const { isAdmin, canWrite } = useAuth()
+  const { data: logs = [], isLoading } = useActivityLog(produitActif?.id ?? null)
+  const clearLog = useClearActivityLog()
+  const canRestore = produitActif ? canWrite(produitActif.id) : false
+
+  return (
+    <ActivityLogList
+      logs={logs} isLoading={isLoading} canRestore={canRestore}
+      canClear={isAdmin && !!produitActif}
+      onClear={() => produitActif && confirm({
+        title: "Effacer l'historique ?",
+        message: "Tous les événements enregistrés pour ce produit seront supprimés, pour toute l'équipe.",
+        confirmLabel: 'Effacer', variant: 'danger',
+      }).then(ok => { if (ok) clearLog.mutate(produitActif.id) })}
+      emptyHint="Les modifications de l'équipe sur ce produit apparaîtront ici"
+    />
+  )
+}
+
+// Entités transverses (équipes, finance, gammes, ROCKS, roadmap,
+// suggestions…) — onglet réservé aux admins (cf. GLOBAL_TABS_ADMIN), donc
+// canRestore/canClear valent toujours true ici (pas de check supplémentaire
+// à dupliquer, la RLS retombe déjà sur is_admin() pour produit_id IS NULL).
+function GlobalActiviteTab() {
+  const { data: logs = [], isLoading } = useGlobalActivityLog()
+  const clearLog = useClearGlobalActivityLog()
+
+  return (
+    <ActivityLogList
+      logs={logs} isLoading={isLoading} canRestore={true} canClear={true}
+      onClear={() => confirm({
+        title: "Effacer l'historique global ?",
+        message: 'Tous les événements transverses enregistrés (équipes, finance, gammes, ROCKS, roadmap, suggestions…) seront supprimés, pour toute l\'équipe.',
+        confirmLabel: 'Effacer', variant: 'danger',
+      }).then(ok => { if (ok) clearLog.mutate() })}
+      emptyHint="Les modifications transverses (équipes, finance, gammes, ROCKS, roadmap, suggestions…) apparaîtront ici"
+    />
+  )
+}
+
 function ExportTab() {
   const toast   = useToast()
-  const exports = [
-    { label: 'Toutes les tâches', desc: 'ID, Epic, Titre, Jalon - Incrément majeur, Sprint, Statut, Effort…', table: 'taches',
+  const { data: produits = [] } = useProduits()
+  // '' = tous les produits. N'a d'effet que sur les exports `scoped` (Tâches/
+  // Sprints, qui portent un produit_id) — Utilisateurs/Équipes sont des
+  // entités globales, jamais rattachées à un seul produit.
+  const [produitId, setProduitId] = useState<number | ''>('')
+  const produitsTries = useMemo(() => [...produits].sort((a, b) => a.nom.localeCompare(b.nom, 'fr')), [produits])
+  const produitLabel = produitId === '' ? 'tous' : (produitsTries.find(p => p.id === produitId)?.nom ?? String(produitId))
+
+  // filterCol : nom de la colonne testée quand un produit précis est
+  // sélectionné (le plus souvent `produit_id` ; `id` pour la table `produits`
+  // elle-même) ; null = entité transverse, jamais filtrée par produit.
+  const exportsProduit = [
+    { label: 'Tâches', desc: 'ID, Epic, Titre, Jalon - Incrément majeur, Sprint, Statut, Effort…', table: 'taches', filterCol: 'produit_id',
       cols: ['id_tache','epic','titre','type_fonction','jalon','sprint_debut','sprint_fin','statut','effort_j','moscow','priorite','equipe','metier','assigne_a','lien_dod','iteration'],
       headers: ['ID','Epic','Titre','Type','Jalon - Incrément majeur','Sprint début','Sprint fin','Statut','Effort','MoSCoW','Priorité','Équipe','Métier','Assigné','Exigences','Itér.'] },
-    { label: 'Sprints', desc: 'Numéro, Statut, Objectifs, Review, Dates', table: 'sprints',
+    { label: 'Sprints', desc: 'Numéro, Statut, Objectifs, Review, Dates', table: 'sprints', filterCol: 'produit_id',
       cols: ['numero','statut','objectifs','review','started_at','closed_at'], headers: ['Sprint','Statut','Objectifs','Review','Démarré','Clôturé'] },
-    { label: 'Utilisateurs', desc: 'Trigramme, Prénom, Nom, Rôle, Équipe', table: 'user_profiles',
-      cols: ['trigramme','prenom','nom','role_metier','actif','equipe_id'], headers: ['Tri','Prénom','Nom','Rôle','Actif','Équipe ID'] },
-    { label: 'Équipes', desc: 'Nom, Description, Couleur', table: 'equipes',
-      cols: ['nom','description','couleur','actif'], headers: ['Nom','Description','Couleur','Actif'] },
+    { label: 'Epics', desc: 'Code, Nom, Couleurs, Ordre', table: 'epics', filterCol: 'produit_id',
+      cols: ['code','nom','couleur','bg_couleur','ordre'], headers: ['Code','Nom','Couleur','Fond','Ordre'] },
+    { label: 'Jalons - Incréments majeurs', desc: 'Code, Nom, Description, Couleur, Ordre', table: 'jalons', filterCol: 'produit_id',
+      cols: ['code','nom','description','couleur','ordre'], headers: ['Code','Nom','Description','Couleur','Ordre'] },
+    { label: 'Plan de charges', desc: 'Epic, Assigné, Semaine, Année, Jours prévus/réalisés', table: 'plan_charges', filterCol: 'produit_id',
+      cols: ['epic','assigne_a','semaine','annee','jours','jours_realises'], headers: ['Epic','Assigné','Semaine','Année','Jours prévus','Jours réalisés'] },
+    { label: 'DoD — critères', desc: 'Code, Titre, Catégorie, Type, Criticité, Vérifiée', table: 'dod', filterCol: 'produit_id',
+      cols: ['code','titre','description','categorie','type','criticite','actif','ordre','verifiee','valeur_cible','valeur_constatee'],
+      headers: ['Code','Titre','Description','Catégorie','Type','Criticité','Actif','Ordre','Vérifiée','Cible','Constatée'] },
+    { label: 'DoD — catégories', desc: 'Nom, Ordre', table: 'dod_categories', filterCol: 'produit_id',
+      cols: ['nom','ordre'], headers: ['Nom','Ordre'] },
+    { label: 'Journal d\'activité', desc: 'Action, cible, ancienne/nouvelle valeur, auteur, date', table: 'activite', filterCol: 'produit_id',
+      cols: ['action','target','title','field','old_value','new_value','user_id','created_at'],
+      headers: ['Action','Cible','Titre','Champ','Ancienne valeur','Nouvelle valeur','Auteur','Date'] },
+    { label: 'Commentaires', desc: 'Tâche, auteur, texte, date', table: 'tache_commentaires', filterCol: 'produit_id',
+      cols: ['id_tache','user_id','texte','created_at'], headers: ['Tâche','Auteur','Texte','Date'] },
+    { label: 'Dépendances (blocages)', desc: 'Tâche bloquée par une autre', table: 'tache_dependances', filterCol: 'produit_id',
+      cols: ['bloquee_id','bloque_id','created_at'], headers: ['Tâche bloquée','Bloquée par','Date'] },
+    { label: 'Temps passé', desc: 'Tâche, personne, date, minutes, note', table: 'tache_temps', filterCol: 'produit_id',
+      cols: ['id_tache','user_id','date','minutes','note'], headers: ['Tâche','Personne','Date','Minutes','Note'] },
+    { label: 'Itérations de sprint', desc: 'Historique des transferts de tâche entre sprints', table: 'tache_iterations', filterCol: 'produit_id',
+      cols: ['id_tache','numero','origine','sprint','statut','effort_j','effort_realise_j','assigne_a','resultat','commentaire','created_at','closed_at'],
+      headers: ['Tâche','Itér.','Origine','Sprint','Statut','Effort','Effort réalisé','Assigné','Résultat','Commentaire','Créée','Clôturée'] },
+    { label: 'Réunions', desc: 'Titre, type, date, animateur, terminée (contenu détaillé non inclus)', table: 'reunions', filterCol: 'produit_id',
+      cols: ['titre','type_id','date_reunion','semaine','annee','animateur','privee','terminee','created_by','created_at'],
+      headers: ['Titre','Type','Date','Semaine','Année','Animateur','Privée','Terminée','Créée par','Créée le'] },
+    { label: 'Rôles produit', desc: 'Qui a quel rôle (PO/Dev/Lecteur) sur ce produit', table: 'user_produit_roles', filterCol: 'produit_id',
+      cols: ['user_id','role'], headers: ['Utilisateur','Rôle'] },
   ]
+  const exportsGlobal = [
+    { label: 'Produits', desc: 'Vision, budget, date de lancement, priorité stratégique… (tous produits — pas de filtre)', table: 'produits', filterCol: 'id',
+      cols: ['nom','description','couleur','actif','is_template','vision','objectifs_q1','objectifs_q2','objectifs_q3','objectifs_q4','budget_etp','budget_invest','budget_achats','date_lancement_cible','priorite_strategique','niveau_risque','kpis_cibles','outcome_estime','theme'],
+      headers: ['Nom','Description','Couleur','Actif','Template','Vision','Objectifs Q1','Objectifs Q2','Objectifs Q3','Objectifs Q4','Budget ETP','Budget Invest','Budget Achats','Date lancement cible','Priorité stratégique','Niveau risque','KPIs cibles','Outcome estimé','Thème'] },
+    { label: 'Utilisateurs', desc: 'Trigramme, Prénom, Nom, Rôle, Équipe (tous produits — pas de filtre)', table: 'user_profiles', filterCol: null,
+      cols: ['trigramme','prenom','nom','role_metier','actif','equipe_id'], headers: ['Tri','Prénom','Nom','Rôle','Actif','Équipe ID'] },
+    { label: 'Équipes', desc: 'Nom, Description, Couleur (tous produits — pas de filtre)', table: 'equipes', filterCol: null,
+      cols: ['nom','description','couleur','actif'], headers: ['Nom','Description','Couleur','Actif'] },
+    { label: 'Absences', desc: 'Trigramme, Motif, Dates (tous produits — pas de filtre)', table: 'absences', filterCol: null,
+      cols: ['trigramme','annee','label','date_debut','date_fin'], headers: ['Trigramme','Année','Motif','Du','Au'] },
+    { label: 'ROCKS — initiatives', desc: 'Nom, Semaines départ/deadline, Objectif (transverse — pas de filtre)', table: 'scorecard_initiatives', filterCol: null,
+      cols: ['nom','semaine_depart','semaine_deadline','objectif_increments','couleur','ordre'], headers: ['Nom','Semaine départ','Semaine deadline','Objectif','Couleur','Ordre'] },
+    { label: 'ROCKS — incréments', desc: 'Initiative, Semaine, Valeur, Statut (transverse — pas de filtre)', table: 'scorecard_increments', filterCol: null,
+      cols: ['initiative_id','semaine','valeur','objectif_texte','statut'], headers: ['Initiative ID','Semaine','Valeur','Objectif texte','Statut'] },
+    { label: 'Roadmap — jalons', desc: 'Gamme, Nom, Trimestres (transverse — pas de filtre)', table: 'roadmap_items', filterCol: null,
+      cols: ['gamme_id','nom','couleur','trimestre_debut','trimestre_fin','icone','ordre'], headers: ['Gamme ID','Nom','Couleur','Trim. début','Trim. fin','Icône','Ordre'] },
+    { label: 'Gammes produits', desc: 'Nom, Couleur, Ordre (transverse — pas de filtre)', table: 'gammes_produits', filterCol: null,
+      cols: ['nom','couleur','ordre','parent_id'], headers: ['Nom','Couleur','Ordre','Gamme parente ID'] },
+    { label: 'Config finance', desc: 'Jours ouvrés par trimestre (TJM par équipe non inclus, donnée imbriquée)', table: 'finance_config', filterCol: null,
+      cols: ['jours_par_trim','updated_at'], headers: ['Jours ouvrés/trim','Mis à jour'] },
+    { label: 'Fermetures entreprise', desc: 'Périodes de fermeture (congés collectifs, ponts…)', table: 'periodes_fermeture', filterCol: null,
+      cols: ['annee','label','date_debut','date_fin'], headers: ['Année','Libellé','Du','Au'] },
+    { label: 'Suggestions', desc: 'Retours et idées d\'amélioration des utilisateurs', table: 'suggestions', filterCol: null,
+      cols: ['titre','description','statut','importance','auteur_id','created_at'], headers: ['Titre','Description','Statut','Importance','Auteur','Créée le'] },
+    { label: 'Invitations en attente', desc: 'Profils créés mais pas encore connectés', table: 'pending_profiles', filterCol: null,
+      cols: ['display_name','trigramme','prenom','nom','role_global','created_at'], headers: ['Nom affiché','Trigramme','Prénom','Nom','Rôle global','Créée le'] },
+  ]
+  const exports = [...exportsProduit, ...exportsGlobal]
   async function fetchRows(item: typeof exports[0]) {
-    const { data, error } = await supabase.from(item.table).select('*')
+    let q = supabase.from(item.table).select('*')
+    if (item.filterCol && produitId !== '') q = q.eq(item.filterCol, produitId)
+    const { data, error } = await q
     if (error || !data) { toast('Erreur export', 'error'); return null }
     return data as Record<string, unknown>[]
+  }
+  function fileName(item: typeof exports[0]) {
+    return item.filterCol === 'produit_id' ? `Dimos_D3X_${item.table}_${produitLabel}` : `Dimos_D3X_${item.table}`
   }
   async function doExportCSV(item: typeof exports[0]) {
     const data = await fetchRows(item)
     if (!data) return
-    downloadCSV(data, `Dimos_D3X_${item.table}`, item.headers, item.cols)
+    downloadCSV(data, fileName(item), item.headers, item.cols)
     toast(`${data.length} lignes exportées`)
   }
   async function doExportXLSX(item: typeof exports[0]) {
     const data = await fetchRows(item)
     if (!data) return
     const { exportExcel } = await import('@/lib/exportExcel')
-    await exportExcel(data, `Dimos_D3X_${item.table}`, item.headers, item.cols)
+    await exportExcel(data, fileName(item), item.headers, item.cols)
     toast(`${data.length} lignes exportées`)
   }
+  // Un zip plutôt que 26 fichiers CSV téléchargés un par un (illisible et
+  // bloqué par certains navigateurs au-delà de quelques téléchargements
+  // simultanés) — jszip chargé à la demande, même logique que exportExcel.
   async function doExportAll() {
-    for (const item of exports) { await doExportCSV(item); await new Promise(r => setTimeout(r, 600)) }
-    toast('4 fichiers téléchargés')
+    const { default: JSZip } = await import('jszip')
+    const zip = new JSZip()
+    let count = 0
+    for (const item of exports) {
+      const data = await fetchRows(item)
+      if (!data) continue
+      zip.file(`${fileName(item)}.csv`, buildCSVString(data, item.headers, item.cols))
+      count++
+    }
+    const blob = await zip.generateAsync({ type: 'blob' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href = url
+    a.download = `Dimos_D3X_export_complet_${new Date().toISOString().slice(0, 10)}.zip`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    toast(`${count} fichiers zippés`)
+  }
+  function renderRow(item: typeof exports[0]) {
+    return (
+      <div key={item.table} className="flex items-center justify-between p-4 bg-card rounded-xl border border-border">
+        <div>
+          <div className="font-semibold text-navy text-sm">{item.label}</div>
+          <div className="text-xs text-subtle mt-0.5">{item.desc}</div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button onClick={() => doExportCSV(item)} className="ds-btn ds-btn-sm flex items-center gap-1.5">
+            <Download size={12} /> CSV
+          </button>
+          <button onClick={() => doExportXLSX(item)} className="ds-btn ds-btn-sm flex items-center gap-1.5">
+            <Download size={12} /> Excel
+          </button>
+        </div>
+      </div>
+    )
   }
   return (
     <div className="max-w-lg flex flex-col gap-2">
-      {exports.map(item => (
-        <div key={item.table} className="flex items-center justify-between p-4 bg-card rounded-xl border border-border">
-          <div>
-            <div className="font-semibold text-navy text-sm">{item.label}</div>
-            <div className="text-xs text-subtle mt-0.5">{item.desc}</div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <button onClick={() => doExportCSV(item)} className="ds-btn ds-btn-sm flex items-center gap-1.5">
-              <Download size={12} /> CSV
-            </button>
-            <button onClick={() => doExportXLSX(item)} className="ds-btn ds-btn-sm flex items-center gap-1.5">
-              <Download size={12} /> Excel
-            </button>
-          </div>
-        </div>
-      ))}
-      <div className="flex items-center justify-between p-4 bg-indigo-50 rounded-xl border border-indigo-200">
+      <div className="flex items-center gap-2 p-3 bg-bg border border-border rounded-xl mb-1">
+        <span className="text-xs font-semibold text-navy shrink-0">Produit</span>
+        <SelectPicker value={produitId === '' ? '' : String(produitId)}
+          onChange={v => setProduitId(v === '' ? '' : Number(v))}
+          options={[{ value: '', label: 'Tous les produits' }, ...produitsTries.map(p => ({ value: String(p.id), label: p.nom }))]}
+          placeholder="Tous les produits" searchable className="flex-1" />
+      </div>
+      <p className="text-[11px] text-subtle/70 -mt-1 mb-1">
+        Le filtre produit ne s'applique qu'aux données rattachées à un produit — les entités transverses (Utilisateurs, Équipes, Absences, ROCKS, Roadmap, Gammes) restent toujours tous produits confondus.
+      </p>
+      <div className="text-[11px] font-bold text-subtle uppercase tracking-wider mt-1">Par produit</div>
+      {exportsProduit.map(renderRow)}
+      <div className="text-[11px] font-bold text-subtle uppercase tracking-wider mt-2">Transverses</div>
+      {exportsGlobal.map(renderRow)}
+      <div className="flex items-center justify-between p-4 bg-indigo-50 rounded-xl border border-indigo-200 mt-1">
         <div>
           <div className="font-semibold text-navy text-sm">Export complet</div>
-          <div className="text-xs text-subtle mt-0.5">Tous les fichiers CSV</div>
+          <div className="text-xs text-subtle mt-0.5">Un fichier .zip avec tous les CSV ci-dessus</div>
         </div>
         <button onClick={doExportAll} className="ds-btn-primary ds-btn-sm flex items-center gap-1.5">
           <Download size={12} /> Tout télécharger

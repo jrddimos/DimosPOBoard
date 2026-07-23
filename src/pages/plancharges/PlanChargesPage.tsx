@@ -24,7 +24,10 @@ import { useAuth } from '@/contexts/AuthContext'
 
 // ── Page ─────────────────────────────────────────────────────
 export default function PlanChargesPage() {
-  const today   = new Date()
+  // Figé au montage (useMemo, pas une simple const) : sinon `new Date()` change
+  // de référence à chaque rendu et invalide inutilement le useMemo de
+  // currentISOWeek plus bas qui en dépend.
+  const today   = useMemo(() => new Date(), [])
   const curYear = today.getFullYear()
 
   const [annee,          setAnnee]          = useState(curYear)
@@ -88,7 +91,7 @@ export default function PlanChargesPage() {
     const m = new Map<string, string>()
     fermetures.forEach(f => {
       const d = new Date(f.date_debut)
-      while (true) {
+      for (;;) {
         const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
         if (iso > f.date_fin) break
         m.set(iso, f.label)
@@ -288,6 +291,8 @@ export default function PlanChargesPage() {
       m.set(qt.q, { totAlloc, totBudget })
     })
     return m
+  // allocForWeeks/budgetQ ne lisent que planMap/annee (déjà en dépendance).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quarters, activeProduits, membersByProduit, planMap, annee])
 
   // ── KPIs de synthèse (bandeau) ────────────────────────────────
@@ -333,7 +338,11 @@ export default function PlanChargesPage() {
     const qBudget = qCur ? headerTotalsByQuarter.get(qCur.q) : undefined
 
     return { isCur, overCount, overTris: [...overTris], libre: Math.round(libre * 10) / 10, qCurLabel: qCur?.label ?? '', tauxRealise, prevPast: Math.round(prevPast), realPast: Math.round(realPast), qBudget }
-  }, [activeProduits, profiles, allRoles, planMap, planMapR, allWeeks, quarters, annee, curYear, currentISOWeek, absWkMap, headerTotalsByQuarter])
+  // memberMaxJours (fonction non mémoïsée) ne lit que joursOuvresMap et
+  // absWkMap, tous deux déjà listés ci-dessous — pas besoin de la fonction
+  // elle-même.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProduits, profiles, allRoles, planMap, planMapR, allWeeks, quarters, annee, curYear, currentISOWeek, absWkMap, headerTotalsByQuarter, joursOuvresMap])
 
   // Edit cell state
   const [editCell, setEditCell] = useState<{ produit_id: number; semaine: number; assigne_a: string } | null>(null)
@@ -399,6 +408,10 @@ export default function PlanChargesPage() {
     }
     window.addEventListener('mouseup', onGlobalMouseUp)
     return () => window.removeEventListener('mouseup', onGlobalMouseUp)
+  // getMaxJours/memberMaxJours volontairement omis : fonctions non mémoïsées
+  // (recréées chaque rendu) — les lister ferait ré-attacher ce listener
+  // global à chaque rendu au lieu de seulement au changement de dragRange.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragRange])
 
   // Annulation temporaire après un remplissage multiple

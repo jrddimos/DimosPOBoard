@@ -39,7 +39,7 @@ export function Layout({ children, title, actions }: LayoutProps) {
             <div className="w-6 h-6 bg-[#1E3A5F] rounded-md flex items-center justify-center">
               <img src="/logo.svg" alt="" className="w-4 h-4" />
             </div>
-            <span className="text-white font-bold text-sm">PO Board</span>
+            <span className="text-white font-bold text-sm">Dimos <em className="italic">Inside</em></span>
           </div>
         </div>
 

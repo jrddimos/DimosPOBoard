@@ -1,6 +1,15 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { logActivity } from '@/hooks/useActivityLog'
 import type { UserProfile, UserProduitRole, RoleProduit } from '@/contexts/AuthContext'
+
+// Nom affiché pour le journal (Setup > Global) — cherché dans le cache
+// existant plutôt que refetché, ces mutations ne portent souvent que
+// user_id (pas de display_name en argument, ex: useDeleteUser).
+function userLabel(qc: QueryClient, user_id: string): string {
+  const profile = qc.getQueryData<(UserProfile & { email?: string })[]>(['user_profiles'])?.find(p => p.user_id === user_id)
+  return profile?.display_name || profile?.trigramme || user_id
+}
 
 // ── Tous les profils (admin seulement) ────────────────────────
 async function fetchAllProfiles(): Promise<(UserProfile & { email?: string })[]> {
@@ -68,6 +77,7 @@ export function useInviteUser() {
             )
           }
         }
+        await logActivity({ produit_id: null, action: 'create', target: userId, title: display_name || email, entity: 'utilisateur' })
       }
       return data
     },
@@ -120,6 +130,7 @@ export function useCreateUserWithPassword() {
             )
           }
         }
+        await logActivity({ produit_id: null, action: 'create', target: userId, title: display_name || email, entity: 'utilisateur' })
       }
       return data as { user: { id: string; email: string }; password: string }
     },
@@ -147,6 +158,7 @@ export function useUpdateUserEmail() {
         } catch { /* ignore */ }
         throw new Error(msg)
       }
+      await logActivity({ produit_id: null, action: 'update', target: user_id, title: userLabel(qc, user_id), field: 'email', entity: 'utilisateur' })
       return data
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['user-emails'] }),
@@ -158,11 +170,17 @@ export function useSetRoleGlobal() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ user_id, role_global }: { user_id: string; role_global: 'admin' | null }) => {
+      const current = qc.getQueryData<UserProfile[]>(['user_profiles'])?.find(p => p.user_id === user_id)
       const { error } = await supabase
         .from('user_profiles')
         .update({ role_global })
         .eq('user_id', user_id)
       if (error) throw error
+      if (current?.role_global === role_global) return
+      await logActivity({
+        produit_id: null, action: 'update', target: user_id, title: userLabel(qc, user_id), field: 'role_global',
+        old_value: JSON.stringify(current?.role_global ?? null), new_value: JSON.stringify(role_global), entity: 'utilisateur',
+      })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user_profiles'] })
@@ -172,6 +190,9 @@ export function useSetRoleGlobal() {
 }
 
 // ── Upsert rôle produit ───────────────────────────────────────
+// Pas de undo (clé composite user_id+produit_id, pas de colonne id unique) —
+// juste une trace pour l'audit, à corriger manuellement si besoin (il suffit
+// de resélectionner le bon rôle dans le même écran).
 export function useUpsertRoleProduit() {
   const qc = useQueryClient()
   return useMutation({
@@ -180,6 +201,7 @@ export function useUpsertRoleProduit() {
         .from('user_produit_roles')
         .upsert({ user_id, produit_id, role }, { onConflict: 'user_id,produit_id' })
       if (error) throw error
+      await logActivity({ produit_id: null, action: 'update', target: user_id, title: `${userLabel(qc, user_id)} — rôle produit #${produit_id} = ${role}`, entity: 'utilisateur' })
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['user_produit_roles'] }),
   })
@@ -196,6 +218,7 @@ export function useDeleteRoleProduit() {
         .eq('user_id', user_id)
         .eq('produit_id', produit_id)
       if (error) throw error
+      await logActivity({ produit_id: null, action: 'delete', target: user_id, title: `${userLabel(qc, user_id)} — rôle produit #${produit_id} retiré`, entity: 'utilisateur' })
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['user_produit_roles'] }),
   })
@@ -206,8 +229,19 @@ export function useUpdateProfile() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ user_id, updates }: { user_id: string; updates: Partial<UserProfile> }) => {
+      const current = qc.getQueryData<UserProfile[]>(['user_profiles'])?.find(p => p.user_id === user_id)
       const { error } = await supabase.from('user_profiles').update(updates).eq('user_id', user_id)
       if (error) throw error
+      const title = current?.display_name || userLabel(qc, user_id)
+      for (const key of Object.keys(updates) as (keyof typeof updates)[]) {
+        const oldVal = current ? current[key] ?? null : null
+        const newVal = updates[key] ?? null
+        if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue
+        await logActivity({
+          produit_id: null, action: 'update', target: user_id, title, field: String(key),
+          old_value: JSON.stringify(oldVal), new_value: JSON.stringify(newVal), entity: 'utilisateur',
+        })
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user_profiles'] })
@@ -248,12 +282,18 @@ export function useSetUserEquipes() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ user_id, equipe_ids }: { user_id: string; equipe_ids: number[] }) => {
+      const current = qc.getQueryData<UserProfile[]>(['user_profiles'])?.find(p => p.user_id === user_id)
       const equipe_id = equipe_ids[0] ?? null
       const { error } = await supabase
         .from('user_profiles')
         .update({ equipe_ids, equipe_id })
         .eq('user_id', user_id)
       if (error) throw error
+      if (JSON.stringify(current?.equipe_ids ?? []) === JSON.stringify(equipe_ids)) return
+      await logActivity({
+        produit_id: null, action: 'update', target: user_id, title: userLabel(qc, user_id), field: 'equipe_ids',
+        old_value: JSON.stringify(current?.equipe_ids ?? []), new_value: JSON.stringify(equipe_ids), entity: 'utilisateur',
+      })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user_profiles'] })
@@ -374,6 +414,7 @@ export function useSendInvitationToPending() {
           )
         }
         await supabase.from('pending_profiles').delete().eq('id', pending.id)
+        await logActivity({ produit_id: null, action: 'create', target: userId, title: pending.display_name, entity: 'utilisateur' })
       }
       return data
     },
@@ -426,6 +467,7 @@ export function useCreatePendingWithPassword() {
           )
         }
         await supabase.from('pending_profiles').delete().eq('id', pending.id)
+        await logActivity({ produit_id: null, action: 'create', target: userId, title: pending.display_name, entity: 'utilisateur' })
       }
       return { user: { id: userId, email: email.trim() }, password }
     },
@@ -446,6 +488,7 @@ export function useDeleteUser() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (user_id: string) => {
+      const title = userLabel(qc, user_id)
       const { error } = await supabase.functions.invoke('invite-user', {
         body: { action: 'delete_user', user_id },
       })
@@ -457,6 +500,9 @@ export function useDeleteUser() {
         } catch { /* ignore */ }
         throw new Error(msg)
       }
+      // Compte auth + profil supprimés côté edge function (cascade FK) — pas
+      // de restauration possible depuis ce journal, juste une trace d'audit.
+      await logActivity({ produit_id: null, action: 'delete', target: user_id, title, entity: 'utilisateur' })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user_profiles'] })
@@ -488,6 +534,10 @@ export function useSetUserBanned() {
       }
       const { error: profErr } = await supabase.from('user_profiles').update({ actif: !banned }).eq('user_id', user_id)
       if (profErr) throw profErr
+      await logActivity({
+        produit_id: null, action: 'update', target: user_id, title: userLabel(qc, user_id), field: 'actif',
+        old_value: JSON.stringify(banned), new_value: JSON.stringify(!banned), entity: 'utilisateur',
+      })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user_profiles'] })

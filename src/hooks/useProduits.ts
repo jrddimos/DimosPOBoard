@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { logActivity } from '@/hooks/useActivityLog'
 
 export interface Produit {
   id:                   number
@@ -145,8 +146,23 @@ export function useUpdateProduit() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, updates }: { id: number; updates: Partial<Produit> }) => {
+      const current = qc.getQueryData<Produit[]>(['produits'])?.find(p => p.id === id)
       const { error } = await supabase.from('produits').update(updates).eq('id', id)
       if (error) throw error
+      // Une entrée par champ réellement modifié (même principe que
+      // useUpdateTache) — permet d'annuler depuis la page Activité un
+      // changement fait sur la Configuration du produit (vision, budget,
+      // objectifs trimestriels…) sans toucher aux autres champs.
+      const title = current?.nom ?? String(id)
+      for (const key of Object.keys(updates) as (keyof Produit)[]) {
+        const oldVal = current ? current[key] ?? null : null
+        const newVal = updates[key] ?? null
+        if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue
+        await logActivity({
+          produit_id: id, action: 'update', target: String(id), title, field: String(key),
+          old_value: JSON.stringify(oldVal), new_value: JSON.stringify(newVal), entity: 'produit',
+        })
+      }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['produits'] }),
   })

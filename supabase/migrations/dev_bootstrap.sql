@@ -915,17 +915,19 @@ DROP TRIGGER IF EXISTS trg_notify_mention_reunion_revue ON reunion_revues;
 CREATE TRIGGER trg_notify_mention_reunion_revue AFTER INSERT OR UPDATE OF notes ON reunion_revues
 FOR EACH ROW EXECUTE FUNCTION notify_mention_reunion_revue();
 
+-- ROCKS/FL3 : vue stratégique réservée aux admins (cf. 0074) — l'onglet FL3
+-- est masqué aux non-admins côté UI, la RLS doit refléter la même règle.
 ALTER TABLE scorecard_initiatives ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "scorecard_initiatives_select" ON scorecard_initiatives FOR SELECT TO authenticated USING (true);
-CREATE POLICY "scorecard_initiatives_insert" ON scorecard_initiatives FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY "scorecard_initiatives_update" ON scorecard_initiatives FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "scorecard_initiatives_select" ON scorecard_initiatives FOR SELECT TO authenticated USING (is_admin());
+CREATE POLICY "scorecard_initiatives_insert" ON scorecard_initiatives FOR INSERT TO authenticated WITH CHECK (is_admin());
+CREATE POLICY "scorecard_initiatives_update" ON scorecard_initiatives FOR UPDATE TO authenticated USING (is_admin()) WITH CHECK (is_admin());
 CREATE POLICY "scorecard_initiatives_delete" ON scorecard_initiatives FOR DELETE TO authenticated USING (is_admin());
 
 ALTER TABLE scorecard_increments ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "scorecard_increments_select" ON scorecard_increments FOR SELECT TO authenticated USING (true);
-CREATE POLICY "scorecard_increments_insert" ON scorecard_increments FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY "scorecard_increments_update" ON scorecard_increments FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "scorecard_increments_delete" ON scorecard_increments FOR DELETE TO authenticated USING (true);
+CREATE POLICY "scorecard_increments_select" ON scorecard_increments FOR SELECT TO authenticated USING (is_admin());
+CREATE POLICY "scorecard_increments_insert" ON scorecard_increments FOR INSERT TO authenticated WITH CHECK (is_admin());
+CREATE POLICY "scorecard_increments_update" ON scorecard_increments FOR UPDATE TO authenticated USING (is_admin()) WITH CHECK (is_admin());
+CREATE POLICY "scorecard_increments_delete" ON scorecard_increments FOR DELETE TO authenticated USING (is_admin());
 
 
 -- ──────────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { logActivity } from '@/hooks/useActivityLog'
 
 export interface EquipeTjm {
   equipe_id: number
@@ -61,10 +62,22 @@ export function useUpdateFinanceConfig() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (updates: { jours_par_trim?: number; equipe_tjms?: EquipeTjm[]; trimestres?: TrimConfig[] }) => {
+      // Singleton (id toujours 1) — pas de undo/restore par ligne possible,
+      // juste une entrée par champ modifié pour la traçabilité (target fixe).
+      const current = qc.getQueryData<FinanceConfig>(['finance_config'])
       const { error } = await supabase
         .from('finance_config')
         .upsert({ id: 1, ...updates, updated_at: new Date().toISOString() })
       if (error) throw error
+      for (const key of Object.keys(updates) as (keyof typeof updates)[]) {
+        const oldVal = current ? current[key] ?? null : null
+        const newVal = updates[key] ?? null
+        if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue
+        await logActivity({
+          produit_id: null, action: 'update', target: '1', title: 'Configuration finance', field: String(key),
+          old_value: JSON.stringify(oldVal), new_value: JSON.stringify(newVal), entity: 'finance_config',
+        })
+      }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['finance_config'] }),
   })

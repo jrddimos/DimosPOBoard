@@ -479,8 +479,13 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
   const [sousTacheParent,setSousTacheParent]=useState<Tache|null>(null)
   const [quickAdd,setQuickAdd]=useState<{epicLabel:string;conteneurParent?:Tache}|null>(null)
 
-  const childMap:Record<string,Tache[]>={}
-  taches.filter(t=>t.parent_id).forEach(c=>{if(!childMap[c.parent_id!]) childMap[c.parent_id!]=[]; childMap[c.parent_id!].push(c)})
+  // Mémoïsé : sinon un nouvel objet à chaque rendu invalidait inutilement
+  // tacheNumbers/filtered/effectiveChildMap qui en dépendent tous.
+  const childMap=useMemo(()=>{
+    const m:Record<string,Tache[]>={}
+    taches.filter(t=>t.parent_id).forEach(c=>{if(!m[c.parent_id!]) m[c.parent_id!]=[]; m[c.parent_id!].push(c)})
+    return m
+  },[taches])
 
   const byId=useMemo(()=>buildTacheIndex(allTaches),[allTaches])
 
@@ -528,6 +533,10 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
       return (childMap[t.id_tache]??[]).some(matchesFieldFilters)
     }
     return matchesFieldFilters(t)
+  // matchesFieldFilters ne lit que search/selJalons/selStatuts/selMoscows/
+  // selTypes, déjà tous en dépendance (fonction non mémoïsée, recréée chaque
+  // rendu).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }),[parents,search,showSansEpic,selEpics,selJalons,selStatuts,selMoscows,selTypes,childMap])
 
   // childMap effectif pour l'AFFICHAGE : quand un filtre "métier" (recherche/
@@ -544,6 +553,7 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
       if(t.type_tache==='Conteneur') m[t.id_tache]=(childMap[t.id_tache]??[]).filter(matchesFieldFilters)
     }
     return m
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- matchesFieldFilters déjà couvert, cf. plus haut
   },[childMap,parents,hasFieldFilter,search,selJalons,selStatuts,selMoscows,selTypes])
 
   function effJ(t:Tache):number{
@@ -779,12 +789,25 @@ function EditTab({taches,parents,closedSprints,equipeNoms,membresActifs,equipes,
     }
   }
 
+  // Étend la sélection à toute la descendance (collectSubtreeIds, même
+  // logique que clearEpic) avant de supprimer — sinon une US supprimée via
+  // le panneau de détail ou une sélection multiple laissait ses sous-tâches
+  // orphelines en base (parent_id pointant vers une tâche inexistante),
+  // silencieusement, malgré le message annonçant déjà leur suppression.
   async function deleteIds(ids:string[]):Promise<boolean>{
-    const ok=await confirm({title:`Supprimer ${ids.length>1?`${ids.length} éléments`:ids[0]} ?`,message:'Action irréversible. Les tâches et leurs sous-tâches seront supprimées.',confirmLabel:'Supprimer',variant:'danger'})
+    const allIds=[...new Set(ids.flatMap(id=>{
+      const t=byId.get(id)
+      return t?collectSubtreeIds(t):[id]
+    }))]
+    const extra=allIds.length-ids.length
+    const ok=await confirm({
+      title:`Supprimer ${ids.length>1?`${ids.length} éléments`:ids[0]} ?`,
+      message:`Action irréversible. ${extra>0?`${allIds.length} tâche(s) au total seront supprimées (${extra} sous-tâche(s) incluse(s)).`:'Les tâches et leurs sous-tâches seront supprimées.'}`,
+      confirmLabel:'Supprimer',variant:'danger'})
     if(!ok) return false
     try {
-      for(const id of ids) await deleteTache.mutateAsync(id)
-      toast(`✅ ${ids.length} élément(s) supprimé(s)`)
+      for(const id of allIds) await deleteTache.mutateAsync(id)
+      toast(`✅ ${allIds.length} élément(s) supprimé(s)`)
       return true
     } catch(e) {
       toast(e instanceof Error ? e.message : 'Erreur lors de la suppression', 'error')

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, lazy, Suspense } from 'react'
+import { useState, useMemo, useEffect, useCallback, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Layout } from '@/components/layout/Layout'
 import { Spinner } from '@/components/ui/Spinner'
@@ -44,21 +44,31 @@ export default function DashboardPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number> | null>(null)
 
   const today   = useMemo(() => new Date(), [])
-  const fmtDate = (d: Date) => d.toLocaleDateString('fr-FR')
+  const fmtDate = useCallback((d: Date) => d.toLocaleDateString('fr-FR'), [])
 
   const accessibles = produits.filter(p =>
     p.actif && !p.is_template && (isAdmin || getRoleForProduit(p.id) !== null)
   )
   const templateIds = new Set(produits.filter(p => p.is_template).map(p => p.id))
 
+  // Initialisation une seule fois (tant que selectedIds est encore null) —
+  // `accessibles` est un tableau recréé à chaque rendu (filter() non
+  // mémoïsé), donc suivre `.length` plutôt que le tableau lui-même évite de
+  // re-déclencher l'effet à chaque rendu ; `selectedIds` est volontairement
+  // absent pour ne pas re-exécuter inutilement une fois qu'il est posé.
   useEffect(() => {
     if (accessibles.length > 0 && selectedIds === null)
       setSelectedIds(new Set(accessibles.map(p => p.id)))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessibles.length])
 
+  // Ne se déclenche qu'au changement d'ONGLET (mode), pas à chaque fois que
+  // produitActif change ailleurs — sinon ça écraserait la sélection produit
+  // manuelle de l'utilisateur dans le sélecteur du dashboard.
   useEffect(() => {
     if (mode === 'produit' && produitActif && !viewProduitId)
       setViewProduitId(produitActif.id)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode])
 
   // `id_tache` n'est unique qu'AU SEIN d'un produit (UNIQUE(produit_id,
@@ -88,6 +98,9 @@ export default function DashboardPage() {
       group.forEach(t => { if (isUS(t, localById)) out.push(t) })
     })
     return out
+  // templateIds dérive de `produits` (déjà en dépendance) mais est recréé
+  // chaque rendu (Set non mémoïsé) — le lister défairait la mémoïsation.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tachesByProduit, produits])
 
   // childMap sur TOUTES les tâches d'UN produit (pas les seules racines) :
@@ -125,10 +138,10 @@ export default function DashboardPage() {
     })
   }
 
-  function goToProductDashboard(p: Produit) {
+  const goToProductDashboard = useCallback((p: Produit) => {
     setProduitActif({ id: p.id, nom: p.nom, couleur: p.couleur })
     navigate('/produit-dashboard')
-  }
+  }, [setProduitActif, navigate])
 
   const viewProduit = accessibles.find(p => p.id === viewProduitId) ?? null
 
@@ -248,7 +261,7 @@ function NoAccessScreen({ produits }: { produits: Produit[] }) {
         <Package size={24} className="text-indigo-400" />
       </div>
       <div>
-        <h1 className="text-lg font-bold text-navy mb-1.5">Bienvenue sur PO Board</h1>
+        <h1 className="text-lg font-bold text-navy mb-1.5">Bienvenue sur Dimos Inside</h1>
         <p className="text-sm text-subtle leading-relaxed">
           Votre compte n'a pour l'instant accès à aucun produit. Choisissez un produit ci-dessous
           pour demander l'accès à son·sa PO — vous recevrez une notification une fois le rôle attribué.

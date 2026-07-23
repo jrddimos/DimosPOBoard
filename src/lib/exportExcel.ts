@@ -7,7 +7,7 @@ export async function exportExcel(
   cols: string[],
 ): Promise<void> {
   const wb = new ExcelJS.Workbook()
-  wb.creator = 'Dimos D3X+ PO Board'
+  wb.creator = 'Dimos Inside'
   wb.created = new Date()
 
   const ws = wb.addWorksheet('Export', { views: [{ state: 'frozen', ySplit: 1 }] })

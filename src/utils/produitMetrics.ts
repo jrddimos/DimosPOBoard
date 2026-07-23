@@ -177,7 +177,11 @@ export function computeProduitMetrics(
   // séparée — pour ne jamais contredire la date affichée à côté (aligné sur
   // ProduitDashboardBody.tsx).
   let ragD: Rag = null
-  let projectedPct: number | null = null
+  // Toujours null pour le scope Global depuis le passage à un calcul basé
+  // sur la marge en jours (cf. commentaire ci-dessus) — gardé dans l'objet
+  // retourné pour compat avec ProduitMetrics.projectedPct (scope Trim only
+  // désormais, cf. projectedPctTrim plus bas).
+  const projectedPct: number | null = null
 
   if (produit.date_lancement_cible) {
     const targetDate = new Date(produit.date_lancement_cible)

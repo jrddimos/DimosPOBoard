@@ -91,8 +91,8 @@ export function useUpdateDodItem() {
       if (error) throw error
       if (produitActif && item && updates.verifiee !== undefined && updates.verifiee !== item.verifiee) {
         await logActivity({
-          produit_id: produitActif.id, action: 'status', target: item.code, title: item.titre,
-          field: 'verifiee', old_value: String(item.verifiee), new_value: String(updates.verifiee),
+          produit_id: produitActif.id, action: 'status', target: item.code, title: item.titre, entity: 'dod',
+          field: 'verifiee', old_value: JSON.stringify(item.verifiee), new_value: JSON.stringify(updates.verifiee),
         })
       }
     },

@@ -62,7 +62,7 @@ function SprintReviewDoc({ sprint, taches }: { sprint: Sprint; taches: Tache[] }
     <Document title={`Sprint Review — ${formatSprintLabel(sprint.numero)}`}>
       <Page size="A4" style={styles.page}>
         <Text style={styles.title}>Sprint Review — {formatSprintLabel(sprint.numero)}</Text>
-        <Text style={styles.subtitle}>Généré le {date} · Dimos D3X+ PO Board</Text>
+        <Text style={styles.subtitle}>Généré le {date} · Dimos Inside</Text>
 
         <View style={styles.kpiRow}>
           <View style={styles.kpi}><Text style={styles.kpiVal}>{parents.length}</Text><Text style={styles.kpiLbl}>US planifiées</Text></View>

@@ -40,7 +40,7 @@ export function useAllTaches() {
       const pageSize = 1000
       let rows: Tache[] = []
       let from = 0
-      while (true) {
+      for (;;) {
         const { data, error } = await supabase.from('taches').select('*')
           .order('ordre_backlog', { ascending: true, nullsFirst: false })
           .order('id_tache')
@@ -148,12 +148,26 @@ export function useUpdateTache() {
       // d'audit pouvait ne pas encore être insérée au moment du refetch,
       // et le burndown restait affiché sans le tout dernier passage à Fait.
       if (updates.statut && current?.statut !== updates.statut) {
-        await logActivity({ produit_id: produitId, action: 'status', target: id_tache, title: current?.titre ?? '', field: 'statut', old_value: current?.statut, new_value: updates.statut })
-      } else {
-        const fields = Object.keys(updates).filter(k => k !== 'statut')
-        if (fields.length > 0) {
-          await logActivity({ produit_id: produitId, action: 'update', target: id_tache, title: current?.titre ?? '', field: fields.join(', ') })
-        }
+        await logActivity({
+          produit_id: produitId, action: 'status', target: id_tache, title: current?.titre ?? '', field: 'statut',
+          old_value: JSON.stringify(current?.statut ?? null), new_value: JSON.stringify(updates.statut),
+        })
+      }
+      // Une entrée PAR champ modifié (hors statut, déjà tracé ci-dessus), avec
+      // sa vraie ancienne/nouvelle valeur en JSON — condition pour pouvoir
+      // annuler n'importe quel champ depuis la page Activité (avant, seule la
+      // liste des noms de champs était notée, sans les valeurs : impossible à
+      // annuler). La page Activité regroupe ensuite les entrées proches dans
+      // le temps sur une même tâche pour un "Tout annuler" en un clic.
+      for (const key of Object.keys(updates) as (keyof Tache)[]) {
+        if (key === 'statut') continue
+        const oldVal = current ? current[key] ?? null : null
+        const newVal = updates[key] ?? null
+        if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue
+        await logActivity({
+          produit_id: produitId, action: 'update', target: id_tache, title: current?.titre ?? '', field: String(key),
+          old_value: JSON.stringify(oldVal), new_value: JSON.stringify(newVal),
+        })
       }
 
       // Cascade "critère lié" : une sous-tâche qui passe à Fait peut couvrir
@@ -239,11 +253,23 @@ export function useDeleteTache() {
       if (produitId) query = query.eq('produit_id', produitId)
       const { error } = await query
       if (error) throw error
-      if (produitId) await logActivity({ produit_id: produitId, action: 'delete', target: id_tache, title: current?.titre ?? '' })
+      // old_value porte la ligne complète (JSON), pas juste le titre — c'est
+      // ce qui permet de restaurer la tâche depuis la Corbeille (cf.
+      // CorbeilleTab, Setup produit). `current` vient du cache React Query,
+      // déjà la donnée complète de la tâche avant suppression.
+      if (produitId) await logActivity({
+        produit_id: produitId, action: 'delete', target: id_tache, title: current?.titre ?? '',
+        old_value: current ? JSON.stringify(current) : null,
+      })
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['taches', produitActif?.id ?? null] }),
   })
 }
+
+// Undo/restore génériques (Annuler/Restaurer, page Activité + Setup > Global)
+// déménagés dans useActivityUndo.ts — partagés avec les entités transverses
+// (équipes, finance, gammes, ROCKS, roadmap, suggestions…), pas seulement
+// les tâches.
 
 // ── Create sous-tâche ──────────────────────────────────────────
 export function useCreateSousTache() {

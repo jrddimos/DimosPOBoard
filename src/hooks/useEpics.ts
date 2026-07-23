@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useProduit } from '@/contexts/ProduitContext'
+import { logActivity } from '@/hooks/useActivityLog'
 
 export interface Epic {
   id:         number
@@ -75,7 +76,9 @@ export function useCreateEpic() {
       // pour construire le libellé complet de leurs propres tâches.
       const { data, error } = await supabase.from('epics').insert({ produit_id: produitActif.id, code, nom, couleur, bg_couleur, ordre: rang * 10 }).select().single()
       if (error) throw error
-      return data as Epic
+      const created = data as Epic
+      await logActivity({ produit_id: produitActif.id, action: 'create', target: String(created.id), title: epicFullName(created), entity: 'epic' })
+      return created
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['epics', produitActif?.id] }),
   })
@@ -89,8 +92,21 @@ export function useUpdateEpic() {
   const { produitActif } = useProduit()
   return useMutation({
     mutationFn: async ({ id, updates }: { id: number; updates: Partial<Pick<Epic, 'nom' | 'couleur' | 'bg_couleur'>> }) => {
+      const pid = produitActif?.id ?? null
+      const current = qc.getQueryData<Epic[]>(['epics', pid])?.find(e => e.id === id)
       const { error } = await supabase.from('epics').update(updates).eq('id', id)
       if (error) throw error
+      if (!pid) return
+      const title = current ? epicFullName(current) : String(id)
+      for (const key of Object.keys(updates) as (keyof typeof updates)[]) {
+        const oldVal = current ? current[key] ?? null : null
+        const newVal = updates[key] ?? null
+        if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue
+        await logActivity({
+          produit_id: pid, action: 'update', target: String(id), title, field: String(key),
+          old_value: JSON.stringify(oldVal), new_value: JSON.stringify(newVal), entity: 'epic',
+        })
+      }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['epics', produitActif?.id] }),
   })
@@ -140,8 +156,14 @@ export function useDeleteEpic() {
   const { produitActif } = useProduit()
   return useMutation({
     mutationFn: async (id: number) => {
+      const pid = produitActif?.id ?? null
+      const current = qc.getQueryData<Epic[]>(['epics', pid])?.find(e => e.id === id)
       const { error } = await supabase.from('epics').delete().eq('id', id)
       if (error) throw error
+      if (pid) await logActivity({
+        produit_id: pid, action: 'delete', target: String(id), title: current ? epicFullName(current) : String(id),
+        old_value: current ? JSON.stringify(current) : null, entity: 'epic',
+      })
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['epics', produitActif?.id] }),
   })
